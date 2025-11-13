@@ -1,14 +1,22 @@
 services:
   - type: web
-    name: projectguard-deploy
+    name: projectguard-backend
     env: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: ./start_backend.sh
-    autoDeploy: true
     envVars:
       - key: BOT_TOKEN
         value: 8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8
       - key: SECRET_KEY
         value: Messiah_Secret_2025
       - key: FRONTEND_URL
-        value: https://projectguard-mini.onrender.com
+        value: https://projectguard-frontend.onrender.com
+
+  - type: web
+    name: projectguard-frontend
+    env: node
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://projectguard-backend.onrender.com
