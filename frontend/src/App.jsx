@@ -260,10 +260,24 @@ useEffect(() => {
     }
   };
 
-  // ===== Мини-роутер по состоянию =====
-  const [route, setRoute] = useState("main");
-  const goAdmin = () => setRoute("admin");
-  const goMain = () => setRoute("main");
+// ===== Router Fix for Telegram WebApp =====
+const initialRoute = (() => {
+  const isTG = window.Telegram?.WebApp != null;
+  if (isTG) return "#/"; // В телеграмме всегда начинаем с главной
+  return window.location.hash || "#/";
+})();
+
+const [route, setRoute] = useState(initialRoute);
+
+useEffect(() => {
+  const onHash = () => setRoute(window.location.hash || "#/");
+  window.addEventListener("hashchange", onHash);
+  return () => window.removeEventListener("hashchange", onHash);
+}, []);
+
+const goAdmin = () => setRoute("admin");
+const goMain = () => setRoute("main");
+
 
   // ===== Основное состояние приложения =====
   const [stats, setStats] = useState([]);
