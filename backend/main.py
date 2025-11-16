@@ -467,6 +467,61 @@ async def telegram_webapp_login(request: Request):
 
     token = create_token(user["id"], role)
     return {"ok": True, "role": role, "token": token, "user": dict(user)}
+@app.get("/api/auth/telegram-login")
+async def telegram_webapp_login_get(
+    id: int,
+    username: str = "",
+    first_name: str = "",
+    auth_date: int = 0,
+    hash: str = "",
+):
+    """
+    Обработка Telegram WebApp авторизации через GET.
+    Telegram всегда делает GET при открытии мини-приложения.
+    """
+
+    # собираем данные в dict — как будто пришёл POST
+    data = {
+        "id": id,
+        "username": username,
+        "first_name": first_name,
+        "auth_date": auth_date,
+        "hash": hash
+    }
+
+    # ===== ПРОВЕРКА HASH =====
+    if not verify_telegram_auth(data.copy()):
+        raise HTTPException(status_code=400, detail="Invalid Telegram auth data")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # супер-админ — ты
+    role = "superadmin" if id == 426188469 else "manager"
+
+    cur.execute("""
+        INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tg_id) DO UPDATE SET
+            tg_username=excluded.tg_username,
+            first_name=excluded.first_name,
+            role=excluded.role
+    """, (id, username, first_name, role, now_iso()))
+
+    conn.commit()
+
+    user = cur.execute("SELECT * FROM users WHERE tg_id=?", (id,)).fetchone()
+    conn.close()
+
+    # выдаём токен
+    token = create_token(user["id"], role)
+
+    return {
+        "ok": True,
+        "token": token,
+        "role": role,
+        "user": dict(user)
+    }
 
 
 @app.post("/api/admin/managers")
