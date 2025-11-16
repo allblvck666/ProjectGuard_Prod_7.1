@@ -257,11 +257,12 @@ const devLogin = async () => {
       // В браузере hash работает — но в Telegram WebApp НЕТ!
       // Там window.location.hash всегда пустой.
       // Поэтому вручную переключаем роут:
-      setRoute("admin"); // 👈 ДОБАВИТЬ ЭТО
+      setRoute("admin");
+      localStorage.setItem("route", "admin"); // 👈 ДОБАВИТЬ ЭТО
       // ===========================================
 
       // Для браузера пусть остаётся reload
-      window.location.reload();
+      
     } else {
       alert("❌ Ошибка входа");
     }
@@ -275,20 +276,27 @@ const devLogin = async () => {
 // ===== Router Fix for Telegram WebApp =====
 const initialRoute = (() => {
   const isTG = window.Telegram?.WebApp != null;
-  if (isTG) return "#/"; // В телеграмме всегда начинаем с главной
-  return window.location.hash || "#/";
+
+  // 💾 Сохраняем route между обновлениями
+  const saved = localStorage.getItem("route");
+
+  if (isTG) {
+    return saved || "main"; // 🟩 больше НИКОГДА не "#/"
+  }
+
+  // браузерный режим
+  return (window.location.hash || "#/").replace("#/", "");
 })();
 
-const [route, setRoute] = useState(initialRoute);
+const goAdmin = () => {
+  setRoute("admin");
+  localStorage.setItem("route", "admin");
+};
 
-useEffect(() => {
-  const onHash = () => setRoute(window.location.hash || "#/");
-  window.addEventListener("hashchange", onHash);
-  return () => window.removeEventListener("hashchange", onHash);
-}, []);
-
-const goAdmin = () => setRoute("admin");
-const goMain = () => setRoute("main");
+const goMain = () => {
+  setRoute("main");
+  localStorage.setItem("route", "main");
+};
 
 
   // ===== Основное состояние приложения =====
