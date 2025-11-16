@@ -425,6 +425,48 @@ def admin_list_managers(user=Depends(require_admin)):
         })
     conn.close()
     return managers
+# ================================================
+# 🔐 Telegram WebApp Auto Login
+# ================================================
+@app.post("/api/auth/telegram-login")
+async def telegram_webapp_login(request: Request):
+    data = await request.json()
+
+    # данные, присылаемые frontend:
+    # {
+    #   "tg_id": user.id,
+    #   "username": "...",
+    #   "first_name": "...",
+    # }
+
+    tg_id = int(data.get("tg_id") or 0)
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id is required")
+
+    username = data.get("username") or ""
+    first_name = data.get("first_name") or "User"
+
+    # если это ты — супер-админ
+    role = "superadmin" if tg_id == 426188469 else "manager"
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tg_id) DO UPDATE SET
+            tg_username=excluded.tg_username,
+            first_name=excluded.first_name,
+            role=excluded.role
+    """, (tg_id, username, first_name, role, now_iso()))
+
+    conn.commit()
+    user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+    conn.close()
+
+    token = create_token(user["id"], role)
+    return {"ok": True, "role": role, "token": token, "user": dict(user)}
 
 
 @app.post("/api/admin/managers")

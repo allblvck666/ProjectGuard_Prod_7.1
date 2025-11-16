@@ -191,6 +191,41 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
 
 /* === Основное приложение === */
 function App() {
+  // ========================
+// 🔐 Telegram Auto-Login
+// ========================
+useEffect(() => {
+  try {
+    const tg = window.Telegram?.WebApp;
+
+    // НЕ мини-апп → пропускаем
+    if (!tg?.initDataUnsafe?.user) return;
+
+    const user = tg.initDataUnsafe.user;
+
+    // Отправляем user.id на backend → он вернёт роль и токен
+    fetch(`${import.meta.env.VITE_API_URL}/api/auth/telegram-login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tg_id: user.id,
+        username: user.username || "",
+        first_name: user.first_name || "",
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.ok) {
+          localStorage.setItem("jwt_token", data.token);
+          localStorage.setItem("role", data.role);
+          window.location.reload();
+        }
+      });
+  } catch (err) {
+    console.log("Telegram auto-login skipped", err);
+  }
+}, []);
+
   // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
   const devLogin = async () => {
     const payload = {
