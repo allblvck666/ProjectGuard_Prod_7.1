@@ -1,31 +1,38 @@
 export default function TelegramLoginButton() {
-
   const handleLogin = () => {
     window.Telegram.Login.auth(
       {
-        bot_id: "твой_бот_ID",
+        bot_id: "8256079955", // ← сюда твой бот ID
         request_access: true,
       },
       async (user) => {
         try {
+          // Отправляем JSON напрямую на бекенд
           const res = await fetch(
             "https://projectguard-prod-7-1.onrender.com/api/auth/telegram",
             {
               method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
+              headers: {
+                "Content-Type": "application/json",
+              },
               body: JSON.stringify(user),
             }
           );
 
           const data = await res.json();
-          if (data.ok && data.token) {
-            localStorage.setItem("jwt_token", data.token);
-            window.location.reload();
-          } else {
+
+          if (!data.ok || !data.token) {
             alert("Ошибка авторизации");
+            return;
           }
-        } catch (e) {
-          console.error(e);
+
+          // Сохраняем токен
+          localStorage.setItem("jwt_token", data.token);
+
+          // Перезагрузка приложения
+          window.location.reload();
+        } catch (error) {
+          console.error(error);
           alert("Ошибка запроса");
         }
       }
