@@ -226,39 +226,51 @@ useEffect(() => {
   }
 }, []);
 
-  // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
-  const devLogin = async () => {
-    const payload = {
-      tg_id: 426188469,
-      username: "messiah",
-      first_name: "Dmitry",
-      role: "superadmin", // можешь потом поменять на "manager"
-    };
-
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_URL}/api/auth/dev-login`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
-      const data = await res.json();
-
-      if (data.ok) {
-        localStorage.setItem("jwt_token", data.token);
-        localStorage.setItem("role", data.role);
-        alert("✅ Вход выполнен как " + data.role);
-        window.location.reload();
-      } else {
-        alert("❌ Ошибка входа");
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Ошибка запроса к серверу");
-    }
+// ===== ВРЕМЕННЫЙ DEV-LOGIN =====
+const devLogin = async () => {
+  const payload = {
+    tg_id: 426188469,
+    username: "messiah",
+    first_name: "Dmitry",
+    role: "superadmin", // можешь потом поменять на "manager"
   };
+
+  try {
+    const res = await fetch(
+      `${import.meta.env.VITE_API_URL}/api/auth/dev-login`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    const data = await res.json();
+
+    if (data.ok) {
+      localStorage.setItem("jwt_token", data.token);
+      localStorage.setItem("role", data.role);
+      alert("✅ Вход выполнен как " + data.role);
+
+      // ===========================================
+      // ✔️ КРИТИЧЕСКИЙ ФИКС ДЛЯ TELEGRAM WEBAPP
+      // ===========================================
+      // В браузере hash работает — но в Telegram WebApp НЕТ!
+      // Там window.location.hash всегда пустой.
+      // Поэтому вручную переключаем роут:
+      setRoute("admin"); // 👈 ДОБАВИТЬ ЭТО
+      // ===========================================
+
+      // Для браузера пусть остаётся reload
+      window.location.reload();
+    } else {
+      alert("❌ Ошибка входа");
+    }
+  } catch (err) {
+    console.error(err);
+    alert("Ошибка запроса к серверу");
+  }
+};
+
 
 // ===== Router Fix for Telegram WebApp =====
 const initialRoute = (() => {
