@@ -724,7 +724,7 @@ const goMain = () => {
         </h1>
 
         <button className="btn" onClick={goAdmin}>
-          👑 Админка
+          👑 Админка !! TEST !!
         </button>
         <button
           onClick={devLogin}
