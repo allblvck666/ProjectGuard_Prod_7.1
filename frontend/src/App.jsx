@@ -215,7 +215,7 @@ const devLogin = async () => {
   };
 
   try {
-    const res = await fetch("https://projectguard-backend.onrender.com/api/protections", {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/dev-login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

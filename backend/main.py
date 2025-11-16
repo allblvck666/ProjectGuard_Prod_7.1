@@ -99,8 +99,8 @@ from fastapi.middleware.cors import CORSMiddleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://projectguard-frontend.onrender.com",  # твой фронт на Render
-        "https://projectguard-backend.onrender.com",   # твой бекенд на Render
+        "https://projectguard-frontend-prod-7-1.onrender.com",  # твой фронт на Render
+        "https://projectguard-prod-7-1.onrender.com",   # твой бекенд на Render
         "http://localhost:5173",                       # локальная разработка
     ],
     allow_credentials=True,
@@ -1681,9 +1681,9 @@ def notify_user(data: dict):
     print("📩 Получен запрос на уведомление:", tg_username, message)
     try:
         res = requests.post(
-            f"https://projectguard-backend.onrender.com",
+            "https://api.telegram.org/bot8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8/sendMessage",
             json={
-                "chat_id": int(tg_username) if tg_username.isdigit() else tg_username,
+                "chat_id": tg_username,
                 "text": message,
                 "parse_mode": "HTML"
             },
