@@ -206,7 +206,8 @@ useEffect(() => {
     // Отправляем user.id на backend → он вернёт роль и токен
     fetch(`${import.meta.env.VITE_API_URL}/api/auth/telegram-login`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json",
+        "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
       body: JSON.stringify({
         tg_id: user.id,
         username: user.username || "",
@@ -240,7 +241,8 @@ const devLogin = async () => {
       `${import.meta.env.VITE_API_URL}/api/auth/dev-login`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json",
+        "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
         body: JSON.stringify(payload),
       }
     );

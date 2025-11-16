@@ -48,7 +48,7 @@ export default function NotificationsTab() {
 
       const res = await fetch(`${API}/api/admin/managers/${m.id}/telegrams`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
         body: JSON.stringify({ telegrams }),
       });
 

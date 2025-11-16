@@ -12,7 +12,7 @@ export default function TelegramLoginButton() {
             "https://projectguard-prod-7-1.onrender.com/api/auth/telegram",
             {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
               body: JSON.stringify(user),
             }
           );
