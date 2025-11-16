@@ -1,6 +1,7 @@
 :root {
     --bg: #0d1320;
     --card: #111827;
+    --bg-card: rgba(255,255,255,0.04);
     --muted: #9ca3af;
     --text: #f1f5f9;
     --accent: #4d6eeb;
@@ -22,7 +23,7 @@
   .container {
     max-width: 1100px;
     margin: 0 auto;
-    padding: 0 16px 120px;
+    padding: 0 16px 60px;
   }
   
   .header {
@@ -33,13 +34,6 @@
     flex-wrap: wrap;
   }
   
-  .header.sticky, .toolbar.sticky {
-    position: sticky;
-    top: 0;
-    background: var(--bg);
-    z-index: 50;
-    padding: 8px 0;
-  }
   
   .grid {
     display: grid;
@@ -168,10 +162,21 @@
     .header h1 { font-size: 22px; }
     .input, .select, .btn { flex: 1 1 100%; min-width: unset; }
     .grid { grid-template-columns: 1fr; }
-    .toolbar { position: sticky; bottom: 0; background: var(--bg); padding: 8px; border-top: 1px solid var(--border); }
     .toolbar .btn { flex: 1; }
     .actions .btn { flex: 1 1 48%; }
   }
+  
+  /* ОТДЕЛЬНЫЙ ПРАВИЛЬНЫЙ БЛОК */
+  @media (max-width: 768px) {
+    .toolbar {
+        position: static !important;
+        bottom: auto !important;
+        background: transparent;
+        padding: 8px 0;
+        border: none;
+    }
+  }
+  
   /* можно вставить в конец styles.css */
 .input.error {
     border-color: #ef4444 !important;
@@ -209,4 +214,13 @@
   }
 }
 
-  
+  /* Fix Telegram WebApp keyboard on iOS */
+html, body {
+  height: auto !important;
+  min-height: 100% !important;
+  overflow-x: hidden;
+}
+
+input, select, textarea {
+  font-size: 16px !important; /* обязательный фикс для iOS */
+}
