@@ -1,67 +1,52 @@
-// frontend/src/TelegramLoginButton.jsx
 export default function TelegramLoginButton() {
-  const BACKEND_URL =
-    import.meta.env.VITE_API_URL || "https://projectguard-prod-7-1.onrender.com";
 
-  const handleLogin = async () => {
-    console.log("BACKEND_URL =", BACKEND_URL);
+  const handleLogin = () => {
+    window.Telegram.Login.auth(
+      {
+        bot_id: "твой_бот_ID",
+        request_access: true,
+      },
+      async (user) => {
+        try {
+          const res = await fetch(
+            "https://projectguard-prod-7-1.onrender.com/api/auth/telegram",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(user),
+            }
+          );
 
-    const payload = {
-      id: 426188469,
-      username: "messiah_66",
-      first_name: "Messiah",
-      hash: "dev-mode",
-    };
-
-    try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/telegram`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-      console.log("AUTH RESPONSE:", data);
-
-      if (!data.ok || !data.token) {
-        alert("Ошибка авторизации (нет токена)");
-        return;
+          const data = await res.json();
+          if (data.ok && data.token) {
+            localStorage.setItem("jwt_token", data.token);
+            window.location.reload();
+          } else {
+            alert("Ошибка авторизации");
+          }
+        } catch (e) {
+          console.error(e);
+          alert("Ошибка запроса");
+        }
       }
-
-      localStorage.setItem("jwt_token", data.token);
-      localStorage.setItem("role", data.role || "manager");
-
-      window.location.reload();
-    } catch (err) {
-      console.error(err);
-      alert("Ошибка при авторизации");
-    }
+    );
   };
 
   return (
-    <div
+    <button
       onClick={handleLogin}
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        background: "#229ED9",
+        background: "#4d6eeb",
         color: "white",
-        padding: "10px 16px",
+        padding: "12px 20px",
         borderRadius: 12,
-        fontSize: 16,
-        fontWeight: 600,
+        border: "none",
         cursor: "pointer",
-        width: "fit-content",
-        margin: "0 auto",
+        fontWeight: 600,
+        fontSize: 16,
       }}
     >
-      <img
-        src="https://telegram.org/img/t_logo.svg"
-        alt="Telegram"
-        style={{ width: 24, height: 24 }}
-      />
-      Войти как 😌
-    </div>
+      🔐 Войти через Telegram
+    </button>
   );
 }

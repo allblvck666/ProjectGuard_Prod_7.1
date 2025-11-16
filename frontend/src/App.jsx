@@ -20,18 +20,6 @@ import LoginPage from "./LoginPage";
 import { API_BASE } from "./api";
 const API = API_BASE;
 
-// === Telegram WebApp авторизация ===
-useEffect(() => {
-  const tg = window.Telegram?.WebApp;
-  if (tg?.initDataUnsafe?.user) {
-    const user = tg.initDataUnsafe.user;
-    axios
-      .post(`${API}/api/auth/telegram`, user)
-      .then(() => console.log("✅ Telegram user synced:", user))
-      .catch((err) => console.error("❌ Ошибка синхронизации Telegram:", err));
-  }
-}, []);
-
 /* === Карточка статистики === */
 function StatCard({ s }) {
   return (
