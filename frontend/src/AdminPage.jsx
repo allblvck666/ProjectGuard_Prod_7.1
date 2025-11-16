@@ -4,21 +4,81 @@
 // if (!token || (role !== "admin" && role !== "superadmin")) {
 //   window.location.href = "/";
 // }
-import { useEffect, useState, useMemo } from "react";
+
+import { useEffect, useState } from "react";
 import axios from "axios";
+import "./styles.css";
+import { API_BASE } from "./api";
+
+const API = API_BASE;
+
 console.log("🔥 AdminPage loaded from", import.meta.url);
 console.log("🔥 AdminPage активен — путь:", import.meta.url);
 
+/* ===== Универсальная строка с отступами ===== */
+function Row({ children, gap = 8, wrap = true }) {
+  return (
+    <div
+      className="row"
+      style={{ alignItems: "center", gap, flexWrap: wrap ? "wrap" : "nowrap" }}
+    >
+      {children}
+    </div>
+  );
+}
 
-// ===== Компонент управления пользователями =====
+/* ===== Модалка подтверждения ===== */
+function Confirm({
+  title = "Подтверждение",
+  okText = "OK",
+  cancelText = "Отмена",
+  onOk,
+  onCancel,
+  children,
+  disabled,
+}) {
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 9999,
+        padding: 16,
+      }}
+      onClick={onCancel}
+    >
+      <div
+        className="card"
+        style={{ width: "100%", maxWidth: 520 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 style={{ marginTop: 0 }}>{title}</h3>
+        <div style={{ margin: "12px 0" }}>{children}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn secondary" onClick={onCancel}>
+            {cancelText}
+          </button>
+          <button className="btn" onClick={onOk} disabled={disabled}>
+            {okText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Вкладка: пользователи (для супер-админа) ===== */
 function UsersTable() {
   const [users, setUsers] = useState([]);
-  const [managers, setManagers] = useState([]); // 🔹 список менеджеров
+  const [managers, setManagers] = useState([]); // список менеджеров
   const [loading, setLoading] = useState(false);
   const [editUser, setEditUser] = useState(null);
   const [roles] = useState(["superadmin", "admin", "manager", "assistant"]);
 
-  // === Загрузка пользователей ===
   const loadUsers = async () => {
     setLoading(true);
     try {
@@ -31,20 +91,17 @@ function UsersTable() {
     }
   };
 
-// === Загрузка менеджеров из вкладки "Менеджеры" ===
-const loadManagers = async () => {
-  try {
-    const res = await axios.get(`${API}/api/managers`);
-    // универсальная обработка: если сервер вернул {managers: [...]}, берём managers
-    const data = Array.isArray(res.data)
-      ? res.data
-      : res.data.managers || [];
-    setManagers(data);
-  } catch (e) {
-    console.error("Ошибка загрузки менеджеров:", e);
-  }
-};
-
+  const loadManagers = async () => {
+    try {
+      const res = await axios.get(`${API}/api/managers`);
+      const data = Array.isArray(res.data)
+        ? res.data
+        : res.data.managers || [];
+      setManagers(data);
+    } catch (e) {
+      console.error("Ошибка загрузки менеджеров:", e);
+    }
+  };
 
   const saveUser = async (u) => {
     try {
@@ -72,7 +129,7 @@ const loadManagers = async () => {
 
   useEffect(() => {
     loadUsers();
-    loadManagers(); // 🔹 подгружаем менеджеров при загрузке
+    loadManagers();
   }, []);
 
   return (
@@ -81,7 +138,11 @@ const loadManagers = async () => {
       <button className="btn secondary" onClick={loadUsers} disabled={loading}>
         🔄 Обновить
       </button>
-      {loading && <div className="small" style={{ marginTop: 8 }}>Загрузка…</div>}
+      {loading && (
+        <div className="small" style={{ marginTop: 8 }}>
+          Загрузка…
+        </div>
+      )}
       {!loading && users.length === 0 && (
         <div className="small" style={{ marginTop: 8 }}>
           Пользователей пока нет.
@@ -105,6 +166,9 @@ const loadManagers = async () => {
             <tbody>
               {users.map((u) => {
                 const isEdit = editUser?.id === u.id;
+                const managerName =
+                  managers.find((m) => m.id === u.manager_id)?.name || "—";
+
                 return (
                   <tr key={u.id}>
                     <td>{u.id}</td>
@@ -135,7 +199,10 @@ const loadManagers = async () => {
                           className="input"
                           value={editUser.group_tag || ""}
                           onChange={(e) =>
-                            setEditUser({ ...editUser, group_tag: e.target.value })
+                            setEditUser({
+                              ...editUser,
+                              group_tag: e.target.value,
+                            })
                           }
                         />
                       ) : (
@@ -164,7 +231,7 @@ const loadManagers = async () => {
                           ))}
                         </select>
                       ) : (
-                        managers.find((m) => m.id === u.manager_id)?.name || "—"
+                        managerName
                       )}
                     </td>
                     <td>{u.region || "—"}</td>
@@ -212,85 +279,301 @@ const loadManagers = async () => {
   );
 }
 
-import "./styles.css";
+/* ===== Вкладка: новые защиты (pending) ===== */
+function PendingProtections() {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-// ❗ если меняете IP/порт — правьте и тут, и в App.jsx
-import { API_BASE } from "./api";
-const API = API_BASE;
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API}/api/protections`, {
+        params: { status: "pending" },
+      });
+      setItems(r.data || []);
+    } catch {
+      alert("Не удалось загрузить новые защиты");
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const approve = async (p) => {
+    if (!window.confirm(`✅ Активировать защиту #${p.id}?`)) return;
+    try {
+      await axios.post(`${API}/api/admin/pending/${p.id}/approve`);
+      await load();
+      alert("Защита активирована ✅");
+    } catch {
+      alert("Ошибка при активации");
+    }
+  };
 
-/* Небольшие утилиты UI */
-function Row({ children, gap = 8, wrap = true }) {
+  const reject = async (p) => {
+    const reason = prompt("Причина отклонения:", "Не согласовано");
+    if (reason === null) return;
+    try {
+      await axios.post(`${API}/api/admin/pending/${p.id}/reject`, { reason });
+      await load();
+      alert("Защита отклонена ❌");
+    } catch {
+      alert("Ошибка при отклонении");
+    }
+  };
+
+  useEffect(() => {
+    load();
+  }, []);
+
   return (
-    <div
-      className="row"
-      style={{ alignItems: "center", gap, flexWrap: wrap ? "wrap" : "nowrap" }}
-    >
-      {children}
-    </div>
-  );
-}
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Новые защиты (на проверке)</h3>
+      <button className="btn secondary" onClick={load} disabled={loading}>
+        🔄 Обновить
+      </button>
 
-function Confirm({
-  title = "Подтверждение",
-  okText = "OK",
-  cancelText = "Отмена",
-  onOk,
-  onCancel,
-  children,
-  disabled,
-}) {
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,.5)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-        padding: 16,
-      }}
-      onClick={onCancel}
-    >
-      <div
-        className="card"
-        style={{ width: "100%", maxWidth: 520 }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div style={{ margin: "12px 0" }}>{children}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button className="btn secondary" onClick={onCancel}>
-            {cancelText}
-          </button>
-          <button className="btn" onClick={onOk} disabled={disabled}>
-            {okText}
-          </button>
+      {loading && (
+        <div className="small" style={{ marginTop: 8 }}>
+          Загрузка…
         </div>
-      </div>
+      )}
+      {!loading && items.length === 0 && (
+        <div className="small" style={{ marginTop: 8 }}>
+          Нет заявок.
+        </div>
+      )}
+      {!loading && items.length > 0 && (
+        <div
+          style={{
+            display: "grid",
+            gap: 12,
+            gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
+            marginTop: 12,
+          }}
+        >
+          {items.map((p) => (
+            <div
+              key={p.id}
+              className="card"
+              style={{ background: "var(--bg-card)" }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <b>#{p.id}</b>
+                <span className="small" style={{ opacity: 0.6 }}>
+                  {p.created_at}
+                </span>
+              </div>
+              <div className="small" style={{ marginTop: 4 }}>
+                👤 {p.manager}
+              </div>
+              <div className="small">
+                🏢 {p.partner} — {p.partner_city}
+              </div>
+              <div className="small">📦 {p.sku}</div>
+              <div className="small">📏 {p.area_m2} м²</div>
+              {p.comment && (
+                <div className="small" style={{ marginTop: 4 }}>
+                  💬 {p.comment}
+                </div>
+              )}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: 8,
+                  marginTop: 8,
+                }}
+              >
+                <button className="btn success" onClick={() => approve(p)}>
+                  ✅ Принять
+                </button>
+                <button className="btn danger" onClick={() => reject(p)}>
+                  ❌ Отклонить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
+/* ===== Вкладка: Telegram-уведомления менеджеров ===== */
+function NotificationsTab() {
+  const [managers, setManagers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(0);
 
+  const loadManagers = async () => {
+    setLoading(true);
+    try {
+      const r = await axios.get(`${API}/api/admin/managers`);
+      const data = (r.data || []).map((m) => ({
+        ...m,
+        telegrams: m.telegrams || [""],
+      }));
+      setManagers(data);
+    } catch (e) {
+      alert("Ошибка загрузки менеджеров");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveTelegrams = async (m) => {
+    setSaving(m.id);
+    try {
+      const telegrams = m.telegrams
+        .map((t) => t.trim())
+        .filter((t) => t.length > 0);
+
+      const res = await axios.put(
+        `${API}/api/admin/managers/${m.id}/telegrams`,
+        { telegrams }
+      );
+
+      alert(res.data.message || "✅ Telegram-уведомления обновлены");
+      await loadManagers();
+    } catch (e) {
+      console.error("❌ Ошибка при сохранении:", e);
+      alert(e.response?.data?.detail || e.message || "Ошибка сохранения");
+    } finally {
+      setSaving(0);
+    }
+  };
+
+  const addTelegram = (managerId) => {
+    setManagers((prev) =>
+      prev.map((m) =>
+        m.id === managerId
+          ? { ...m, telegrams: [...m.telegrams, ""] }
+          : m
+      )
+    );
+  };
+
+  const removeTelegram = (managerId, index) => {
+    setManagers((prev) =>
+      prev.map((m) =>
+        m.id === managerId
+          ? { ...m, telegrams: m.telegrams.filter((_, i) => i !== index) }
+          : m
+      )
+    );
+  };
+
+  useEffect(() => {
+    loadManagers();
+  }, []);
+
+  return (
+    <div className="card">
+      <h3 style={{ marginTop: 0 }}>Уведомления менеджеров</h3>
+      <button className="btn secondary" onClick={loadManagers} disabled={loading}>
+        🔄 Обновить список
+      </button>
+
+      {loading && <div className="small">Загрузка...</div>}
+
+      {!loading && managers.length === 0 && (
+        <div className="small">Менеджеров пока нет.</div>
+      )}
+
+      {!loading && managers.length > 0 && (
+        <div
+          style={{
+            marginTop: 16,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          {managers.map((m) => (
+            <div
+              key={m.id}
+              className="card"
+              style={{ background: "rgba(255,255,255,0.02)" }}
+            >
+              <h4 style={{ marginTop: 0 }}>{m.name}</h4>
+              {m.telegrams.map((t, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  <input
+                    className="input"
+                    placeholder="@telegram_username"
+                    value={t}
+                    onChange={(e) =>
+                      setManagers((prev) =>
+                        prev.map((x) =>
+                          x.id === m.id
+                            ? {
+                                ...x,
+                                telegrams: x.telegrams.map((tt, ii) =>
+                                  ii === i ? e.target.value : tt
+                                ),
+                              }
+                            : x
+                        )
+                      )
+                    }
+                  />
+                  <button
+                    className="btn danger small"
+                    onClick={() => removeTelegram(m.id, i)}
+                  >
+                    🗑
+                  </button>
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button
+                  className="btn secondary small"
+                  onClick={() => addTelegram(m.id)}
+                >
+                  ➕ Добавить адрес
+                </button>
+                <button
+                  className="btn success small"
+                  disabled={saving === m.id}
+                  onClick={() => saveTelegrams(m)}
+                >
+                  💾 Сохранить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ===== ГЛАВНЫЙ КОМПОНЕНТ АДМИНКИ ===== */
 export default function AdminPage({ onBack }) {
-  /* ===== tabs: managers / requests ===== */
   const [tab, setTab] = useState("managers");
 
-  /* ====== MANAGERS ====== */
-  const [managers, setManagers] = useState([]); // [{id, name, total, active, success, closed}]
+  const [managers, setManagers] = useState([]);
   const [loadingManagers, setLoadingManagers] = useState(false);
   const [newName, setNewName] = useState("");
-  const [edit, setEdit] = useState(null); // {id, name, orig}
-  const [remove, setRemove] = useState(null); // {id, name, total}
-  const [transferTo, setTransferTo] = useState(""); // manager id для перевода
+  const [edit, setEdit] = useState(null);
+  const [remove, setRemove] = useState(null);
+  const [transferTo, setTransferTo] = useState("");
 
-  // 🆕 для раскрытия защит конкретного менеджера
   const [openedManagerId, setOpenedManagerId] = useState(null);
   const [openedProtections, setOpenedProtections] = useState([]);
   const [loadingProtections, setLoadingProtections] = useState(false);
+
+  const [requests, setRequests] = useState([]);
+  const [loadingReq, setLoadingReq] = useState(false);
+  const [extendBusy, setExtendBusy] = useState(0);
 
   const loadManagers = async () => {
     setLoadingManagers(true);
@@ -302,17 +585,13 @@ export default function AdminPage({ onBack }) {
     }
   };
 
-  // 🆕 загрузка защит менеджера
   const loadManagerProtections = async (managerId) => {
     if (!managerId) return;
     setLoadingProtections(true);
     try {
-      const r = await axios.get(
-        `${API}/api/admin/manager-protections`,
-        {
-          params: { manager_id: managerId },
-        }
-      );
+      const r = await axios.get(`${API}/api/admin/manager-protections`, {
+        params: { manager_id: managerId },
+      });
       setOpenedProtections(r.data || []);
     } catch (e) {
       console.warn("Не удалось загрузить защиты менеджера", e);
@@ -332,6 +611,7 @@ export default function AdminPage({ onBack }) {
 
   const startEdit = (m) => setEdit({ id: m.id, name: m.name, orig: m.name });
   const cancelEdit = () => setEdit(null);
+
   const saveEdit = async () => {
     const nm = (edit?.name || "").trim();
     if (!nm) return alert("Имя не может быть пустым");
@@ -354,11 +634,6 @@ export default function AdminPage({ onBack }) {
     await loadManagers();
   };
 
-  /* ====== EXTEND REQUESTS ====== */
-  const [requests, setRequests] = useState([]);
-  const [loadingReq, setLoadingReq] = useState(false);
-  const [extendBusy, setExtendBusy] = useState(0);
-
   const loadRequests = async () => {
     setLoadingReq(true);
     try {
@@ -372,7 +647,9 @@ export default function AdminPage({ onBack }) {
   const doAdminExtend = async (pid, days = 10) => {
     try {
       setExtendBusy(pid);
-      await axios.post(`${API}/api/admin/protections/${pid}/extend-any?days=${days}`);
+      await axios.post(
+        `${API}/api/admin/protections/${pid}/extend-any?days=${days}`
+      );
       await loadRequests();
     } catch (e) {
       alert(e.response?.data?.detail || "Не удалось продлить");
@@ -381,30 +658,14 @@ export default function AdminPage({ onBack }) {
     }
   };
 
-  /* ===== initial load & tab change ===== */
-  useEffect(() => {
-    loadManagers();
-    loadRequests();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const back = () => {
-    if (onBack) onBack();
-    else window.history.back();
-  };
-
-  const managersOptions = useMemo(
-    () => managers.map((m) => ({ value: String(m.id), label: m.name })),
-    [managers]
-  );
-
-  // 🆕 админ закрывает защиту
   const adminCloseProtection = async (prot) => {
-    const reason = prompt("Причина закрытия защиты:", "Закрыта администратором");
+    const reason = prompt(
+      "Причина закрытия защиты:",
+      "Закрыта администратором"
+    );
     if (!reason) return;
     try {
       await axios.post(`${API}/api/protections/${prot.id}/close`, { reason });
-      // перезагрузим этот список
       await loadManagerProtections(openedManagerId);
       await loadManagers();
     } catch (e) {
@@ -412,9 +673,11 @@ export default function AdminPage({ onBack }) {
     }
   };
 
-  // 🆕 админ удаляет защиту
   const adminDeleteProtection = async (prot) => {
-    const reason = prompt("Причина удаления защиты:", "Удалена администратором");
+    const reason = prompt(
+      "Причина удаления защиты:",
+      "Удалена администратором"
+    );
     if (reason === null) return;
     try {
       await axios.delete(`${API}/api/protections/${prot.id}`, {
@@ -426,6 +689,18 @@ export default function AdminPage({ onBack }) {
       alert(e.response?.data?.detail || "Не удалось удалить");
     }
   };
+
+  useEffect(() => {
+    loadManagers();
+    loadRequests();
+  }, []);
+
+  const back = () => {
+    if (onBack) onBack();
+    else window.history.back();
+  };
+
+  const role = localStorage.getItem("role");
 
   return (
     <div className="container">
@@ -456,21 +731,19 @@ export default function AdminPage({ onBack }) {
           >
             Уведомления
           </div>
-          <div style={{marginTop: 10, color: "#888"}}>
-           {tab}
-          </div>
-          <div
-            className={`tag ${tab === "users" ? "active" : ""}`}
-            onClick={() => setTab("users")}
-          >
-            Пользователи
-          </div>
+          {role === "superadmin" && (
+            <div
+              className={`tag ${tab === "users" ? "active" : ""}`}
+              onClick={() => setTab("users")}
+            >
+              Пользователи
+            </div>
+          )}
         </div>
         <button className="btn" onClick={back}>
           ⬅️ Назад
         </button>
       </div>
-  
 
       {/* ===== TAB: MANAGERS ===== */}
       {tab === "managers" && (
@@ -500,7 +773,9 @@ export default function AdminPage({ onBack }) {
           <div style={{ marginTop: 12 }}>
             {loadingManagers && <div className="small">Загрузка…</div>}
             {!loadingManagers && managers.length === 0 && (
-              <div className="small">Пока нет менеджеров — добавьте первого 👆</div>
+              <div className="small">
+                Пока нет менеджеров — добавьте первого 👆
+              </div>
             )}
             {!loadingManagers && managers.length > 0 && (
               <div style={{ overflowX: "auto" }}>
@@ -530,36 +805,70 @@ export default function AdminPage({ onBack }) {
                                 className="input"
                                 value={edit.name}
                                 onChange={(e) =>
-                                  setEdit((v) => ({ ...v, name: e.target.value }))
+                                  setEdit((v) => ({
+                                    ...v,
+                                    name: e.target.value,
+                                  }))
                                 }
                               />
                             ) : (
                               <b>{m.name}</b>
                             )}
                           </td>
-                          <td data-label="Всего" style={{ textAlign: "center" }}>{m.total}</td>
-                          <td data-label="Активных" style={{ textAlign: "center" }}>{m.active}</td>
-                          <td data-label="Успешных" style={{ textAlign: "center" }}>{m.success}</td>
-                          <td data-label="Закрытых" style={{ textAlign: "center" }}>{m.closed}</td>
+                          <td
+                            data-label="Всего"
+                            style={{ textAlign: "center" }}
+                          >
+                            {m.total}
+                          </td>
+                          <td
+                            data-label="Активных"
+                            style={{ textAlign: "center" }}
+                          >
+                            {m.active}
+                          </td>
+                          <td
+                            data-label="Успешных"
+                            style={{ textAlign: "center" }}
+                          >
+                            {m.success}
+                          </td>
+                          <td
+                            data-label="Закрытых"
+                            style={{ textAlign: "center" }}
+                          >
+                            {m.closed}
+                          </td>
                           <td data-label="Действия">
                             {isEdit ? (
                               <Row gap={6} wrap={false}>
-                                <button className="btn success" onClick={saveEdit}>
+                                <button
+                                  className="btn success"
+                                  onClick={saveEdit}
+                                >
                                   💾 Сохранить
                                 </button>
-                                <button className="btn secondary" onClick={cancelEdit}>
+                                <button
+                                  className="btn secondary"
+                                  onClick={cancelEdit}
+                                >
                                   Отмена
                                 </button>
                               </Row>
                             ) : (
                               <Row gap={6} wrap={false}>
-                                <button className="btn" onClick={() => startEdit(m)}>
+                                <button
+                                  className="btn"
+                                  onClick={() => startEdit(m)}
+                                >
                                   ✏️ Переименовать
                                 </button>
                                 <button
                                   className="btn secondary"
                                   onClick={() => {
-                                    setOpenedManagerId(isOpened ? null : m.id);
+                                    const newOpened =
+                                      isOpened ? null : m.id;
+                                    setOpenedManagerId(newOpened);
                                     if (!isOpened) {
                                       loadManagerProtections(m.id);
                                     }
@@ -567,7 +876,10 @@ export default function AdminPage({ onBack }) {
                                 >
                                   {isOpened ? "🔽 Скрыть" : "📂 Защиты"}
                                 </button>
-                                <button className="btn danger" onClick={() => askRemove(m)}>
+                                <button
+                                  className="btn danger"
+                                  onClick={() => askRemove(m)}
+                                >
                                   🗑️ Удалить
                                 </button>
                               </Row>
@@ -582,13 +894,20 @@ export default function AdminPage({ onBack }) {
             )}
           </div>
 
-          {/* раскрытый блок защит менеджера */}
           {openedManagerId && (
             <div style={{ marginTop: 24 }}>
-              <h3 style={{ marginBottom: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <h3
+                style={{
+                  marginBottom: 12,
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                }}
+              >
                 🧾 Защиты менеджера:
                 <span style={{ color: "var(--accent-light)" }}>
-                  {managers.find((m) => m.id === openedManagerId)?.name || `ID ${openedManagerId}`}
+                  {managers.find((m) => m.id === openedManagerId)?.name ||
+                    `ID ${openedManagerId}`}
                 </span>
                 {!loadingProtections && openedProtections.length > 0 && (
                   <span
@@ -615,7 +934,10 @@ export default function AdminPage({ onBack }) {
                       fontWeight: 600,
                     }}
                   >
-                    {`${openedProtections.reduce((sum, p) => sum + (p.area_m2 || 0), 0)} м²`}
+                    {`${openedProtections.reduce(
+                      (sum, p) => sum + (p.area_m2 || 0),
+                      0
+                    )} м²`}
                   </span>
                 )}
                 {loadingProtections && (
@@ -633,7 +955,9 @@ export default function AdminPage({ onBack }) {
                 )}
               </h3>
 
-              {loadingProtections && <div className="small">Загрузка защит...</div>}
+              {loadingProtections && (
+                <div className="small">Загрузка защит...</div>
+              )}
 
               {!loadingProtections && openedProtections.length === 0 && (
                 <div className="small" style={{ opacity: 0.8 }}>
@@ -646,7 +970,8 @@ export default function AdminPage({ onBack }) {
                   style={{
                     display: "grid",
                     gap: 12,
-                    gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))",
+                    gridTemplateColumns:
+                      "repeat(auto-fill, minmax(380px, 1fr))",
                   }}
                 >
                   {openedProtections.map((p) => (
@@ -661,7 +986,12 @@ export default function AdminPage({ onBack }) {
                         flexDirection: "column",
                       }}
                     >
-                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                        }}
+                      >
                         <b>#{p.id}</b>
                         <span
                           style={{
@@ -687,7 +1017,13 @@ export default function AdminPage({ onBack }) {
                         </span>
                       </div>
 
-                      <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
+                      <div
+                        style={{
+                          marginTop: 8,
+                          fontSize: 14,
+                          lineHeight: 1.6,
+                        }}
+                      >
                         <div>
                           <span className="text-muted">Партнёр:</span>{" "}
                           <b>{p.partner || "—"}</b>
@@ -698,7 +1034,9 @@ export default function AdminPage({ onBack }) {
                         </div>
                         <div>
                           <span className="text-muted">SKU:</span>{" "}
-                          <span style={{ opacity: 0.9 }}>{p.sku || "—"}</span>
+                          <span style={{ opacity: 0.9 }}>
+                            {p.sku || "—"}
+                          </span>
                         </div>
                         <div>
                           <span className="text-muted">Площадь:</span>{" "}
@@ -706,11 +1044,15 @@ export default function AdminPage({ onBack }) {
                         </div>
                         <div>
                           <span className="text-muted">Истекает:</span>{" "}
-                          <span style={{ opacity: 0.8 }}>{p.expires_at}</span>
+                          <span style={{ opacity: 0.8 }}>
+                            {p.expires_at}
+                          </span>
                         </div>
                         {p.comment && (
                           <div>
-                            <span className="text-muted">Комментарий:</span>{" "}
+                            <span className="text-muted">
+                              Комментарий:
+                            </span>{" "}
                             <i>{p.comment}</i>
                           </div>
                         )}
@@ -792,16 +1134,34 @@ export default function AdminPage({ onBack }) {
                         <td data-label="ID защиты">#{r.protection_id}</td>
                         <td data-label="Менеджер">{r.manager}</td>
                         <td data-label="Партнёр">{r.partner}</td>
-                        <td data-label="SKU" className="small">{r.sku}</td>
-                        <td data-label="Запрошено" className="small">
+                        <td data-label="SKU" className="small">
+                          {r.sku}
+                        </td>
+                        <td
+                          data-label="Запрошено"
+                          className="small"
+                        >
                           {new Date(r.requested_at).toLocaleString()}
                         </td>
-                        <td data-label="Дней" style={{ textAlign: "center" }}>{r.days}</td>
-                        <td data-label="Истекает" className="small">{r.expires_at}</td>
+                        <td
+                          data-label="Дней"
+                          style={{ textAlign: "center" }}
+                        >
+                          {r.days}
+                        </td>
+                        <td
+                          data-label="Истекает"
+                          className="small"
+                        >
+                          {r.expires_at}
+                        </td>
                         <td
                           data-label="Причина"
                           className="small"
-                          style={{ maxWidth: 240, whiteSpace: "pre-wrap" }}
+                          style={{
+                            maxWidth: 240,
+                            whiteSpace: "pre-wrap",
+                          }}
                         >
                           💬 {r.reason || "—"}
                         </td>
@@ -810,7 +1170,10 @@ export default function AdminPage({ onBack }) {
                             <button
                               className="btn success"
                               onClick={() =>
-                                doAdminExtend(r.protection_id, r.days || 10)
+                                doAdminExtend(
+                                  r.protection_id,
+                                  r.days || 10
+                                )
                               }
                               disabled={extendBusy === r.protection_id}
                             >
@@ -818,7 +1181,9 @@ export default function AdminPage({ onBack }) {
                             </button>
                             <button
                               className="btn secondary"
-                              onClick={() => doAdminExtend(r.protection_id, 10)}
+                              onClick={() =>
+                                doAdminExtend(r.protection_id, 10)
+                              }
                               disabled={extendBusy === r.protection_id}
                             >
                               ➕ 10 дн
@@ -835,13 +1200,10 @@ export default function AdminPage({ onBack }) {
         </div>
       )}
 
-      {/* ===== TAB: PENDING ===== */}
       {tab === "pending" && <PendingProtections />}
       {tab === "notifications" && <NotificationsTab />}
-      {tab === "users" && <UsersTable />}
+      {tab === "users" && role === "superadmin" && <UsersTable />}
 
-
-      {/* ===== CONFIRM DELETE MANAGER ===== */}
       {remove && (
         <Confirm
           title="Удалить менеджера"
@@ -884,240 +1246,6 @@ export default function AdminPage({ onBack }) {
             )}
           </div>
         </Confirm>
-      )}
-    </div>
-  );
-}
-function PendingProtections() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const r = await axios.get(`${API}/api/protections`, {
-        params: { status: "pending" },
-      });
-      setItems(r.data || []);
-    } catch {
-      alert("Не удалось загрузить новые защиты");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const approve = async (p) => {
-    if (!window.confirm(`✅ Активировать защиту #${p.id}?`)) return;
-    try {
-      await axios.post(`${API}/api/admin/pending/${p.id}/approve`);
-      await load();
-      alert("Защита активирована ✅");
-    } catch {
-      alert("Ошибка при активации");
-    }
-  };
-
-  const reject = async (p) => {
-    const reason = prompt("Причина отклонения:", "Не согласовано");
-    if (reason === null) return;
-    try {
-      await axios.post(`${API}/api/admin/pending/${p.id}/reject`, { reason });
-      await load();
-      alert("Защита отклонена ❌");
-    } catch {
-      alert("Ошибка при отклонении");
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Новые защиты (на проверке)</h3>
-      <button className="btn secondary" onClick={load} disabled={loading}>
-        🔄 Обновить
-      </button>
-
-      {loading && <div className="small" style={{ marginTop: 8 }}>Загрузка…</div>}
-      {!loading && items.length === 0 && (
-        <div className="small" style={{ marginTop: 8 }}>
-          Нет заявок.
-        </div>
-      )}
-      {!loading && items.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
-            marginTop: 12,
-          }}
-        >
-          {items.map((p) => (
-            <div key={p.id} className="card" style={{ background: "var(--bg-card)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b>#{p.id}</b>
-                <span className="small" style={{ opacity: 0.6 }}>{p.created_at}</span>
-              </div>
-              <div className="small" style={{ marginTop: 4 }}>👤 {p.manager}</div>
-              <div className="small">🏢 {p.partner} — {p.partner_city}</div>
-              <div className="small">📦 {p.sku}</div>
-              <div className="small">📏 {p.area_m2} м²</div>
-              {p.comment && (
-                <div className="small" style={{ marginTop: 4 }}>💬 {p.comment}</div>
-              )}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
-                <button className="btn success" onClick={() => approve(p)}>
-                  ✅ Принять
-                </button>
-                <button className="btn danger" onClick={() => reject(p)}>
-                  ❌ Отклонить
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-function NotificationsTab() {
-  const [managers, setManagers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(0);
-
-  const loadManagers = async () => {
-    setLoading(true);
-    try {
-      const r = await axios.get(`${API}/api/admin/managers`);
-      // каждый менеджер получит поле telegrams (список строк)
-      const data = (r.data || []).map((m) => ({
-        ...m,
-        telegrams: m.telegrams || [""], // если нет, создаём 1 пустое поле
-      }));
-      setManagers(data);
-    } catch (e) {
-      alert("Ошибка загрузки менеджеров");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const saveTelegrams = async (m) => {
-    setSaving(m.id);
-    try {
-      const telegrams = m.telegrams
-        .map((t) => t.trim())
-        .filter((t) => t.length > 0);
-  
-      const res = await axios.put(
-        `${API}/api/admin/managers/${m.id}/telegrams`,
-        { telegrams }
-      );
-  
-      alert(res.data.message || "✅ Telegram-уведомления обновлены");
-      await loadManagers();
-    } catch (e) {
-      console.error("❌ Ошибка при сохранении:", e);
-      alert(e.response?.data?.detail || e.message || "Ошибка сохранения");
-    } finally {
-      setSaving(0);
-    }
-  };
-  
-
-  const addTelegram = (managerId) => {
-    setManagers((prev) =>
-      prev.map((m) =>
-        m.id === managerId
-          ? { ...m, telegrams: [...m.telegrams, ""] }
-          : m
-      )
-    );
-  };
-
-  const removeTelegram = (managerId, index) => {
-    setManagers((prev) =>
-      prev.map((m) =>
-        m.id === managerId
-          ? { ...m, telegrams: m.telegrams.filter((_, i) => i !== index) }
-          : m
-      )
-    );
-  };
-
-  useEffect(() => {
-    loadManagers();
-  }, []);
-
-  return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Уведомления менеджеров</h3>
-      <button className="btn secondary" onClick={loadManagers} disabled={loading}>
-        🔄 Обновить список
-      </button>
-
-      {loading && <div className="small">Загрузка...</div>}
-
-      {!loading && managers.length === 0 && (
-        <div className="small">Менеджеров пока нет.</div>
-      )}
-
-      {!loading && managers.length > 0 && (
-        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
-          {managers.map((m) => (
-            <div key={m.id} className="card" style={{ background: "rgba(255,255,255,0.02)" }}>
-              <h4 style={{ marginTop: 0 }}>{m.name}</h4>
-              {m.telegrams.map((t, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                  <input
-                    className="input"
-                    placeholder="@telegram_username"
-                    value={t}
-                    onChange={(e) =>
-                      setManagers((prev) =>
-                        prev.map((x) =>
-                          x.id === m.id
-                            ? {
-                                ...x,
-                                telegrams: x.telegrams.map((tt, ii) =>
-                                  ii === i ? e.target.value : tt
-                                ),
-                              }
-                            : x
-                        )
-                      )
-                    }
-                  />
-                  <button className="btn danger small" onClick={() => removeTelegram(m.id, i)}>
-                    🗑
-                  </button>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <button className="btn secondary small" onClick={() => addTelegram(m.id)}>
-                  ➕ Добавить адрес
-                </button>
-                <button
-                  className="btn success small"
-                  disabled={saving === m.id}
-                  onClick={() => saveTelegrams(m)}
-                >
-                  💾 Сохранить
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

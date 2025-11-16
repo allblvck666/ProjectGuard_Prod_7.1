@@ -3,7 +3,7 @@ import axios from "axios";
 import "./styles.css";
 
 // ❗ если меняете IP/порт — правьте и тут, и в App.jsx
-const API = "http://192.168.0.107:8000";
+const API = "https://projectguard-prod-7-1.onrender.com";
 
 /* Небольшие утилиты UI */
 function Row({ children, gap = 8, wrap = true }) {
@@ -366,35 +366,4 @@ export default function AdminPage({ onBack }) {
       )}
     </div>
   );
-}
-/* 📱 Мобильная адаптация таблиц */
-@media (max-width: 768px) {
-  table.table,
-  table.table thead {
-    display: none;
-  }
-  table.table tbody,
-  table.table tr,
-  table.table td {
-    display: block;
-    width: 100%;
-  }
-  table.table tr {
-    margin-bottom: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-card);
-    padding: 10px;
-  }
-  table.table td {
-    padding: 4px 0;
-    font-size: 14px;
-  }
-  table.table td::before {
-    content: attr(data-label);
-    display: block;
-    font-weight: 600;
-    opacity: 0.7;
-    margin-bottom: 2px;
-  }
 }

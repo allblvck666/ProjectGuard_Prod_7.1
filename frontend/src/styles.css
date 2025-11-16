@@ -224,3 +224,15 @@ html, body {
 input, select, textarea {
   font-size: 16px !important; /* обязательный фикс для iOS */
 }
+/* Telegram FIX — header не должен быть sticky */
+.header.sticky {
+  position: static !important;
+  top: auto !important;
+}
+body {
+  overscroll-behavior: contain;
+}
+
+.container {
+  padding-bottom: 40px;
+}
