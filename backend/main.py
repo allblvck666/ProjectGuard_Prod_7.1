@@ -279,10 +279,21 @@ def create_token(user_id: int, role: str):
     return jwt.encode({"sub": str(user_id), "role": role}, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# --- Авторизация через Telegram ---
 @app.post("/api/auth/telegram")
 async def telegram_auth(request: Request):
     data = await request.json()
+
+    # ===== DEV AUTH (кнопка на фронте) =====
+    # Если hash == "dev-mode", пропускаем проверку Telegram
+    if data.get("hash") == "dev-mode":
+        tg_id = int(data["id"])
+        username = data.get("username")
+        first_name = data.get("first_name")
+        role = "superadmin" if tg_id == 426188469 else "manager"
+        token = create_token(tg_id, role)
+        return {"ok": True, "role": role, "token": token}
+
+    # ===== Real Telegram Auth =====
     if not verify_telegram_auth(data):
         raise HTTPException(status_code=400, detail="Invalid Telegram auth data")
 
@@ -321,6 +332,7 @@ async def telegram_auth(request: Request):
 
     token = create_token(tg_id, role)
     return {"ok": True, "role": role, "token": token}
+
 
 # ===== DEV-авторизация без проверки Telegram =====
 @app.post("/api/auth/dev-login")
