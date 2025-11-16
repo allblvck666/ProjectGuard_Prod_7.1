@@ -5,7 +5,7 @@ import asyncio
 
 # === Настройки ===
 TOKEN = "8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8"
-WEBAPP_URL = "https://projectguard-mini.onrender.com"
+WEBAPP_URL = "https://projectguard-frontend-prod-7-1.onrender.com"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
