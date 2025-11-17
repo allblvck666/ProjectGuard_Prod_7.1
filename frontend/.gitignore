@@ -1,5 +1,30 @@
-# Logs
-logs
+# ==== PYTHON ====
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3-journal
+
+# SQLite (реальная база должна храниться вне гита)
+backend/data.sqlite3
+
+# ==== NODE / FRONTEND ====
+node_modules/
+dist/
+frontend/dist/
+frontend/dist-ssr/
+*.local
+
+# Build artifacts from Vite
+frontend/dist/assets/
+
+# ==== ENV / CONFIG ====
+.env
+*.env
+.env.*
+
+# ==== LOGS ====
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,17 +32,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist-ssr
-*.local
-
-# Editor directories and files
+# ==== EDITORS ====
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+
+# ==== SYSTEM FILES ====
+.DS_Store
+Thumbs.db

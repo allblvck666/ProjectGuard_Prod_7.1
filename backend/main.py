@@ -290,7 +290,7 @@ async def telegram_auth(request: Request):
         username = data.get("username")
         first_name = data.get("first_name")
         role = "superadmin" if tg_id == 426188469 else "manager"
-        token = create_token(tg_id, role)
+        token = create_token(user["id"], role)
         return {"ok": True, "role": role, "token": token}
 
     # ===== Real Telegram Auth =====
@@ -337,23 +337,17 @@ async def telegram_auth(request: Request):
 # ===== DEV-авторизация без проверки Telegram =====
 @app.post("/api/auth/dev-login")
 def dev_login(payload: dict):
-    """
-    Простой вход для фронта во время разработки.
-    Принимает tg_id, username, first_name, role (необяз.)
-    и сразу выдаёт JWT, не проверяя hash.
-    """
     tg_id = int(payload.get("tg_id") or payload.get("id") or 0)
     if not tg_id:
         raise HTTPException(status_code=400, detail="tg_id is required")
 
-    username = payload.get("username") or payload.get("tg_username") or ""
+    username = payload.get("username") or ""
     first_name = payload.get("first_name") or "DevUser"
-    # если роль не передали — пусть будет manager
     role = payload.get("role") or "manager"
 
     conn = get_conn()
     cur = conn.cursor()
-    # создадим/обновим пользователя
+
     cur.execute(
         """
         INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
@@ -366,11 +360,13 @@ def dev_login(payload: dict):
         (tg_id, username, first_name, role, now_iso()),
     )
     conn.commit()
+
     user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
     conn.close()
 
-    token = create_token(user["id"], role)
-    return {"ok": True, "token": token, "role": role, "user": dict(user)}
+    token = create_token(user["id"], user["role"])  # <-- фикс
+    return {"ok": True, "token": token, "role": user["role"], "user": dict(user)}
+
 
 
 
@@ -428,6 +424,43 @@ def admin_list_managers(user=Depends(require_admin)):
 # ================================================
 # 🔐 Telegram WebApp Auto Login
 # ================================================
+# ================================================
+# 🔐 Telegram WebApp AUTO LOGIN (POST)
+# ================================================
+@app.post("/api/auth/telegram-login")
+async def telegram_login(request: Request):
+    data = await request.json()
+
+    tg_id = int(data.get("tg_id") or 0)
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="tg_id is required")
+
+    username = data.get("username") or ""
+    first_name = data.get("first_name") or "User"
+
+    # роль
+    role = "superadmin" if tg_id == 426188469 else "manager"
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(tg_id) DO UPDATE SET
+            tg_username=excluded.tg_username,
+            first_name=excluded.first_name,
+            role=excluded.role
+    """, (tg_id, username, first_name, role, now_iso()))
+
+    conn.commit()
+    user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+    conn.close()
+
+    # выдаём токен
+    token = create_token(user["id"], role)
+
+    return {"ok": True, "token": token, "role": role, "user": dict(user)}
 
 
 @app.post("/api/admin/managers")

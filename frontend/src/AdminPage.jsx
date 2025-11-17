@@ -1,16 +1,20 @@
-// const token = localStorage.getItem("jwt_token");
-// const role = localStorage.getItem("role");
-
-// if (!token || (role !== "admin" && role !== "superadmin")) {
-//   window.location.href = "/";
-// }
-
 import { useEffect, useState } from "react";
 import axios from "axios";
 import "./styles.css";
 import { API_BASE } from "./api";
 
 const API = API_BASE;
+
+// ==============================
+// 🔐 ЖЁСТКАЯ ПРОВЕРКА ДОСТУПА
+// ==============================
+const token = localStorage.getItem("jwt_token");
+const role = localStorage.getItem("role");
+
+// ❌ Если нет токена или нет прав — выкидываем на главную страницу
+if (!token || (role !== "admin" && role !== "superadmin")) {
+  window.location.href = "/";
+}
 
 console.log("🔥 AdminPage loaded from", import.meta.url);
 console.log("🔥 AdminPage активен — путь:", import.meta.url);
@@ -72,6 +76,7 @@ function Confirm({
 }
 
 /* ===== Вкладка: пользователи (для супер-админа) ===== */
+
 function UsersTable() {
   const [users, setUsers] = useState([]);
   const [managers, setManagers] = useState([]); // список менеджеров
