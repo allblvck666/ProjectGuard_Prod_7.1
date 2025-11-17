@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import sqlite3
 from backend.db import get_conn
+from backend.auth import decode_jwt
 
 security = HTTPBearer(auto_error=False)
 
