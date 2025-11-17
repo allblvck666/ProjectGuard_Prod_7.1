@@ -1,10 +1,52 @@
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import sqlite3
-from backend.db import get_conn
-from backend.auth import decode_jwt
+# backend/auth.py
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer
+from jose import jwt, JWTError
+from datetime import datetime, timedelta
+from backend.db import get_user_by_id
+from os import getenv
 
-security = HTTPBearer(auto_error=False)
+JWT_SECRET = getenv("JWT_SECRET", "dev_secret")
+JWT_ALG = "HS256"
 
-# Простая проверка роли через токен или просто костыльно (для теста)
+security = HTTPBearer()
 
+
+# === JWT ФУНКЦИИ ===
+
+def create_jwt(user_id: int):
+    payload = {
+        "user_id": user_id,
+        "exp": datetime.utcnow() + timedelta(days=30)
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return token
+
+
+def decode_jwt(token: str):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
+# === ADMIN CHECK ===
+
+def require_admin(credentials=Depends(security)):
+    """
+    Проверяет, что у пользователя роль admin или superadmin
+    """
+    token = credentials.credentials
+    payload = decode_jwt(token)
+
+    user_id = payload.get("user_id")
+    user = get_user_by_id(user_id)
+
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    if user["role"] not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return user
