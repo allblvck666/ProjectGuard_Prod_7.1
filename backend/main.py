@@ -48,19 +48,26 @@ SKUS = load_skus()
 # === CORS настройки ===
 from fastapi.middleware.cors import CORSMiddleware
 
+app = FastAPI(title="ProjectGuard Mini API", version="2.2")
+
+# 👇 Список разрешённых фронтов
+origins = [
+    "https://projectguard-frontend-prod-7-1.onrender.com",
+    "https://web.telegram.org",
+    "https://web.telegram.org/a",
+    "https://web.telegram.org/k",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://web.telegram.org",
-        "https://web.telegram.org/k/",
-        "https://web.telegram.org/a/",
-        "https://projectguard-frontend-prod-7-1.onrender.com",
-        "https://projectguard-prod-7-1.onrender.com"
-    ],
+    allow_origins=origins,       # ❗️ БЕЗ "*"
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+SKUS = load_skus()
+
 
 
 
