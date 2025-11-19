@@ -109,6 +109,20 @@ def get_user_by_tg_id(tg_id: int):
     conn.close()
     return dict(row) if row else None
 
+def ensure_superadmin():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) FROM users")
+    count = cur.fetchone()[0]
+
+    if count == 0:  
+        cur.execute("""
+            INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (426188469, "messiah", "Dmitry", "superadmin", now_iso()))
+        conn.commit()
+
+    conn.close()
 
 # === Инициализация таблиц ===
 def init_db():
