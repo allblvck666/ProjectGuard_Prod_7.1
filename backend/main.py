@@ -46,6 +46,21 @@ def fmt_iso(dt: datetime) -> str:
 app = FastAPI(title="ProjectGuard Mini API", version="2.2")
 SKUS = load_skus()
 # === CORS настройки ===
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://web.telegram.org",
+        "https://web.telegram.org/k/",
+        "https://web.telegram.org/a/",
+        "https://projectguard-frontend-prod-7-1.onrender.com",
+        "https://projectguard-prod-7-1.onrender.com"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 
