@@ -48,7 +48,6 @@ SKUS = load_skus()
 # === CORS настройки ===
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="ProjectGuard Mini API", version="2.2")
 
 # 👇 Список разрешённых фронтов
 origins = [
@@ -115,20 +114,7 @@ def reject_pending(pid: int, payload: dict, user=Depends(require_admin)):
     conn.close()
     return {"ok": True, "reason": reason}
 
-# ===== CORS =====
-from fastapi.middleware.cors import CORSMiddleware
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://projectguard-frontend-prod-7-1.onrender.com",  # твой фронт на Render
-        "https://projectguard-prod-7-1.onrender.com",   # твой бекенд на Render
-        "http://localhost:5173",                       # локальная разработка
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 

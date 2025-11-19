@@ -1,7 +1,7 @@
 // frontend/src/LoginPage.jsx
 import { useState } from "react";
 import { api } from "./api";
-import TelegramLoginButton from "./TelegramLoginButton"; // ✅ добавляем импорт
+import TelegramLoginButton from "./TelegramLoginButton";
 
 export default function LoginPage({ onLogin }) {
   const [tgId, setTgId] = useState("");
@@ -13,6 +13,7 @@ export default function LoginPage({ onLogin }) {
   const submit = async (e) => {
     e.preventDefault();
     setErr("");
+
     if (!tgId) {
       setErr("Введите Telegram ID (числом)");
       return;
@@ -27,11 +28,22 @@ export default function LoginPage({ onLogin }) {
     try {
       setLoading(true);
       const res = await api.post("/api/auth/telegram", payload);
+
       const { token, role } = res.data;
+
       localStorage.setItem("jwt_token", token);
       localStorage.setItem("role", role);
-      if (onLogin) onLogin(role);
-      else window.location.href = "/";
+
+      // 👉 вместо перезагрузки — вызываем onLogin()
+      if (onLogin) {
+        onLogin(role);
+      } else {
+        // 👉 безопасное переключение маршрута
+        localStorage.setItem(
+          "route",
+          role === "admin" || role === "superadmin" ? "admin" : "main"
+        );
+      }
     } catch (e) {
       console.error(e);
       setErr(e.response?.data?.detail || "Ошибка авторизации");
@@ -54,7 +66,6 @@ export default function LoginPage({ onLogin }) {
         Авторизуйтесь, чтобы попасть в ProjectGuard
       </p>
 
-      {/* 🔹 Кнопка Telegram входа */}
       <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
         <TelegramLoginButton />
       </div>
@@ -63,7 +74,6 @@ export default function LoginPage({ onLogin }) {
         или ручной вход (для тестов)
       </div>
 
-      {/* 🔹 Старый ручной вход (оставляем как fallback) */}
       <form
         onSubmit={submit}
         className="card"

@@ -1,5 +1,5 @@
+// frontend/src/App.jsx
 import axios from "axios";
-
 
 import AdminPage from "./AdminPage.jsx";
 console.log("📦 App.jsx загружает AdminPage из", import.meta.url);
@@ -20,21 +20,15 @@ function StatCard({ s }) {
       <div className="stat">Всего: {s.total}</div>
       <div className="stat">
         Активных: {s.active}{" "}
-        <span className="text-muted">
-          ({s.active_area || 0} м²)
-        </span>
+        <span className="text-muted">({s.active_area || 0} м²)</span>
       </div>
       <div className="stat">
         Успешных: {s.success}{" "}
-        <span className="text-muted">
-          ({s.success_area || 0} м²)
-        </span>
+        <span className="text-muted">({s.success_area || 0} м²)</span>
       </div>
       <div className="stat">
         Закрытых: {s.closed}{" "}
-        <span className="text-muted">
-          ({s.closed_area || 0} м²)
-        </span>
+        <span className="text-muted">({s.closed_area || 0} м²)</span>
       </div>
       <div className="kpi">📈 {s.success_rate}% успеха</div>
     </div>
@@ -186,223 +180,150 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
 /* === Основное приложение === */
 function App() {
   // =====================================
-  //   🔍 ДИАГНОСТИЧЕСКИЕ ЛОГИ
+  //   🔍 ДИАГНОСТИКА
   // =====================================
-  console.log("📌 ROLE =", localStorage.getItem("role"));
-  console.log("📌 ROUTE =", localStorage.getItem("route"));
-  console.log("📌 TOKEN =", localStorage.getItem("jwt_token"));
-  console.log("📌 IS_TG =", window.Telegram?.WebApp != null);
+  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
 
-  // =====================================
-  // 🔥 ЖЁСТКИЙ ФИКС БЕСКОНЕЧНОГО РЕЛОАДА
-  // =====================================
-  if (
-    localStorage.getItem("route") === "admin" &&
-    !["admin", "superadmin"].includes(localStorage.getItem("role"))
-  ) {
-    console.log("🛑 Fix: удаляю route=admin для не-админа");
-    localStorage.setItem("route", "main");
-  }
+  const [auth, setAuth] = useState(() => ({
+    token: localStorage.getItem("jwt_token") || "",
+    role: localStorage.getItem("role") || "",
+  }));
 
-  // 🔗 Синхронизация axios с токеном при старте
+  const [route, setRoute] = useState(() => {
+    if (auth.role === "admin" || auth.role === "superadmin") return "admin";
+    return "main";
+  });
+
+  console.log("📌 AUTH =", auth);
+  console.log("📌 ROUTE =", route);
+  console.log("📌 IS_TG =", isTG);
+
+  // 🔗 Синхронизация axios с токеном при старте и при смене токена
   useEffect(() => {
-    const token = localStorage.getItem("jwt_token");
-    if (token) {
-      axios.defaults.headers.common["token"] = token;
+    if (auth.token) {
+      axios.defaults.headers.common["token"] = auth.token;
+      console.log("🔗 axios token set");
     } else {
-      
+      delete axios.defaults.headers.common["token"];
+      console.log("🔗 axios token cleared");
     }
-  }, []);
+  }, [auth.token]);
 
-  
-// 🔐 Telegram Auto-Login
-useEffect(() => {
-  try {
-    const tg = window.Telegram?.WebApp;
+  // 🔐 Telegram Auto-Login (только если есть Telegram WebApp)
+  useEffect(() => {
+    if (!isTG) return;
 
-    if (!tg?.initDataUnsafe?.user) return;
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (!tg?.initDataUnsafe?.user) {
+        console.log("Telegram WebApp: нет initDataUnsafe.user");
+        return;
+      }
 
-    const user = tg.initDataUnsafe.user;
+      const user = tg.initDataUnsafe.user;
+      console.log("Telegram WebApp user =", user);
 
-    fetch(`${import.meta.env.VITE_API_URL}/api/auth/telegram-login`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${localStorage.getItem("jwt_token")}`
-      },
-      body: JSON.stringify({
-        tg_id: user.id,
-        username: user.username || "",
-        first_name: user.first_name || "",
-      }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.ok) return;
+      fetch(`${API}/api/auth/telegram-login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          tg_id: user.id,
+          username: user.username || "",
+          first_name: user.first_name || "",
+        }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          console.log("telegram-login resp =", data);
+          if (!data.ok) return;
 
+          localStorage.setItem("jwt_token", data.token);
+          localStorage.setItem("role", data.role);
+
+          axios.defaults.headers.common["token"] = data.token;
+          setAuth({ token: data.token, role: data.role });
+
+          if (data.role === "admin" || data.role === "superadmin") {
+            setRoute("admin");
+          } else {
+            setRoute("main");
+          }
+
+          tg.ready();
+          tg.expand();
+        })
+        .catch((err) => {
+          console.log("Telegram auto-login error", err);
+        });
+    } catch (err) {
+      console.log("Telegram auto-login skipped", err);
+    }
+  }, [isTG]);
+
+  // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
+  const devLogin = async () => {
+    const payload = {
+      tg_id: 426188469,
+      username: "messiah",
+      first_name: "Dmitry",
+      role: "superadmin",
+    };
+
+    try {
+      const res = await fetch(`${API}/api/auth/dev-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
         localStorage.setItem("jwt_token", data.token);
         localStorage.setItem("role", data.role);
-
-        // axios токен
         axios.defaults.headers.common["token"] = data.token;
+        setAuth({ token: data.token, role: data.role });
 
-        // Меняем маршрут вместо reload()
         if (data.role === "admin" || data.role === "superadmin") {
           setRoute("admin");
-          localStorage.setItem("route", "admin");
         } else {
           setRoute("main");
-          localStorage.setItem("route", "main");
         }
 
-        tg.ready();
-        tg.expand();
-      });
-  } catch (err) {
-    console.log("Telegram auto-login skipped", err);
-  }
-}, []);
-
-  
-
-
-// ===== ВРЕМЕННЫЙ DEV-LOGIN =====
-const devLogin = async () => {
-  const payload = {
-    tg_id: 426188469,
-    username: "messiah",
-    first_name: "Dmitry",
-    role: "superadmin", // можешь потом поменять на "manager"
+        alert("✅ Вход выполнен как " + data.role);
+      } else {
+        alert("❌ Ошибка входа");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Ошибка запроса к серверу");
+    }
   };
 
-  try {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_URL}/api/auth/dev-login`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json",
-        "Authorization": `Bearer ${localStorage.getItem("jwt_token")}` },
-        body: JSON.stringify(payload),
-      }
-    );
-    const data = await res.json();
+  // ===========================
+  //   ROLE ACCESS CONTROL
+  // ===========================
+  const role = auth.role;
 
-    if (data.ok) {
-      localStorage.setItem("jwt_token", data.token);
-      localStorage.setItem("role", data.role);
-      axios.defaults.headers.common["token"] = data.token;
-      alert("✅ Вход выполнен как " + data.role);
-
-      // ===========================================
-      // ✔️ КРИТИЧЕСКИЙ ФИКС ДЛЯ TELEGRAM WEBAPP
-      // ===========================================
-      // В браузере hash работает — но в Telegram WebApp НЕТ!
-      // Там window.location.hash всегда пустой.
-      // Поэтому вручную переключаем роут:
-      if (data.role === "admin" || data.role === "superadmin") {
-        setRoute("admin");
-        localStorage.setItem("route", "admin");
-      } else {
-        setRoute("main");
-        localStorage.setItem("route", "main");
-      }      
-      // ===========================================
-
-      // Для браузера пусть остаётся reload
-      
-    } else {
-      alert("❌ Ошибка входа");
+  useEffect(() => {
+    if (route === "admin" && role !== "admin" && role !== "superadmin") {
+      console.log("⛔ Доступ в админку запрещён — роль:", role);
+      setRoute("main");
     }
-  } catch (err) {
-    console.error(err);
-    alert("Ошибка запроса к серверу");
-  }
-};
+  }, [route, role]);
 
-
-// ===== Router Fix for Telegram WebApp =====
-const initialRoute = (() => {
-  const isTG = window.Telegram?.WebApp != null;
-  const role = localStorage.getItem("role");
-  const saved = localStorage.getItem("route");
-
-  if (isTG) {
-    // ❌ если не админ – НИКОГДА не открываем админку по сохранённому route
-    if (role !== "admin" && role !== "superadmin") {
-      return "main";
-    }
-    // ✅ админ / супер-админ → по умолчанию идём в admin
-    return saved || "admin";
-  }
-
-  // браузерный режим
-  return (window.location.hash || "#/").replace("#/", "");
-})();
-
-const [route, setRoute] = useState(initialRoute);
-
-// ===========================
-//   ROLE ACCESS CONTROL
-// ===========================
-const role = localStorage.getItem("role");
-
-// если нет токена → только LoginPage
-if (!localStorage.getItem("jwt_token") && route !== "login") {
-  setRoute("login");
-}
-
-// обычный менеджер НЕ может видеть админку
-useEffect(() => {
-  const role = localStorage.getItem("role");
-
-  // если роль НЕ admin и НЕ superadmin → перекидываем в main
-  if (route === "admin" && role !== "admin" && role !== "superadmin") {
-    console.log("⛔ Доступ в админку запрещён — роль:", role);
-    setRoute("main");
-    localStorage.setItem("route", "main");
-  }
-}, [route]);
-
-// ================================
-// 🔥 Авто-переход / сброс route в Telegram WebApp
-// ================================
-useEffect(() => {
-  const isTG = window.Telegram?.WebApp != null;
-  const role = localStorage.getItem("role");
-  const saved = localStorage.getItem("route");
-
-  if (!isTG) return;
-
-  // 🟢 Админ / супер-админ – всегда в админку
-  if (role === "admin" || role === "superadmin") {
-    if (saved !== "admin") {
-      console.log("🔐 Telegram WebApp → авто-переход в admin");
+  const goAdmin = () => {
+    if (role === "admin" || role === "superadmin") {
       setRoute("admin");
-      localStorage.setItem("route", "admin");
+    } else {
+      alert("⛔ Нет прав доступа к админке");
     }
-    return;
-  }
+  };
 
-  // 🔴 НЕ админ, но в localStorage лежит 'admin' → жёстко сбрасываем
-  if (saved === "admin") {
-    console.log("🙅 Нет прав — сбрасываем route на main");
+  const goMain = () => {
     setRoute("main");
-    localStorage.setItem("route", "main");
-  }
-}, []);
-
-
-const goAdmin = () => {
-  setRoute("admin");
-  localStorage.setItem("route", "admin");
-};
-
-const goMain = () => {
-  setRoute("main");
-  localStorage.setItem("route", "main");
-};
-
-
+  };
 
   // ===== Основное состояние приложения =====
   const [stats, setStats] = useState([]);
@@ -466,7 +387,6 @@ const goMain = () => {
     }
     setEditSelectedSkus(parsed);
     setEditComment(item.comment || "");
-    // Определяем режим по данным — если у артикулов нет индивидуальных площадей
     if (parsed.every((s) => !s.area || Number(s.area) === 0)) {
       setEditPerSkuMode(false);
       setEditAreaUnified(item.area_m2 || "");
@@ -488,7 +408,6 @@ const goMain = () => {
       }));
       total = skuData.reduce((sum, s) => sum + s.area, 0);
     } else {
-      // режим "Единый" — не передаём area внутри артикула
       const unified = Number(editAreaUnified || 0);
       skuData = editSelectedSkus.map((s) => ({
         sku: s.sku,
@@ -555,7 +474,6 @@ const goMain = () => {
       console.log("📦 skus raw:", r.data);
       const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
 
-      // ⚙️ Нормализация артикулов под фронт
       const normalized = dataRaw.map((x) => ({
         sku: x.sku || x.article || x.art || x.name || "",
         type: x.type || x.category || x.kind || x.group || "",
@@ -584,9 +502,7 @@ const goMain = () => {
   const onAreaChange = (skuObj, value) =>
     setSelectedSkus((prev) =>
       prev.map((s) =>
-        s.sku === skuObj.sku && s.type === skuObj.type
-          ? { ...s, area: value }
-          : s
+        s.sku === skuObj.sku && s.type === skuObj.type ? { ...s, area: value } : s
       )
     );
 
@@ -601,16 +517,8 @@ const goMain = () => {
   };
 
   const submit = async () => {
-    const required = [
-      "partner",
-      "partner_city",
-      "client",
-      "last4",
-      "object_city",
-    ];
-    const emptyFields = required.filter(
-      (f) => !String(form[f] || "").trim()
-    );
+    const required = ["partner", "partner_city", "client", "last4", "object_city"];
+    const emptyFields = required.filter((f) => !String(form[f] || "").trim());
     const invalidLast4 = form.last4 && !/^\d{4}$/.test(form.last4);
 
     if (invalidLast4) emptyFields.push("last4");
@@ -666,7 +574,6 @@ const goMain = () => {
       if (typeof detail === "string") {
         alert("⚠️ " + detail);
       } else if (detail?.msg) {
-        // ⚠️ Дубликат — показываем предупреждение и даём шанс отправить админу
         const conflictMsg = detail.msg;
         const reason = prompt(
           conflictMsg +
@@ -769,9 +676,7 @@ const goMain = () => {
       setSuccessModal({ open: false, id: null, doc: "" });
       await load();
     } catch (e) {
-      alert(
-        e.response?.data?.detail || "Не удалось отметить как успешную"
-      );
+      alert(e.response?.data?.detail || "Не удалось отметить как успешную");
     }
   };
 
@@ -806,12 +711,49 @@ const goMain = () => {
   const errorClass = (field) =>
     errorFields.includes(field) ? "input error" : "input";
 
-  // ===== РЕНДЕР =====
+  // ==============================
+  // 🔂 ОСНОВНОЙ РЕНДЕР
+  // ==============================
+
+// 🛡️ Telegram WebApp: безопасный старт
+  const [ready, setReady] = useState(!isTG);
+
+  useEffect(() => {
+      if (!isTG) return;
+      const tg = window.Telegram.WebApp;
+      tg.ready();
+      setReady(true);
+    }, [isTG]);
+
+// Пока WebApp инициализируется — ничего НЕ рендерим
+if (isTG && !ready) {
+  return <div style={{ padding: 20, textAlign: "center", opacity: 0.6 }}>Загрузка…</div>;
+}
+
+
+  // 🌐 Браузер без токена — обычная страница логина
+  if (!isTG && !auth.token) {
+    return (
+      <LoginPage
+        onLogin={(roleFromLogin) => {
+          const token = localStorage.getItem("jwt_token") || "";
+          setAuth({ token, role: roleFromLogin });
+          if (roleFromLogin === "admin" || roleFromLogin === "superadmin") {
+            setRoute("admin");
+          } else {
+            setRoute("main");
+          }
+        }}
+      />
+    );
+  }
+
+  // 👑 Админка
   if (route === "admin") {
     return <AdminPage onBack={goMain} />;
   }
-  if (route === "login") return <LoginPage />;
 
+  // ==== Обычный экран CRM ====
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
@@ -863,9 +805,7 @@ const goMain = () => {
             Последние события (до 500):
           </div>
           <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            {history.length === 0 && (
-              <div className="small">Пусто…</div>
-            )}
+            {history.length === 0 && <div className="small">Пусто…</div>}
             {history.map((h) => (
               <div
                 key={h.id}
@@ -877,9 +817,7 @@ const goMain = () => {
               >
                 <b>#{h.protection_id}</b> • {h.actor} → {h.action} •{" "}
                 {new Date(h.at).toLocaleString()} •{" "}
-                <span style={{ opacity: 0.9 }}>
-                  {JSON.stringify(h.payload)}
-                </span>
+                <span style={{ opacity: 0.9 }}>{JSON.stringify(h.payload)}</span>
               </div>
             ))}
           </div>
@@ -890,17 +828,13 @@ const goMain = () => {
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
           <div className="mode-toggle" style={{ marginRight: "auto" }}>
             <div
-              className={`tag ${
-                viewTab === "active" ? "active" : ""
-              }`}
+              className={`tag ${viewTab === "active" ? "active" : ""}`}
               onClick={() => setViewTab("active")}
             >
               Активные
             </div>
             <div
-              className={`tag ${
-                viewTab === "archive" ? "active" : ""
-              }`}
+              className={`tag ${viewTab === "archive" ? "active" : ""}`}
               onClick={() => setViewTab("archive")}
             >
               Архив защит
@@ -935,13 +869,10 @@ const goMain = () => {
 
       <div className="card">
         <div className="row">
-          {/* 1️⃣ Выбор менеджера для новой защиты */}
           <select
             className="select"
             value={form.manager}
-            onChange={(e) =>
-              setForm({ ...form, manager: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, manager: e.target.value })}
           >
             <option value="">Выберите менеджера…</option>
             {Array.isArray(managers) &&
@@ -955,7 +886,6 @@ const goMain = () => {
               ))}
           </select>
 
-          {/* 2️⃣ Фильтр по менеджерам */}
           <select
             className="select"
             value={managerFilter}
@@ -974,9 +904,7 @@ const goMain = () => {
             className={errorClass("partner")}
             placeholder="Партнёр (дилер)"
             value={form.partner}
-            onChange={(e) =>
-              setForm({ ...form, partner: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, partner: e.target.value })}
           />
           <input
             className={errorClass("partner_city")}
@@ -990,9 +918,7 @@ const goMain = () => {
             className={errorClass("client")}
             placeholder="Клиент / организация"
             value={form.client}
-            onChange={(e) =>
-              setForm({ ...form, client: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, client: e.target.value })}
           />
 
           <div className="mode-toggle">
@@ -1023,9 +949,7 @@ const goMain = () => {
               className="input"
               placeholder="Единый метраж (м²)"
               value={form.area_m2}
-              onChange={(e) =>
-                setForm({ ...form, area_m2: e.target.value })
-              }
+              onChange={(e) => setForm({ ...form, area_m2: e.target.value })}
             />
           )}
 
@@ -1033,9 +957,7 @@ const goMain = () => {
             className={errorClass("last4")}
             placeholder="Последние 4 цифры телефона"
             value={form.last4}
-            onChange={(e) =>
-              setForm({ ...form, last4: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, last4: e.target.value })}
           />
           <input
             className={errorClass("object_city")}
@@ -1049,17 +971,13 @@ const goMain = () => {
             className="input"
             placeholder="Адрес объекта"
             value={form.address}
-            onChange={(e) =>
-              setForm({ ...form, address: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
           />
           <input
             className="input"
             placeholder="Комментарий"
             value={form.comment}
-            onChange={(e) =>
-              setForm({ ...form, comment: e.target.value })
-            }
+            onChange={(e) => setForm({ ...form, comment: e.target.value })}
           />
 
           <button className="btn" onClick={submit}>
@@ -1109,8 +1027,7 @@ const goMain = () => {
                     {it.status === "success" && "Успешна"}
                     {it.status === "closed" && "Закрыта"}
                     {it.status === "deleted" && "Удалена"}
-                    {" | "}Осталось: {it.days_left} дн | Менеджер:{" "}
-                    {it.manager}
+                    {" | "}Осталось: {it.days_left} дн | Менеджер: {it.manager}
                     {typeof it.extend_count === "number"
                       ? ` | Продлений: ${it.extend_count}`
                       : ""}
@@ -1269,10 +1186,7 @@ const goMain = () => {
               }))
             }
           />
-          <div
-            className="small"
-            style={{ marginTop: 6, opacity: 0.8 }}
-          >
+          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
             Будет выполнено мягкое удаление (в архив истории).
           </div>
         </Modal>
@@ -1287,17 +1201,13 @@ const goMain = () => {
         >
           <div className="mode-toggle" style={{ marginBottom: 10 }}>
             <div
-              className={`tag ${
-                !editPerSkuMode ? "active" : ""
-              }`}
+              className={`tag ${!editPerSkuMode ? "active" : ""}`}
               onClick={() => setEditPerSkuMode(false)}
             >
               Единый
             </div>
             <div
-              className={`tag ${
-                editPerSkuMode ? "active" : ""
-              }`}
+              className={`tag ${editPerSkuMode ? "active" : ""}`}
               onClick={() => setEditPerSkuMode(true)}
             >
               Индивидуально
@@ -1325,9 +1235,7 @@ const goMain = () => {
               className="input"
               placeholder="Единый метраж (м²)"
               value={editAreaUnified}
-              onChange={(e) =>
-                setEditAreaUnified(e.target.value)
-              }
+              onChange={(e) => setEditAreaUnified(e.target.value)}
               style={{ marginTop: 10 }}
             />
           )}
@@ -1340,10 +1248,7 @@ const goMain = () => {
             style={{ marginTop: 10 }}
           />
 
-          <div
-            className="small"
-            style={{ marginTop: 6, opacity: 0.8 }}
-          >
+          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
             💡 Можно добавлять или удалять артикулы, менять метраж
             (индивидуально или общий). Минимум 50 м² суммарно.
           </div>
