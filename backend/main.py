@@ -13,6 +13,9 @@ import asyncio, sqlite3, json, os, re, hashlib, hmac
 
 # === Локальные модули ===
 from backend.db import get_conn, init_db, now_iso, add_days, load_skus
+from backend.db import ensure_superadmin
+ensure_superadmin()
+
 from backend.users import router as users_router, init_users_table
 from backend.auth import require_admin
 
