@@ -13,8 +13,8 @@ import asyncio, sqlite3, json, os, re, hashlib, hmac
 
 # === Локальные модули ===
 from backend.db import get_conn, init_db, now_iso, add_days, load_skus
-from backend.db import ensure_superadmin
-ensure_superadmin()
+from backend.db import get_conn, init_db, now_iso, add_days, load_skus, ensure_superadmin
+
 
 from backend.users import router as users_router, init_users_table
 from backend.auth import require_admin
@@ -176,13 +176,17 @@ def on_startup():
     init_users_table()
     _safe_migrate()
 
+    # 1.1. Гарантируем наличие супер админа
+    ensure_superadmin()
+
     # 2. Telegram бот
     asyncio.get_event_loop().create_task(start_tg_bot())
 
     # 3. Проверка истекающих защит
     asyncio.get_event_loop().create_task(check_expiring_protections())
 
-    print("🚀 Startup: база и бот запущены, проверка защит активна")
+    print("🚀 Startup: база, миграции и супер админ готовы, бот и проверки запущены")
+
 
     
 
