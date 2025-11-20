@@ -1,101 +1,15 @@
+# backend/db.py
 import sqlite3
 import csv
 from pathlib import Path
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
 
-# Пути
-DB_PATH = Path(__file__).resolve().parent / "data.sqlite3"
-SKUS_PATH = Path(__file__).resolve().parent / "skus.csv"
-
-
-# === CSV загрузка ===
-def load_skus() -> list[dict]:
-    """
-    Загружает артикулы из skus.csv.
-    Поддерживает два формата:
-    1) С заголовками: Артикулы, Коллекция, Тип (клей/замок)
-    2) Матрица: первая строка — коллекции, вторая — типы, далее — артикулы по ячейкам
-    """
-    items: list[dict] = []
-    if not SKUS_PATH.exists():
-        return items
-
-    with open(SKUS_PATH, newline="", encoding="utf-8-sig") as f:
-        # --- Пытаемся прочитать как DictReader ---
-        try:
-            reader = csv.DictReader(f)
-            for row in reader:
-                sku = (row.get("Артикулы") or "").strip()
-                if not sku:
-                    continue
-                collection = (row.get("Коллекция") or "").strip()
-                type_ = (row.get("Тип (клей/замок)") or "").strip().lower()
-                if type_ not in ("клей", "замок"):
-                    continue
-                items.append(
-                    {"sku": sku, "collection": collection, "type": type_}
-                )
-            if items:
-                items.sort(key=lambda x: (x["sku"], x["collection"], x["type"]))
-                return items
-        except Exception:
-            # Падаем во второй режим, если формат другой
-            pass
-
-        # --- Фолбэк: матричный формат ---
-        f.seek(0)
-        rows = list(csv.reader(f))
-        if not rows:
-            return items
-
-        maxw = max(len(r) for r in rows)
-        norm: list[list[str]] = []
-        for r in rows:
-            r = list(r)
-            if len(r) < maxw:
-                r.extend([""] * (maxw - len(r)))
-            norm.append(r)
-
-        collections = [c.strip() for c in norm[0]]
-        raw_types = [t.strip() for t in norm[1]]
-
-        def normalize_type(t: str) -> str:
-            tl = t.lower()
-            if "кле" in tl:
-                return "клей"
-            if "зам" in tl:
-                return "замок"
-            return t.strip()
-
-        types = [normalize_type(t) for t in raw_types]
-
-        seen: set[tuple[str, str, str]] = set()
-        for row in norm[2:]:
-            for col, cell in enumerate(row):
-                sku = cell.strip()
-                if not sku:
-                    continue
-                coll = collections[col]
-                tp = types[col]
-                key = (sku, coll, tp)
-                if key in seen:
-                    continue
-                seen.add(key)
-                items.append({"sku": sku, "collection": coll, "type": tp})
-
-    items.sort(key=lambda x: (x["sku"], x["collection"], x["type"]))
-    return items
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "data.sqlite3"
+SKUS_PATH = BASE_DIR / "skus.csv"
 
 
-# === DB подключение ===
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-# === Вспомогательные ===
+# === Время ===
 def now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
@@ -105,62 +19,100 @@ def add_days(dt_iso: str, days: int) -> str:
     return (dt + timedelta(days=days)).isoformat(timespec="seconds") + "Z"
 
 
-# === CRUD пользователи ===
-def get_user_by_id(user_id: int) -> Dict[str, Any] | None:
+# === Подключение к БД ===
+def get_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+# === Загрузка SKU из CSV ===
+def load_skus():
+    items = []
+    if not SKUS_PATH.exists():
+        return items
+
+    with open(SKUS_PATH, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames and "Артикулы" in reader.fieldnames:
+            # «новый» формат: строки
+            for row in reader:
+                sku = (row.get("Артикулы") or "").strip()
+                if not sku:
+                    continue
+                collection = (row.get("Коллекция") or "").strip()
+                type_raw = (row.get("Тип (клей/замок)") or "").strip().lower()
+                if "кле" in type_raw:
+                    type_ = "клей"
+                elif "зам" in type_raw:
+                    type_ = "замок"
+                else:
+                    continue
+                items.append(
+                    {
+                        "sku": sku,
+                        "collection": collection,
+                        "type": type_,
+                    }
+                )
+        else:
+            # «старый» формат: матрица
+            f.seek(0)
+            rows = list(csv.reader(f))
+            if not rows:
+                return items
+
+            maxw = max(len(r) for r in rows)
+            norm = []
+            for r in rows:
+                r = list(r)
+                if len(r) < maxw:
+                    r.extend([""] * (maxw - len(r)))
+                norm.append(r)
+
+            collections = [c.strip() for c in norm[0]]
+            raw_types = [t.strip() for t in norm[1]]
+
+            def normalize_type(t: str) -> str:
+                tl = t.lower()
+                if "кле" in tl:
+                    return "клей"
+                if "зам" in tl:
+                    return "замок"
+                return t.strip()
+
+            types = [normalize_type(t) for t in raw_types]
+
+            seen = set()
+            for row in norm[2:]:
+                for col, cell in enumerate(row):
+                    sku = cell.strip()
+                    if not sku:
+                        continue
+                    coll = collections[col]
+                    tp = types[col]
+                    key = (sku, coll, tp)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    items.append(
+                        {
+                            "sku": sku,
+                            "collection": coll,
+                            "type": tp,
+                        }
+                    )
+
+    items.sort(key=lambda x: (x["sku"], x["collection"], x["type"]))
+    return items
+
+
+# === Инициализация БД ===
+def init_db():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row) if row else None
 
-
-def get_user_by_tg_id(tg_id: int) -> Dict[str, Any] | None:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row) if row else None
-
-
-def ensure_superadmin() -> None:
-    """
-    Гарантирует наличие супер-админа (ты).
-    """
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) AS c FROM users")
-    row = cur.fetchone()
-    count = row["c"] if row else 0
-
-    if count == 0:
-        cur.execute(
-            """
-            INSERT INTO users (tg_id, tg_username, first_name, role, group_tag, region, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                426188469,
-                "messiah",
-                "Dmitry",
-                "superadmin",
-                "hq",
-                "Москва",
-                now_iso(),
-            ),
-        )
-        conn.commit()
-
-    conn.close()
-
-
-# === Инициализация таблиц ===
-def init_db() -> None:
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # Protections
+    # protections
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS protections (
@@ -179,15 +131,15 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             closed_at TEXT,
-            extend_count INTEGER NOT NULL DEFAULT 0,
-            auto_closed INTEGER NOT NULL DEFAULT 0,
+            extend_count INTEGER DEFAULT 0,
+            auto_closed INTEGER DEFAULT 0,
             updated_at TEXT,
             manager_id INTEGER
         )
         """
     )
 
-    # Users
+    # users
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS users (
@@ -197,26 +149,26 @@ def init_db() -> None:
             first_name TEXT,
             role TEXT DEFAULT 'manager',
             group_tag TEXT,
-            region TEXT,
             manager_id INTEGER,
+            region TEXT,
             created_at TEXT NOT NULL
         )
         """
     )
 
-    # Managers (для админки)
+    # managers
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS managers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
-            created_at TEXT NOT NULL,
-            telegrams TEXT NOT NULL DEFAULT '[]'
+            telegrams TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL
         )
         """
     )
 
-    # History (лог действий)
+    # history
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS history (
@@ -230,7 +182,7 @@ def init_db() -> None:
         """
     )
 
-    # Telegram notifications (чтобы обновлять сообщения)
+    # tg_notifications для связи с телеграм-сообщениями
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS tg_notifications (
@@ -244,4 +196,41 @@ def init_db() -> None:
     )
 
     conn.commit()
+    conn.close()
+
+
+# === CRUD по пользователям (для auth / админки) ===
+def get_user_by_id(user_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_by_tg_id(tg_id: int):
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def ensure_superadmin():
+    """
+    Если в таблице users пусто — создаём тебя как superadmin.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(*) AS c FROM users")
+    count = cur.fetchone()["c"]
+    if count == 0:
+        cur.execute(
+            """
+            INSERT INTO users (tg_id, tg_username, first_name, role, created_at, region)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (426188469, "messiah", "Dmitry", "superadmin", now_iso(), "Москва"),
+        )
+        conn.commit()
     conn.close()
