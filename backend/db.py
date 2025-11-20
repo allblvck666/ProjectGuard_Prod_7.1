@@ -1,3 +1,4 @@
+# backend/db.py
 import sqlite3
 import csv
 from pathlib import Path
@@ -109,20 +110,16 @@ def get_user_by_tg_id(tg_id: int):
     conn.close()
     return dict(row) if row else None
 
-def ensure_superadmin():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM users")
-    count = cur.fetchone()[0]
 
-    if count == 0:  
-        cur.execute("""
-            INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (426188469, "messiah", "Dmitry", "superadmin", now_iso()))
-        conn.commit()
+# === Вспомогательные ===
+def now_iso():
+    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
-    conn.close()
+
+def add_days(dt_iso, days: int):
+    dt = datetime.fromisoformat(dt_iso.replace("Z", ""))
+    return (dt + timedelta(days=days)).isoformat(timespec="seconds") + "Z"
+
 
 # === Инициализация таблиц ===
 def init_db():
@@ -162,15 +159,57 @@ def init_db():
         )
     """)
 
+    # Managers (на всякий случай)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS managers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            created_at TEXT,
+            telegrams TEXT DEFAULT '[]'
+        )
+    """)
+
+    # History (для логов действий)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            protection_id INTEGER,
+            at TEXT,
+            actor TEXT,
+            action TEXT,
+            payload TEXT
+        )
+    """)
+
+    # Telegram уведомления
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tg_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            protection_id INTEGER,
+            chat_id INTEGER,
+            message_id INTEGER,
+            created_at TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
 
 
-# === Вспомогательные ===
-def now_iso():
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+# === Авто-создание супер админа ===
+def ensure_superadmin():
+    conn = get_conn()
+    cur = conn.cursor()
 
+    # есть ли вообще хоть какой-то пользователь
+    cur.execute("SELECT COUNT(*) FROM users")
+    count = cur.fetchone()[0]
 
-def add_days(dt_iso, days: int):
-    dt = datetime.fromisoformat(dt_iso.replace("Z", ""))
-    return (dt + timedelta(days=days)).isoformat(timespec="seconds") + "Z"
+    if count == 0:
+        cur.execute("""
+            INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (426188469, "messiah", "Dmitry", "superadmin", now_iso()))
+        conn.commit()
+
+    conn.close()
