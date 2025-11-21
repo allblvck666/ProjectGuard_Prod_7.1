@@ -372,8 +372,13 @@ def dev_login(payload: dict = Body(...)):
 #   PROTECTIONS
 # =========================
 
-@app.post("/api/protections", response_model=ProtectionOut)
-def create_protection(payload: ProtectionCreate):
+def _create_protection(
+    payload: ProtectionCreate,
+    *,
+    status: str = "active",
+    skip_duplicate_check: bool = False,
+    background_tasks: Optional[BackgroundTasks] = None,
+):
     conn = get_conn()
     cur = conn.cursor()
     created = now_iso()
@@ -403,54 +408,55 @@ def create_protection(payload: ProtectionCreate):
         raise HTTPException(status_code=400, detail="⚠️ Защита ставится от 50 м²")
 
     # проверка дублей ±10% по SKU и метражу
-    pairs = []
-    if skus_in:
-        if has_per_sku_areas:
-            for it in skus_in:
-                if it.area and it.area > 0:
-                    pairs.append((normalize_sku(it.sku), float(it.area)))
+    if not skip_duplicate_check:
+        pairs = []
+        if skus_in:
+            if has_per_sku_areas:
+                for it in skus_in:
+                    if it.area and it.area > 0:
+                        pairs.append((normalize_sku(it.sku), float(it.area)))
+            else:
+                for it in skus_in:
+                    pairs.append((normalize_sku(it.sku), total_area))
         else:
-            for it in skus_in:
-                pairs.append((normalize_sku(it.sku), total_area))
-    else:
-        if sku_display and total_area > 0:
-            pairs.append((normalize_sku(sku_display), total_area))
+            if sku_display and total_area > 0:
+                pairs.append((normalize_sku(sku_display), total_area))
 
-    cur.execute(
-        """
-        SELECT manager, partner, sku, area_m2, expires_at
-        FROM protections
-        WHERE status='active'
-        """
-    )
-    active_rows = cur.fetchall()
+        cur.execute(
+            """
+            SELECT manager, partner, sku, area_m2, expires_at
+            FROM protections
+            WHERE status='active'
+            """
+        )
+        active_rows = cur.fetchall()
 
-    for sku_code, area_x in pairs:
-        if not sku_code or area_x <= 0:
-            continue
-        min_a = area_x * 0.9
-        max_a = area_x * 1.1
-        for row in active_rows:
-            if not row["area_m2"]:
+        for sku_code, area_x in pairs:
+            if not sku_code or area_x <= 0:
                 continue
-            if normalize_sku(row["sku"]) != sku_code:
-                continue
-            if min_a <= float(row["area_m2"]) <= max_a:
-                conn.close()
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "msg": (
-                            "⚠️ Похожая активная защита уже существует:\n"
-                            f"👤 Менеджер: {row['manager']}\n"
-                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                            f"❗️Артикул: {row['sku']}\n"
-                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                            f"⏰ Истекает: {row['expires_at']}\n\n"
-                            "💬 Обратись к коллеге, прежде чем ставить новую защиту."
-                        )
-                    },
-                )
+            min_a = area_x * 0.9
+            max_a = area_x * 1.1
+            for row in active_rows:
+                if not row["area_m2"]:
+                    continue
+                if normalize_sku(row["sku"]) != sku_code:
+                    continue
+                if min_a <= float(row["area_m2"]) <= max_a:
+                    conn.close()
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "msg": (
+                                "⚠️ Похожая активная защита уже существует:\n"
+                                f"👤 Менеджер: {row['manager']}\n"
+                                f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                                f"❗️Артикул: {row['sku']}\n"
+                                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                                f"⏰ Истекает: {row['expires_at']}\n\n"
+                                "💬 Обратись к коллеге, прежде чем ставить новую защиту."
+                            )
+                        },
+                    )
 
     ttl_days = 5
     if total_area < 100:
@@ -473,7 +479,7 @@ def create_protection(payload: ProtectionCreate):
             last4, object_city, address, comment, status,
             created_at, expires_at, closed_at, extend_count, auto_closed, manager_id
         )
-        VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+        VALUES (?,?,?,?,?,?,?,?,?,?, ?, ?, ?, NULL, 0, 0, ?)
         """,
         (
             (payload.manager or "").strip(),
@@ -486,6 +492,7 @@ def create_protection(payload: ProtectionCreate):
             (payload.object_city or "").strip(),
             (payload.address or "").strip(),
             (payload.comment or "").strip(),
+            status,
             created,
             expires,
             manager_id,
@@ -493,11 +500,38 @@ def create_protection(payload: ProtectionCreate):
     )
 
     new_id = cur.lastrowid
-    add_history(cur, new_id, "manager", "create", {"sku": sku_display, "area_m2": total_area})
+    add_history(
+        cur,
+        new_id,
+        "manager",
+        "create",
+        {"sku": sku_display, "area_m2": total_area, "status": status},
+    )
     conn.commit()
     row = cur.execute("SELECT * FROM protections WHERE id=?", (new_id,)).fetchone()
     conn.close()
-    return row_to_out(row)
+    out = row_to_out(row)
+
+    if status == "pending" and background_tasks is not None:
+        background_tasks.add_task(
+            asyncio.create_task, notify_admin_new_protection(dict(row))
+        )
+
+    return out
+
+
+@app.post("/api/protections", response_model=ProtectionOut)
+def create_protection(payload: ProtectionCreate):
+    return _create_protection(payload)
+
+
+@app.post("/api/protections/pending", response_model=ProtectionOut)
+def create_pending_protection(
+    payload: ProtectionCreate, background_tasks: BackgroundTasks
+):
+    return _create_protection(
+        payload, status="pending", skip_duplicate_check=True, background_tasks=background_tasks
+    )
 
 
 @app.get("/api/protections", response_model=List[ProtectionOut])
@@ -737,6 +771,54 @@ def admin_extend_requests(user=Depends(require_admin)):
 @app.post("/api/admin/protections/{pid}/extend-any", response_model=ProtectionOut)
 def admin_extend_any(pid: int, days: int = 10, user=Depends(require_admin)):
     return extend(pid, days=days, actor="admin")
+
+
+@app.post("/api/admin/pending/{pid}/approve", response_model=ProtectionOut)
+def admin_approve_pending(pid: int, user=Depends(require_admin)):
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Not found")
+    if row["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Защита не в статусе pending")
+
+    cur.execute(
+        "UPDATE protections SET status='active', closed_at=NULL, updated_at=? WHERE id=?",
+        (now_iso(), pid),
+    )
+    add_history(cur, pid, "admin", "approve", {"source": "panel"})
+    conn.commit()
+    updated = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    return row_to_out(updated)
+
+
+@app.post("/api/admin/pending/{pid}/reject", response_model=ProtectionOut)
+def admin_reject_pending(pid: int, data: dict = Body(...), user=Depends(require_admin)):
+    reason = (data.get("reason") or "").strip() or "не указана"
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Not found")
+    if row["status"] != "pending":
+        conn.close()
+        raise HTTPException(status_code=400, detail="Защита не в статусе pending")
+
+    now = now_iso()
+    cur.execute(
+        "UPDATE protections SET status='rejected', closed_at=?, updated_at=? WHERE id=?",
+        (now, now, pid),
+    )
+    add_history(cur, pid, "admin", "reject", {"source": "panel", "reason": reason})
+    conn.commit()
+    updated = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    conn.close()
+    return row_to_out(updated)
 
 
 # =========================
