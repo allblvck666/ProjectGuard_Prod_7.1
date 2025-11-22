@@ -35,7 +35,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="/Users/dmitrijzuravlev/Projects666/ProjectGuard_Mini/venv"
+VIRTUAL_ENV="/Users/dmitrijzuravlev/Projects666/ProjectGuard_7.1_notify_dev/venv"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

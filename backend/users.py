@@ -146,10 +146,9 @@ def list_users_admin(user=Depends(require_admin)):
     return {"ok": True, "users": [dict(r) for r in rows]}
 
 # === Telegram WebApp Авторизация ===
-from jose import jwt
-from datetime import timedelta
+from os import getenv
 
-SECRET_KEY = "supersecretkey"  # потом можно вынести в .env
+SECRET_KEY = getenv("JWT_SECRET") or getenv("SECRET_KEY") or "dev_secret"
 ALGORITHM = "HS256"
 
 @router.post("/auth/telegram")

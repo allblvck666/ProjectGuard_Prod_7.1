@@ -1,11 +1,15 @@
+import os
 import sqlite3
 import csv
 from pathlib import Path
 from datetime import datetime, timedelta
 
+# Базовая директория
+BASE_DIR = Path(__file__).resolve().parent
+
 # Пути
-DB_PATH = Path(__file__).resolve().parent / "data.sqlite3"
-SKUS_PATH = Path(__file__).resolve().parent / "skus.csv"
+DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3"))
+SKUS_PATH = BASE_DIR / "skus.csv"
 
 
 # === CSV загрузка ===

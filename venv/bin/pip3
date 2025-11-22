@@ -1,4 +1,4 @@
-#!/Users/dmitrijzuravlev/Projects666/ProjectGuard_Mini/venv/bin/python3.11
+#!/Users/dmitrijzuravlev/Projects666/ProjectGuard_7.1_notify_dev/venv/bin/python3.11
 # -*- coding: utf-8 -*-
 import re
 import sys

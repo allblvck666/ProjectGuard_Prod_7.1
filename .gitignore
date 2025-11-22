@@ -1,2 +1,9 @@
 __pycache__/
+*.pyc
 
+backend/.env
+backend/venv/
+
+backend/*.sqlite3
+backend/data.sqlite3*
+backend/skus.csv

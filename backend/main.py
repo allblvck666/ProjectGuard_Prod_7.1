@@ -7,9 +7,47 @@ from typing import List, Optional, Literal
 from datetime import datetime
 from pathlib import Path
 from jose import jwt, JWTError
-SECRET_KEY = "supersecretkey"  # потом можно вынести в .env
-ALGORITHM = "HS256"
 import asyncio, sqlite3, json, os, re, hashlib, hmac
+
+# === Базовая директория и .env ===
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
+
+def load_env_file(path: Path) -> dict:
+    data = {}
+    if path.exists():
+        # читаем руками, без библиотек
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+    return data
+
+env_file = load_env_file(ENV_PATH)
+
+def env_get(name: str, default: str | None = None):
+    # сначала системные переменные (Render),
+    # потом .env, потом дефолт
+    return os.environ.get(name) or env_file.get(name) or default
+
+# === Секреты и конфиг ===
+BOT_TOKEN = env_get("BOT_TOKEN")
+SECRET_KEY = env_get("SECRET_KEY")
+JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
+ALGORITHM = "HS256"
+FRONTEND_URL = env_get("FRONTEND_URL", "https://projectguard-frontend-prod-7-1.onrender.com")
+DB_PATH = env_get("DB_PATH", str(BASE_DIR / "data.sqlite3"))
+
+print("DEBUG .env path:", ENV_PATH)
+print("DEBUG env_file keys:", list(env_file.keys()))
+print("DEBUG BOT_TOKEN value exists:", bool(BOT_TOKEN))
+
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is not set. Проверь backend/.env или переменные окружения.")
 
 # === Локальные модули ===
 from backend.db import get_conn, init_db, now_iso, add_days, load_skus
@@ -19,22 +57,6 @@ from backend.auth import require_admin
 
 
 
-DB_PATH = Path(__file__).resolve().parent / "data.sqlite3"
-
-# --- Проверка токена и роли пользователя ---
-def get_current_user(token: str = Header(None)):
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing token")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return {"id": int(payload["sub"]), "role": payload.get("role", "manager")}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-def require_admin(user=Depends(get_current_user)):
-    if user["role"] not in ("admin", "superadmin"):
-        raise HTTPException(status_code=403, detail="Access denied: admin only")
-    return user
 # === Вспомогательные функции ===
 
 def fmt_iso(dt: datetime) -> str:
@@ -51,7 +73,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # 👇 Список разрешённых фронтов
 origins = [
-    "https://projectguard-frontend-prod-7-1.onrender.com",
+    FRONTEND_URL,              # берём из .env
     "https://web.telegram.org",
     "https://web.telegram.org/a",
     "https://web.telegram.org/k",
@@ -213,8 +235,7 @@ def _safe_migrate():
         # === Managers ===
     exec_safe("ALTER TABLE managers ADD COLUMN telegrams TEXT DEFAULT '[]'")
 
-    # === Managers ===
-    exec_safe("ALTER TABLE managers ADD COLUMN telegrams TEXT DEFAULT '[]'")
+    
 
     print("✅ Авто-миграция базы завершена (extend_count, auto_closed, updated_at, users.extra)")
 
@@ -265,14 +286,6 @@ def get_skus():
 def ping():
     return {"ok": True, "time": now_iso()}
 
-import hashlib, hmac
-from fastapi import Request
-from jose import jwt, JWTError
-
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8")
-SECRET_KEY = os.getenv("SECRET_KEY", "Messiah_Secret_2025")
-FRONTEND_URL = os.getenv("FRONTEND_URL", "https://projectguard-frontend.onrender.com")
-ALGORITHM = "HS256"
 
 # --- Проверка Telegram-данных ---
 def verify_telegram_auth(data: dict) -> bool:
@@ -284,7 +297,11 @@ def verify_telegram_auth(data: dict) -> bool:
 
 # --- JWT токен ---
 def create_token(user_id: int, role: str):
-    return jwt.encode({"sub": str(user_id), "role": role}, SECRET_KEY, algorithm=ALGORITHM)
+    secret = JWT_SECRET or SECRET_KEY
+    if not secret:
+        # на всякий случай, чтобы не словить пустой секрет
+        raise RuntimeError("JWT secret is not set (JWT_SECRET / SECRET_KEY)")
+    return jwt.encode({"sub": str(user_id), "role": role}, secret, algorithm=ALGORITHM)
 
 
 @app.post("/api/auth/telegram")
@@ -292,12 +309,27 @@ async def telegram_auth(request: Request):
     data = await request.json()
 
     # ===== DEV AUTH (кнопка на фронте) =====
-    # Если hash == "dev-mode", пропускаем проверку Telegram
+    # Если hash == "dev-mode", пропускаем проверку Telegram,
+    # но всё равно работаем через таблицу users.
     if data.get("hash") == "dev-mode":
         tg_id = int(data["id"])
-        username = data.get("username")
-        first_name = data.get("first_name")
+        username = data.get("username") or ""
+        first_name = data.get("first_name") or "DevUser"
         role = "superadmin" if tg_id == 426188469 else "manager"
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO users (tg_id, tg_username, first_name, role, created_at)
+            VALUES (?,?,?,?,?)
+            """,
+            (tg_id, username, first_name, role, now_iso()),
+        )
+        conn.commit()
+        user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+        conn.close()
+
         token = create_token(user["id"], role)
         return {"ok": True, "role": role, "token": token}
 
@@ -543,7 +575,7 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, user=Depen
 def create_user(user: dict):
     try:
         print("📩 Новый пользователь:", user)
-        conn = sqlite3.connect(DB_PATH, timeout=5, check_same_thread=False)
+        conn = get_conn()
         cur = conn.cursor()
 
         # tg_id обязателен, но мы можем подставить временный ноль
@@ -884,37 +916,6 @@ def update_protection(pid: int, payload: ProtectionUpdate):
     return row_to_out(updated)
 
     
-
-    # === формируем sku и площадь ТАК ЖЕ, как при создании ===
-
-
-    # обновляем
-    cur.execute(
-        """
-        UPDATE protections
-        SET sku = ?, area_m2 = ?, comment = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (sku_display, total_area, payload.comment or "", now_iso(), pid),
-    )
-    add_history(
-        cur,
-        pid,
-        payload.manager or "system",
-        "edit",
-        {
-            "new_area": total_area,
-            "new_skus": sku_display,
-            "comment": payload.comment or "",
-        },
-    )
-    conn.commit()
-
-    cur.execute("SELECT * FROM protections WHERE id = ?", (pid,))
-    updated = cur.fetchone()
-    conn.close()
-    return row_to_out(updated)
-
 
 
 
@@ -1429,8 +1430,15 @@ async def check_expiring_protections():
                     f"⏰ Истекает {expires_at[:10]} — осталось 2 дня!"
                 )
 
-                recipients = [tg_id] + [a["tg_id"] for a in assistants if a["tg_id"]]
+                recipients: list[int] = []
+                if tg_id:
+                    recipients.append(tg_id)
+
+                recipients.extend([a["tg_id"] for a in assistants if a["tg_id"]])
+
                 for tid in recipients:
+                    if not tid:
+                        continue
                     try:
                         await bot.send_message(tid, msg)
                         print(f"📩 Напоминание отправлено {tid}")
@@ -1444,14 +1452,10 @@ async def check_expiring_protections():
         await asyncio.sleep(24 * 60 * 60)  # раз в сутки
 
 # ===== TELEGRAM BOT (единая версия) =====
-import asyncio
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-BOT_TOKEN = "8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8"  # ProjectGuard main bot
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-bot = Bot(token=BOT_TOKEN)
-
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -1690,7 +1694,7 @@ async def reject_handler(callback: types.CallbackQuery):
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
-WEBAPP_URL = "https://projectguard-frontend.onrender.com"
+WEBAPP_URL = FRONTEND_URL
 
 @dp.message(F.text == "/start")
 async def cmd_start_with_webapp(message: types.Message):
@@ -1732,16 +1736,24 @@ import requests
 @app.post("/api/notify")
 def notify_user(data: dict):
     import requests
-    tg_username = data.get("tg_username", "").strip()
-    message = data.get("message", "")
-    print("📩 Получен запрос на уведомление:", tg_username, message)
+
+    chat_id = data.get("chat_id") or data.get("tg_id") or data.get("tg_username")
+    message = data.get("message") or data.get("text") or ""
+
+    print("📩 Получен запрос на уведомление:", chat_id, message)
+
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="chat_id is required")
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+
     try:
         res = requests.post(
-            "https://api.telegram.org/bot8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8/sendMessage",
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
             json={
-                "chat_id": tg_username,
+                "chat_id": chat_id,
                 "text": message,
-                "parse_mode": "HTML"
+                "parse_mode": "HTML",
             },
         )
         print("📨 Telegram ответ:", res.text)

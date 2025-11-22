@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV "/Users/dmitrijzuravlev/Projects666/ProjectGuard_Mini/venv"
+set -gx VIRTUAL_ENV "/Users/dmitrijzuravlev/Projects666/ProjectGuard_7.1_notify_dev/venv"
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/bin" $PATH

@@ -1,12 +1,12 @@
 # backend/auth.py
+from os import getenv
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from backend.db import get_user_by_id
-from os import getenv
 
-JWT_SECRET = getenv("JWT_SECRET", "dev_secret")
+JWT_SECRET = getenv("JWT_SECRET") or getenv("SECRET_KEY") or "dev_secret"
 JWT_ALG = "HS256"
 
 security = HTTPBearer()
