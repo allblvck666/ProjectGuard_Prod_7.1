@@ -256,9 +256,9 @@ function App() {
   const devLogin = async () => {
     const payload = {
       tg_id: 426188469,
-      username: "messiah",
-      first_name: "Dmitry",
-      role: "superadmin",
+      username: "messiah_66",
+      first_name: "☺️",
+      // role будет установлен автоматически на бэкенде для tg_id 426188469
     };
 
     try {

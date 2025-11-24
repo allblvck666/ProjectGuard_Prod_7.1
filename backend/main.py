@@ -297,12 +297,21 @@ def verify_telegram_auth(data: dict) -> bool:
 
 # --- JWT токен ---
 def create_token(user_id: int, role: str):
+    # Используем тот же секрет, что и в auth.py
     secret = JWT_SECRET or SECRET_KEY
     if not secret:
         # на всякий случай, чтобы не словить пустой секрет
         raise RuntimeError("JWT secret is not set (JWT_SECRET / SECRET_KEY)")
     # Используем user_id для совместимости с auth.py
-    return jwt.encode({"user_id": user_id, "sub": str(user_id), "role": role}, secret, algorithm=ALGORITHM)
+    # Добавляем exp для валидности токена
+    from datetime import datetime, timedelta
+    payload = {
+        "user_id": user_id,
+        "sub": str(user_id),
+        "role": role,
+        "exp": datetime.utcnow() + timedelta(days=30)
+    }
+    return jwt.encode(payload, secret, algorithm=ALGORITHM)
 
 
 @app.post("/api/auth/telegram")
@@ -383,7 +392,12 @@ def dev_login(payload: dict):
 
     username = payload.get("username") or ""
     first_name = payload.get("first_name") or "DevUser"
-    role = payload.get("role") or "manager"
+    
+    # Определяем роль: superadmin для главного админа, иначе из payload или manager
+    if tg_id == 426188469:
+        role = "superadmin"
+    else:
+        role = payload.get("role") or "manager"
 
     conn = get_conn()
     cur = conn.cursor()
@@ -404,7 +418,10 @@ def dev_login(payload: dict):
     user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
     conn.close()
 
-    token = create_token(user["id"], user["role"])  # <-- фикс
+    if not user:
+        raise HTTPException(status_code=500, detail="Failed to create user")
+
+    token = create_token(user["id"], user["role"])
     return {"ok": True, "token": token, "role": user["role"], "user": dict(user)}
 
 
