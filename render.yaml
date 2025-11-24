@@ -4,23 +4,19 @@ services:
     env: python
     buildCommand: pip install -r backend/requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
-    disk:
-      name: data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.8
       - key: BOT_TOKEN
-        sync: false         # значение задашь в Render UI
+        sync: false
       - key: SECRET_KEY
-        sync: false         # тоже в Render UI
+        sync: false
       - key: JWT_SECRET
-        sync: false         # можно задать таким же, как SECRET_KEY
+        sync: false
       - key: FRONTEND_URL
         value: https://projectguard-frontend-prod-7-1.onrender.com
       - key: DB_PATH
-        value: /var/data/data.sqlite3
+        value: /tmp/data.sqlite3
 
   - type: web
     name: projectguard-frontend
@@ -29,4 +25,4 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: https://projectguard-backend.onrender.com
+        value: https://projectguard-prod-7-1.onrender.com

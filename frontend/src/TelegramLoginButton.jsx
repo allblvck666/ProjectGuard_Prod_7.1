@@ -1,4 +1,6 @@
-export default function TelegramLoginButton() {
+import { API_BASE } from "./api";
+
+export default function TelegramLoginButton({ onLogin }) {
   const handleLogin = () => {
     window.Telegram.Login.auth(
       {
@@ -9,7 +11,7 @@ export default function TelegramLoginButton() {
         try {
           // Отправляем JSON напрямую на бекенд
           const res = await fetch(
-            "https://projectguard-prod-7-1.onrender.com/api/auth/telegram",
+            `${API_BASE}/api/auth/telegram`,
             {
               method: "POST",
               headers: {
@@ -26,11 +28,17 @@ export default function TelegramLoginButton() {
             return;
           }
 
-          // Сохраняем токен
+          // Сохраняем токен и роль
           localStorage.setItem("jwt_token", data.token);
+          localStorage.setItem("role", data.role || "manager");
 
-          // Перезагрузка приложения
-          window.location.reload();
+          // Вызываем callback вместо перезагрузки
+          if (onLogin) {
+            onLogin(data.role || "manager");
+          } else {
+            // Если callback нет, делаем мягкую перезагрузку
+            window.location.href = "/";
+          }
         } catch (error) {
           console.error(error);
           alert("Ошибка запроса");

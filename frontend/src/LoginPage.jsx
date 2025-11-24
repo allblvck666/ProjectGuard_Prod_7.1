@@ -67,7 +67,7 @@ export default function LoginPage({ onLogin }) {
       </p>
 
       <div style={{ display: "flex", justifyContent: "center", marginTop: 24 }}>
-        <TelegramLoginButton />
+        <TelegramLoginButton onLogin={onLogin} />
       </div>
 
       <div style={{ marginTop: 40, opacity: 0.6, fontSize: 13 }}>
