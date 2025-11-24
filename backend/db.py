@@ -152,6 +152,16 @@ def init_db():
         )
     """)
 
+        # === Managers table ===
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS managers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE NOT NULL,
+            telegrams TEXT DEFAULT '[]',
+            created_at TEXT
+        )
+    """)
+
     conn.commit()
     conn.close()
 
