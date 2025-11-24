@@ -45,6 +45,12 @@ DB_PATH = env_get("DB_PATH", str(BASE_DIR / "data.sqlite3"))
 print("DEBUG .env path:", ENV_PATH)
 print("DEBUG env_file keys:", list(env_file.keys()))
 print("DEBUG BOT_TOKEN value exists:", bool(BOT_TOKEN))
+print("DEBUG SECRET_KEY exists:", bool(SECRET_KEY))
+print("DEBUG JWT_SECRET exists:", bool(JWT_SECRET))
+if JWT_SECRET:
+    print("DEBUG JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
+if SECRET_KEY:
+    print("DEBUG SECRET_KEY length:", len(SECRET_KEY), "start:", SECRET_KEY[:10] + "...")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Проверь backend/.env или переменные окружения.")
@@ -297,8 +303,10 @@ def verify_telegram_auth(data: dict) -> bool:
 
 # --- JWT токен ---
 def create_token(user_id: int, role: str):
-    # Используем тот же секрет, что и в auth.py
-    secret = JWT_SECRET or SECRET_KEY
+    # ВАЖНО: Используем ТОЧНО ТОТ ЖЕ секрет, что и в auth.py
+    # В auth.py: JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
+    # Здесь мы используем уже вычисленный JWT_SECRET (который уже содержит fallback на SECRET_KEY)
+    secret = JWT_SECRET  # JWT_SECRET уже содержит env_get("JWT_SECRET") or SECRET_KEY
     if not secret:
         # на всякий случай, чтобы не словить пустой секрет
         raise RuntimeError("JWT secret is not set (JWT_SECRET / SECRET_KEY)")
@@ -311,7 +319,11 @@ def create_token(user_id: int, role: str):
         "role": role,
         "exp": datetime.utcnow() + timedelta(days=30)
     }
-    return jwt.encode(payload, secret, algorithm=ALGORITHM)
+    token = jwt.encode(payload, secret, algorithm=ALGORITHM)
+    # Логируем для отладки
+    if os.environ.get("RENDER"):
+        print(f"✅ Token created: user_id={user_id}, role={role}, secret_len={len(secret) if secret else 0}, secret_start={secret[:10] if secret else 'None'}...")
+    return token
 
 
 @app.post("/api/auth/telegram")

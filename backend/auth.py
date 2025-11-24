@@ -1,19 +1,48 @@
 # backend/auth.py
 import os
+from pathlib import Path
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 from backend.db import get_user_by_id
 
-# Используем тот же способ получения секрета, что и в main.py
-# Сначала системные переменные (os.environ), потом .env файл
-# Это должно совпадать с env_get() из main.py
-JWT_SECRET = os.environ.get("JWT_SECRET") or os.environ.get("SECRET_KEY")
-SECRET_KEY = os.environ.get("SECRET_KEY")
-# Используем JWT_SECRET или SECRET_KEY (как в main.py)
-JWT_SECRET = JWT_SECRET or SECRET_KEY
+# ИСПОЛЬЗУЕМ ТОТ ЖЕ СПОСОБ ПОЛУЧЕНИЯ СЕКРЕТА, ЧТО И В main.py
+# Копируем логику env_get() из main.py для точного совпадения
+BASE_DIR = Path(__file__).resolve().parent
+ENV_PATH = BASE_DIR / ".env"
+
+def load_env_file(path: Path) -> dict:
+    data = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            data[k.strip()] = v.strip()
+    return data
+
+env_file = load_env_file(ENV_PATH)
+
+def env_get(name: str, default: str | None = None):
+    # сначала системные переменные (Render),
+    # потом .env, потом дефолт
+    return os.environ.get(name) or env_file.get(name) or default
+
+# Используем ТОЧНО ТАК ЖЕ, как в main.py
+SECRET_KEY = env_get("SECRET_KEY")
+JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
 JWT_ALG = "HS256"
+
+# Логируем для отладки (только на проде)
+if os.environ.get("RENDER"):
+    print("DEBUG auth.py: SECRET_KEY exists:", bool(SECRET_KEY))
+    print("DEBUG auth.py: JWT_SECRET exists:", bool(JWT_SECRET))
+    if JWT_SECRET:
+        print("DEBUG auth.py: JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
 
 security = HTTPBearer()
 
@@ -32,12 +61,18 @@ def create_jwt(user_id: int):
 def decode_jwt(token: str):
     try:
         # Пробуем декодировать с текущим секретом
+        if not JWT_SECRET:
+            print("⚠️ JWT_SECRET is None or empty!")
+            raise HTTPException(status_code=500, detail="JWT secret not configured")
+        
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
         return payload
     except JWTError as e:
         # Логируем для отладки
         print(f"⚠️ JWT decode error: {e}")
         print(f"⚠️ JWT_SECRET exists: {bool(JWT_SECRET)}")
+        if JWT_SECRET:
+            print(f"⚠️ JWT_SECRET length: {len(JWT_SECRET)}, start: {JWT_SECRET[:10]}...")
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
@@ -48,6 +83,10 @@ def require_admin(credentials=Depends(security)):
     Проверяет, что у пользователя роль admin или superadmin
     """
     token = credentials.credentials
+    if not token:
+        print("⚠️ No token provided in Authorization header")
+        raise HTTPException(status_code=401, detail="No token provided")
+    
     try:
         payload = decode_jwt(token)
     except HTTPException as e:
