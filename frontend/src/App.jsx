@@ -194,9 +194,55 @@ function App() {
     return "main";
   });
 
+  const [tokenVerified, setTokenVerified] = useState(false);
+  const [tokenValid, setTokenValid] = useState(false);
+
   console.log("📌 AUTH =", auth);
   console.log("📌 ROUTE =", route);
   console.log("📌 IS_TG =", isTG);
+
+  // 🔍 Проверка валидности токена при загрузке (только для браузера)
+  useEffect(() => {
+    if (isTG) {
+      // В Telegram WebApp проверка токена не нужна - там своя логика
+      setTokenVerified(true);
+      setTokenValid(!!auth.token);
+      return;
+    }
+
+    if (!auth.token) {
+      // Нет токена - сразу показываем LoginPage
+      setTokenVerified(true);
+      setTokenValid(false);
+      return;
+    }
+
+    // Проверяем валидность токена
+    api
+      .get("/api/auth/verify")
+      .then((res) => {
+        if (res.data.ok) {
+          // Токен валидный - обновляем роль из ответа
+          const role = res.data.role;
+          localStorage.setItem("role", role);
+          setAuth((prev) => ({ ...prev, role }));
+          setTokenValid(true);
+        } else {
+          throw new Error("Token invalid");
+        }
+      })
+      .catch((err) => {
+        console.warn("⚠️ Token verification failed:", err);
+        // Токен невалидный - очищаем и показываем LoginPage
+        localStorage.removeItem("jwt_token");
+        localStorage.removeItem("role");
+        setAuth({ token: "", role: "" });
+        setTokenValid(false);
+      })
+      .finally(() => {
+        setTokenVerified(true);
+      });
+  }, [isTG, auth.token]);
 
   // 🔗 Токен уже настроен через api.js interceptor, ничего не делаем
 
@@ -204,15 +250,55 @@ function App() {
   useEffect(() => {
     if (!isTG) return;
 
+    // Если уже есть валидный токен - не делаем повторный логин
+    if (auth.token) {
+      // Проверяем валидность существующего токена
+      api
+        .get("/api/auth/verify")
+        .then((res) => {
+          if (res.data.ok) {
+            const role = res.data.role;
+            localStorage.setItem("role", role);
+            setAuth((prev) => ({ ...prev, role }));
+            if (role === "admin" || role === "superadmin") {
+              setRoute("admin");
+            } else {
+              setRoute("main");
+            }
+          } else {
+            throw new Error("Token invalid");
+          }
+        })
+        .catch((err) => {
+          console.warn("⚠️ Existing token invalid, re-login needed:", err);
+          // Токен невалидный - делаем новый логин
+          localStorage.removeItem("jwt_token");
+          localStorage.removeItem("role");
+          setAuth({ token: "", role: "" });
+          // Продолжаем с автоматическим логином ниже
+        });
+    }
+
     try {
       const tg = window.Telegram?.WebApp;
       if (!tg?.initDataUnsafe?.user) {
         console.log("Telegram WebApp: нет initDataUnsafe.user");
+        // Если нет данных пользователя, но есть токен - используем его
+        if (auth.token) {
+          return;
+        }
+        // Если нет ни токена, ни данных - показываем ошибку
+        console.error("❌ Telegram WebApp: нет данных пользователя и нет токена");
         return;
       }
 
       const user = tg.initDataUnsafe.user;
       console.log("Telegram WebApp user =", user);
+
+      // Если уже есть валидный токен - не делаем повторный запрос
+      if (auth.token) {
+        return;
+      }
 
       fetch(`${API_BASE}/api/auth/telegram-login`, {
         method: "POST",
@@ -225,10 +311,18 @@ function App() {
           first_name: user.first_name || "",
         }),
       })
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) {
+            throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+          }
+          return r.json();
+        })
         .then((data) => {
           console.log("telegram-login resp =", data);
-          if (!data.ok) return;
+          if (!data.ok) {
+            console.error("❌ Telegram login failed:", data);
+            return;
+          }
 
           localStorage.setItem("jwt_token", data.token);
           localStorage.setItem("role", data.role);
@@ -245,12 +339,13 @@ function App() {
           tg.expand();
         })
         .catch((err) => {
-          console.log("Telegram auto-login error", err);
+          console.error("❌ Telegram auto-login error:", err);
+          // Не очищаем токен, если он был - возможно это временная ошибка сети
         });
     } catch (err) {
-      console.log("Telegram auto-login skipped", err);
+      console.error("❌ Telegram auto-login skipped:", err);
     }
-  }, [isTG]);
+  }, [isTG, auth.token]);
 
   // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
   const devLogin = async () => {
@@ -760,13 +855,33 @@ if (isTG && (!ready || loading)) {
 }
 
 
-  // 🌐 Браузер без токена — обычная страница логина
-  if (!isTG && !auth.token) {
+  // ⏳ Пока проверяем токен - показываем загрузку (только для браузера)
+  if (!isTG && !tokenVerified) {
+    return (
+      <div style={{ 
+        padding: 40, 
+        textAlign: "center", 
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexDirection: "column",
+        gap: 16
+      }}>
+        <div style={{ fontSize: 48 }}>⏳</div>
+        <div style={{ opacity: 0.7 }}>Проверка авторизации...</div>
+      </div>
+    );
+  }
+
+  // 🌐 Браузер без валидного токена — обычная страница логина
+  if (!isTG && (!auth.token || !tokenValid)) {
     return (
       <LoginPage
         onLogin={(roleFromLogin) => {
           const token = localStorage.getItem("jwt_token") || "";
           setAuth({ token, role: roleFromLogin });
+          setTokenValid(true);
           if (roleFromLogin === "admin" || roleFromLogin === "superadmin") {
             setRoute("admin");
           } else {

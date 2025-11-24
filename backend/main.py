@@ -58,7 +58,7 @@ if not BOT_TOKEN:
 # === Локальные модули ===
 from backend.db import get_conn, init_db, now_iso, add_days, load_skus
 from backend.users import router as users_router, init_users_table
-from backend.auth import require_admin
+from backend.auth import require_admin, require_auth
 
 
 
@@ -324,6 +324,12 @@ def create_token(user_id: int, role: str):
     if os.environ.get("RENDER"):
         print(f"✅ Token created: user_id={user_id}, role={role}, secret_len={len(secret) if secret else 0}, secret_start={secret[:10] if secret else 'None'}...")
     return token
+
+
+@app.get("/api/auth/verify")
+async def verify_token(user=Depends(require_auth)):
+    """Проверка валидности токена"""
+    return {"ok": True, "user_id": user["id"], "role": user["role"]}
 
 
 @app.post("/api/auth/telegram")

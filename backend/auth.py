@@ -76,6 +76,40 @@ def decode_jwt(token: str):
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
+# === AUTH CHECK ===
+
+def require_auth(credentials=Depends(security)):
+    """
+    Проверяет валидность токена и возвращает пользователя (любая роль)
+    """
+    token = credentials.credentials
+    if not token:
+        print("⚠️ No token provided in Authorization header")
+        raise HTTPException(status_code=401, detail="No token provided")
+    
+    try:
+        payload = decode_jwt(token)
+    except HTTPException as e:
+        print(f"⚠️ JWT decode failed in require_auth: {e.detail}")
+        raise
+    
+    # Поддерживаем оба формата: "sub" (из main.py) и "user_id" (из create_jwt)
+    user_id = payload.get("user_id") or payload.get("sub")
+    if not user_id:
+        print("⚠️ JWT payload missing user_id and sub:", list(payload.keys()))
+        raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
+    
+    user_id = int(user_id) if isinstance(user_id, str) else user_id
+    
+    user = get_user_by_id(user_id)
+    
+    if not user:
+        print(f"⚠️ User not found for user_id: {user_id}, payload keys: {list(payload.keys())}")
+        raise HTTPException(status_code=401, detail="User not found")
+
+    return user
+
+
 # === ADMIN CHECK ===
 
 def require_admin(credentials=Depends(security)):
