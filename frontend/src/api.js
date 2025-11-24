@@ -11,12 +11,23 @@ export const api = axios.create({
   baseURL: API_BASE,
 });
 
-// 🔥 backend принимает токен ТОЛЬКО в headers.token !!!
+// 🔥 Добавляем токен в Authorization header для всех запросов
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("jwt_token");
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
-  } // <-- ВАЖНО
+  }
   return config;
 });
+
+// 🔥 Обработка ошибок CORS и сетевых ошибок
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.code === "ERR_NETWORK" || error.message?.includes("Network Error")) {
+      console.error("❌ Network Error - проверьте CORS и URL бэкенда:", error.config?.url);
+    }
+    return Promise.reject(error);
+  }
+);
 

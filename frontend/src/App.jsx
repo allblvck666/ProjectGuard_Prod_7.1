@@ -1,5 +1,6 @@
 // frontend/src/App.jsx
 import axios from "axios";
+import { api } from "./api";
 
 import AdminPage from "./AdminPage.jsx";
 console.log("📦 App.jsx загружает AdminPage из", import.meta.url);
@@ -10,7 +11,6 @@ import LoginPage from "./LoginPage";
 
 // ✅ Правильный универсальный путь
 import { API_BASE } from "./api";
-const API = API_BASE;
 
 /* === Карточка статистики === */
 function StatCard({ s }) {
@@ -198,16 +198,7 @@ function App() {
   console.log("📌 ROUTE =", route);
   console.log("📌 IS_TG =", isTG);
 
-  // 🔗 Синхронизация axios с токеном при старте и при смене токена
-  useEffect(() => {
-    if (auth.token) {
-      axios.defaults.headers.common["token"] = auth.token;
-      console.log("🔗 axios token set");
-    } else {
-      delete axios.defaults.headers.common["token"];
-      console.log("🔗 axios token cleared");
-    }
-  }, [auth.token]);
+  // 🔗 Токен уже настроен через api.js interceptor, ничего не делаем
 
   // 🔐 Telegram Auto-Login (только если есть Telegram WebApp)
   useEffect(() => {
@@ -223,7 +214,7 @@ function App() {
       const user = tg.initDataUnsafe.user;
       console.log("Telegram WebApp user =", user);
 
-      fetch(`${API}/api/auth/telegram-login`, {
+      fetch(`${API_BASE}/api/auth/telegram-login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -242,7 +233,6 @@ function App() {
           localStorage.setItem("jwt_token", data.token);
           localStorage.setItem("role", data.role);
 
-          axios.defaults.headers.common["token"] = data.token;
           setAuth({ token: data.token, role: data.role });
 
           if (data.role === "admin" || data.role === "superadmin") {
@@ -272,7 +262,7 @@ function App() {
     };
 
     try {
-      const res = await fetch(`${API}/api/auth/dev-login`, {
+      const res = await fetch(`${API_BASE}/api/auth/dev-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -282,7 +272,6 @@ function App() {
       if (data.ok) {
         localStorage.setItem("jwt_token", data.token);
         localStorage.setItem("role", data.role);
-        axios.defaults.headers.common["token"] = data.token;
         setAuth({ token: data.token, role: data.role });
 
         if (data.role === "admin" || data.role === "superadmin") {
@@ -427,7 +416,7 @@ function App() {
     };
 
     try {
-      await axios.put(`${API}/api/protections/${editModal.id}`, payload);
+      await api.put(`/api/protections/${editModal.id}`, payload);
       setEditModal({ open: false, id: null });
       await load();
     } catch (err) {
@@ -447,8 +436,8 @@ function App() {
     }
 
     const [s, list] = await Promise.all([
-      axios.get(`${API}/api/stats`),
-      axios.get(`${API}/api/protections`, {
+      api.get("/api/stats"),
+      api.get("/api/protections", {
         params: { manager: managerFilter, status: statusParam, search },
       }),
     ]);
@@ -463,14 +452,14 @@ function App() {
   };
 
   const loadHistory = async () => {
-    const r = await axios.get(`${API}/api/history`);
+    const r = await api.get("/api/history");
     setHistory(r.data || []);
   };
 
   useEffect(() => {
     load();
 
-    axios.get(`${API}/api/skus`).then((r) => {
+    api.get("/api/skus").then((r) => {
       console.log("📦 skus raw:", r.data);
       const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
 
@@ -484,7 +473,7 @@ function App() {
       setSkus(normalized);
     });
 
-    axios.get(`${API}/api/managers`).then((r) => {
+    api.get("/api/managers").then((r) => {
       console.log("👥 managers raw:", r.data);
       const dataRaw = Array.isArray(r.data) ? r.data : r.data?.managers || [];
       const normalized = dataRaw.map((m) => ({
@@ -553,7 +542,7 @@ function App() {
     };
 
     try {
-      await axios.post(`${API}/api/protections`, payload);
+      await api.post("/api/protections", payload);
       setForm({
         manager: "",
         client: "",
@@ -582,7 +571,7 @@ function App() {
 
         if (reason && reason.trim()) {
           try {
-            await axios.post(`${API}/api/protections/pending`, {
+            await api.post("/api/protections/pending", {
               ...payload,
               comment: reason.trim(),
             });
@@ -623,7 +612,7 @@ function App() {
 
   const extendAction = async (id, days = 10) => {
     try {
-      await axios.post(`${API}/api/protections/${id}/extend?days=${days}`);
+      await api.post(`/api/protections/${id}/extend?days=${days}`);
       await load();
     } catch (err) {
       const det = err.response?.data?.detail;
@@ -635,7 +624,7 @@ function App() {
         );
 
         if (reason && reason.trim()) {
-          await axios.post(`${API}/api/protections/${id}/request-extend`, {
+          await api.post(`/api/protections/${id}/request-extend`, {
             days,
             reason: reason.trim(),
           });
@@ -658,7 +647,7 @@ function App() {
 
   const doClose = async () => {
     try {
-      await axios.post(`${API}/api/protections/${closeModal.id}/close`, {
+      await api.post(`/api/protections/${closeModal.id}/close`, {
         reason: closeModal.reason,
       });
       setCloseModal({ open: false, id: null, reason: "" });
@@ -670,7 +659,7 @@ function App() {
 
   const doSuccess = async () => {
     try {
-      await axios.post(`${API}/api/protections/${successModal.id}/success`, {
+      await api.post(`/api/protections/${successModal.id}/success`, {
         doc_1c: successModal.doc,
       });
       setSuccessModal({ open: false, id: null, doc: "" });
@@ -682,7 +671,7 @@ function App() {
 
   const doDelete = async () => {
     try {
-      await axios.delete(`${API}/api/protections/${deleteModal.id}`, {
+      await api.delete(`/api/protections/${deleteModal.id}`, {
         params: { reason: deleteModal.reason || "not provided" },
       });
       setDeleteModal({ open: false, id: null, reason: "" });
@@ -700,7 +689,7 @@ function App() {
   };
 
   const exportXlsx = () => {
-    const url = `${API}/api/export?search=${encodeURIComponent(
+    const url = `${API_BASE}/api/export?search=${encodeURIComponent(
       search
     )}&manager=${encodeURIComponent(
       managerFilter

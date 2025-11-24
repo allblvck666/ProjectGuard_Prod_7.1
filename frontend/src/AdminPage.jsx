@@ -1,20 +1,10 @@
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "./api";
 import "./styles.css";
-import { API_BASE } from "./api";
-
-const API = API_BASE;
 
 // ==============================
-// 🔐 ЖЁСТКАЯ ПРОВЕРКА ДОСТУПА
+// 🔐 ПРОВЕРКА ДОСТУПА (мягкая, через компонент)
 // ==============================
-const token = localStorage.getItem("jwt_token");
-const role = localStorage.getItem("role");
-
-// ❌ Если нет токена или нет прав — выкидываем на главную страницу
-if (!token || (role !== "admin" && role !== "superadmin")) {
-  window.location.href = "/";
-}
 
 console.log("🔥 AdminPage loaded from", import.meta.url);
 console.log("🔥 AdminPage активен — путь:", import.meta.url);
@@ -87,7 +77,7 @@ function UsersTable() {
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/api/users`);
+      const r = await api.get("/api/users");
       setUsers(r.data?.users || []);
     } catch {
       alert("Не удалось загрузить пользователей");
@@ -98,7 +88,7 @@ function UsersTable() {
 
   const loadManagers = async () => {
     try {
-      const res = await axios.get(`${API}/api/managers`);
+      const res = await api.get("/api/managers");
       const data = Array.isArray(res.data)
         ? res.data
         : res.data.managers || [];
@@ -110,7 +100,7 @@ function UsersTable() {
 
   const saveUser = async (u) => {
     try {
-      await axios.patch(`${API}/api/users/${u.id}`, {
+      await api.patch(`/api/users/${u.id}`, {
         role: u.role,
         group_tag: u.group_tag,
         manager_id: u.manager_id || null,
@@ -125,7 +115,7 @@ function UsersTable() {
   const removeUser = async (u) => {
     if (!window.confirm(`Удалить пользователя ${u.first_name}?`)) return;
     try {
-      await axios.delete(`${API}/api/users/${u.id}`);
+      await api.delete(`/api/users/${u.id}`);
       await loadUsers();
     } catch {
       alert("Ошибка при удалении");
@@ -292,7 +282,7 @@ function PendingProtections() {
   const load = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/api/protections`, {
+      const r = await api.get("/api/protections", {
         params: { status: "pending" },
       });
       setItems(r.data || []);
@@ -306,7 +296,7 @@ function PendingProtections() {
   const approve = async (p) => {
     if (!window.confirm(`✅ Активировать защиту #${p.id}?`)) return;
     try {
-      await axios.post(`${API}/api/admin/pending/${p.id}/approve`);
+      await api.post(`/api/admin/pending/${p.id}/approve`);
       await load();
       alert("Защита активирована ✅");
     } catch {
@@ -318,7 +308,7 @@ function PendingProtections() {
     const reason = prompt("Причина отклонения:", "Не согласовано");
     if (reason === null) return;
     try {
-      await axios.post(`${API}/api/admin/pending/${p.id}/reject`, { reason });
+      await api.post(`/api/admin/pending/${p.id}/reject`, { reason });
       await load();
       alert("Защита отклонена ❌");
     } catch {
@@ -413,7 +403,7 @@ function NotificationsTab() {
   const loadManagers = async () => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/api/admin/managers`);
+      const r = await api.get("/api/admin/managers");
       const data = (r.data || []).map((m) => ({
         ...m,
         telegrams: m.telegrams || [""],
@@ -433,8 +423,8 @@ function NotificationsTab() {
         .map((t) => t.trim())
         .filter((t) => t.length > 0);
 
-      const res = await axios.put(
-        `${API}/api/admin/managers/${m.id}/telegrams`,
+      const res = await api.put(
+        `/api/admin/managers/${m.id}/telegrams`,
         { telegrams }
       );
 
@@ -564,6 +554,21 @@ function NotificationsTab() {
 /* ===== ГЛАВНЫЙ КОМПОНЕНТ АДМИНКИ ===== */
 export default function AdminPage({ onBack }) {
   const [tab, setTab] = useState("managers");
+  
+  // 🔐 Проверка доступа при монтировании
+  useEffect(() => {
+    const token = localStorage.getItem("jwt_token");
+    const role = localStorage.getItem("role");
+    
+    if (!token || (role !== "admin" && role !== "superadmin")) {
+      console.warn("⛔ Доступ в админку запрещён — нет токена или роли");
+      if (onBack) {
+        onBack();
+      } else {
+        window.location.href = "/";
+      }
+    }
+  }, [onBack]);
 
   const [managers, setManagers] = useState([]);
   const [loadingManagers, setLoadingManagers] = useState(false);
@@ -583,7 +588,7 @@ export default function AdminPage({ onBack }) {
   const loadManagers = async () => {
     setLoadingManagers(true);
     try {
-      const r = await axios.get(`${API}/api/admin/managers`);
+      const r = await api.get("/api/admin/managers");
       setManagers(r.data || []);
     } finally {
       setLoadingManagers(false);
@@ -594,7 +599,7 @@ export default function AdminPage({ onBack }) {
     if (!managerId) return;
     setLoadingProtections(true);
     try {
-      const r = await axios.get(`${API}/api/admin/manager-protections`, {
+      const r = await api.get("/api/admin/manager-protections", {
         params: { manager_id: managerId },
       });
       setOpenedProtections(r.data || []);
@@ -609,7 +614,7 @@ export default function AdminPage({ onBack }) {
   const doAdd = async () => {
     const name = newName.trim();
     if (!name) return alert("Введите имя менеджера");
-    await axios.post(`${API}/api/admin/managers`, { name });
+    await api.post("/api/admin/managers", { name });
     setNewName("");
     await loadManagers();
   };
@@ -620,7 +625,7 @@ export default function AdminPage({ onBack }) {
   const saveEdit = async () => {
     const nm = (edit?.name || "").trim();
     if (!nm) return alert("Имя не может быть пустым");
-    await axios.patch(`${API}/api/admin/managers/${edit.id}`, { name: nm });
+    await api.patch(`/api/admin/managers/${edit.id}`, { name: nm });
     setEdit(null);
     await loadManagers();
   };
@@ -634,7 +639,7 @@ export default function AdminPage({ onBack }) {
   const confirmRemove = async () => {
     const params = {};
     if (transferTo) params.transfer_to = transferTo;
-    await axios.delete(`${API}/api/admin/managers/${remove.id}`, { params });
+    await api.delete(`/api/admin/managers/${remove.id}`, { params });
     setRemove(null);
     await loadManagers();
   };
@@ -642,7 +647,7 @@ export default function AdminPage({ onBack }) {
   const loadRequests = async () => {
     setLoadingReq(true);
     try {
-      const r = await axios.get(`${API}/api/admin/extend-requests`);
+      const r = await api.get("/api/admin/extend-requests");
       setRequests(r.data || []);
     } finally {
       setLoadingReq(false);
@@ -652,8 +657,8 @@ export default function AdminPage({ onBack }) {
   const doAdminExtend = async (pid, days = 10) => {
     try {
       setExtendBusy(pid);
-      await axios.post(
-        `${API}/api/admin/protections/${pid}/extend-any?days=${days}`
+      await api.post(
+        `/api/admin/protections/${pid}/extend-any?days=${days}`
       );
       await loadRequests();
     } catch (e) {
@@ -670,7 +675,7 @@ export default function AdminPage({ onBack }) {
     );
     if (!reason) return;
     try {
-      await axios.post(`${API}/api/protections/${prot.id}/close`, { reason });
+      await api.post(`/api/protections/${prot.id}/close`, { reason });
       await loadManagerProtections(openedManagerId);
       await loadManagers();
     } catch (e) {
@@ -685,7 +690,7 @@ export default function AdminPage({ onBack }) {
     );
     if (reason === null) return;
     try {
-      await axios.delete(`${API}/api/protections/${prot.id}`, {
+      await api.delete(`/api/protections/${prot.id}`, {
         params: { reason: reason || "Удалена администратором" },
       });
       await loadManagerProtections(openedManagerId);
