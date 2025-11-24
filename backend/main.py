@@ -357,20 +357,19 @@ async def telegram_auth(request: Request):
         return {"ok": True, "role": "superadmin", "token": token}
 
     # --- Остальные пользователи ---
-    cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,))
-    row = cur.fetchone()
+    row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
     if not row:
         cur.execute(
             "INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)",
             (tg_id, username, first_name, "manager", now_iso())
         )
         conn.commit()
-        role = "manager"
-    else:
-        role = row["role"]
+        row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+
+    role = row["role"]
+    token = create_token(row["id"], role)
     conn.close()
 
-    token = create_token(tg_id, role)
     return {"ok": True, "role": role, "token": token}
 
 
@@ -914,10 +913,6 @@ def update_protection(pid: int, payload: ProtectionUpdate):
     conn.close()
 
     return row_to_out(updated)
-
-    
-
-
 
 # ===== List / Actions / Stats =====
 @app.get("/api/protections", response_model=List[ProtectionOut])
