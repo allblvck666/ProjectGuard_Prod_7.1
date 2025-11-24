@@ -27,6 +27,19 @@ api.interceptors.response.use(
     if (error.code === "ERR_NETWORK" || error.message?.includes("Network Error")) {
       console.error("❌ Network Error - проверьте CORS и URL бэкенда:", error.config?.url);
     }
+    
+    // Обработка 401 - неавторизован
+    if (error.response?.status === 401) {
+      console.warn("▲ 401 от API:", error.config?.url);
+      // Очищаем невалидный токен
+      const token = localStorage.getItem("jwt_token");
+      if (token) {
+        localStorage.removeItem("jwt_token");
+        localStorage.removeItem("role");
+        // Не делаем редирект автоматически, пусть пользователь сам войдет
+      }
+    }
+    
     return Promise.reject(error);
   }
 );

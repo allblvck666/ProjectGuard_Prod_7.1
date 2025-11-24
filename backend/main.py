@@ -301,7 +301,8 @@ def create_token(user_id: int, role: str):
     if not secret:
         # на всякий случай, чтобы не словить пустой секрет
         raise RuntimeError("JWT secret is not set (JWT_SECRET / SECRET_KEY)")
-    return jwt.encode({"sub": str(user_id), "role": role}, secret, algorithm=ALGORITHM)
+    # Используем user_id для совместимости с auth.py
+    return jwt.encode({"user_id": user_id, "sub": str(user_id), "role": role}, secret, algorithm=ALGORITHM)
 
 
 @app.post("/api/auth/telegram")

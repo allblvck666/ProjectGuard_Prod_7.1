@@ -47,21 +47,22 @@ export default function TelegramLoginButton({ onLogin }) {
     );
   };
 
+  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
+
   return (
     <button
       onClick={handleLogin}
+      className="btn"
       style={{
-        background: "#4d6eeb",
-        color: "white",
-        padding: "12px 20px",
+        padding: "14px 28px",
         borderRadius: 12,
-        border: "none",
-        cursor: "pointer",
-        fontWeight: 600,
         fontSize: 16,
+        minWidth: 200,
+        boxShadow: "0 4px 12px rgba(77, 110, 235, 0.3)",
       }}
     >
-      🔐 Войти через Telegram
+      <span style={{ fontSize: 20, marginRight: 8 }}>🔐</span>
+      Войти через Telegram
     </button>
   );
 }

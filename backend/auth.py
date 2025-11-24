@@ -40,8 +40,12 @@ def require_admin(credentials=Depends(security)):
     token = credentials.credentials
     payload = decode_jwt(token)
 
-    user_id = payload.get("user_id")
-    user = get_user_by_id(user_id)
+    # Поддерживаем оба формата: "sub" (из main.py) и "user_id" (из create_jwt)
+    user_id = payload.get("user_id") or payload.get("sub")
+    if user_id:
+        user_id = int(user_id) if isinstance(user_id, str) else user_id
+    
+    user = get_user_by_id(user_id) if user_id else None
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")

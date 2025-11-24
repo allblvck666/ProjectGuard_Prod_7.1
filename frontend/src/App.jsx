@@ -280,7 +280,15 @@ function App() {
           setRoute("main");
         }
 
-        alert("✅ Вход выполнен как " + data.role);
+        // Показываем уведомление только в браузере
+        if (!isTG) {
+          alert("✅ Вход выполнен как " + data.role);
+        } else {
+          const tg = window.Telegram?.WebApp;
+          if (tg?.HapticFeedback) {
+            tg.HapticFeedback.notificationOccurred("success");
+          }
+        }
       } else {
         alert("❌ Ошибка входа");
       }
@@ -706,17 +714,49 @@ function App() {
 
 // 🛡️ Telegram WebApp: безопасный старт
   const [ready, setReady] = useState(!isTG);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-      if (!isTG) return;
-      const tg = window.Telegram.WebApp;
-      tg.ready();
+    if (!isTG) {
       setReady(true);
-    }, [isTG]);
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (tg) {
+        tg.ready();
+        tg.expand();
+        // Настраиваем цвета Telegram WebApp
+        tg.setHeaderColor('#0d1320');
+        tg.setBackgroundColor('#0d1320');
+        setReady(true);
+      }
+    } catch (e) {
+      console.warn("Telegram WebApp init error:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [isTG]);
 
-// Пока WebApp инициализируется — ничего НЕ рендерим
-if (isTG && !ready) {
-  return <div style={{ padding: 20, textAlign: "center", opacity: 0.6 }}>Загрузка…</div>;
+// Пока WebApp инициализируется — показываем загрузку
+if (isTG && (!ready || loading)) {
+  return (
+    <div style={{ 
+      padding: 40, 
+      textAlign: "center", 
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexDirection: "column",
+      gap: 16
+    }}>
+      <div style={{ fontSize: 48 }}>⏳</div>
+      <div style={{ opacity: 0.7 }}>Загрузка приложения...</div>
+    </div>
+  );
 }
 
 
@@ -757,24 +797,20 @@ if (isTG && !ready) {
           🔰 Aquafloor защиты
         </h1>
 
-        <button className="btn" onClick={goAdmin}>
-          👑 Админка !! TEST !!
-        </button>
-        <button
-          onClick={devLogin}
-          style={{
-            background: "#3ddc97",
-            color: "white",
-            border: "none",
-            borderRadius: 8,
-            padding: "8px 12px",
-            marginLeft: 8,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          🚪 DEV LOGIN
-        </button>
+        {(role === "admin" || role === "superadmin") && (
+          <button className="btn" onClick={goAdmin}>
+            👑 Админка
+          </button>
+        )}
+        {!isTG && (
+          <button
+            onClick={devLogin}
+            className="btn success small"
+            style={{ display: role === "admin" || role === "superadmin" ? "none" : "inline-flex" }}
+          >
+            🚪 Вход
+          </button>
+        )}
 
         <button className="btn refresh" onClick={load}>
           🔄 Обновить
