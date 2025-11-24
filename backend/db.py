@@ -29,11 +29,13 @@ def load_skus():
                 type_ = (row.get("Тип (клей/замок)") or "").strip().lower()
                 if type_ not in ("клей", "замок"):
                     continue
-                items.append({
-                    "sku": sku,
-                    "collection": collection,
-                    "type": type_
-                })
+                items.append(
+                    {
+                        "sku": sku,
+                        "collection": collection,
+                        "type": type_,
+                    }
+                )
             if items:
                 items.sort(key=lambda x: (x["sku"], x["collection"], x["type"]))
                 return items
@@ -78,11 +80,13 @@ def load_skus():
                 if key in seen:
                     continue
                 seen.add(key)
-                items.append({
-                    "sku": sku,
-                    "collection": coll,
-                    "type": tp
-                })
+                items.append(
+                    {
+                        "sku": sku,
+                        "collection": coll,
+                        "type": tp,
+                    }
+                )
 
     items.sort(key=lambda x: (x["sku"], x["collection"], x["type"]))
     return items
@@ -119,8 +123,9 @@ def init_db():
     conn = get_conn()
     cur = conn.cursor()
 
-    # Protections
-    cur.execute("""
+    # === Protections ===
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS protections (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             manager TEXT NOT NULL,
@@ -136,31 +141,75 @@ def init_db():
             status TEXT NOT NULL DEFAULT 'active',
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
-            closed_at TEXT
+            closed_at TEXT,
+            -- новые поля, которые использует main.py
+            extend_count INTEGER DEFAULT 0,
+            auto_closed INTEGER DEFAULT 0,
+            updated_at TEXT,
+            approved_by_admin INTEGER DEFAULT 0,
+            admin_comment TEXT,
+            manager_id INTEGER
         )
-    """)
+        """
+    )
 
-    # Users
-    cur.execute("""
+    # === Users ===
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             tg_id INTEGER UNIQUE NOT NULL,
             tg_username TEXT,
             first_name TEXT,
             role TEXT DEFAULT 'manager',
+            group_tag TEXT,
+            manager_id INTEGER,
+            region TEXT,
             created_at TEXT NOT NULL
         )
-    """)
+        """
+    )
 
-        # === Managers table ===
-    cur.execute("""
+    # === Managers ===
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS managers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT UNIQUE NOT NULL,
             telegrams TEXT DEFAULT '[]',
             created_at TEXT
         )
-    """)
+        """
+    )
+
+    # === History (для add_history и /api/history) ===
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            protection_id INTEGER NOT NULL,
+            at TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            payload TEXT,
+            FOREIGN KEY (protection_id) REFERENCES protections (id)
+        )
+        """
+    )
+
+    # === Telegram notifications (tg_notifications) ===
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS tg_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            protection_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (protection_id) REFERENCES protections (id)
+        )
+        """
+    )
 
     conn.commit()
     conn.close()
