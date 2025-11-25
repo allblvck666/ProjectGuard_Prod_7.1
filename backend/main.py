@@ -368,6 +368,8 @@ class UserUpdate(BaseModel):
     city: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[int] = None
+    manager_id: Optional[int] = None
+    receive_extend_notifications: Optional[int] = None
 
 
 @app.get("/api/auth/verify")
@@ -782,6 +784,8 @@ def admin_list_users(admin_user=Depends(require_admin)):
                 "is_active": u.get("is_active", 1),
                 "created_at": u.get("created_at", ""),
                 "last_login": u.get("last_login"),
+                "manager_id": u.get("manager_id"),
+                "receive_extend_notifications": u.get("receive_extend_notifications", 0),
             }
             for u in users
         ]
@@ -834,6 +838,10 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
         update_data["role"] = data.role
     if data.is_active is not None:
         update_data["is_active"] = data.is_active
+    if data.manager_id is not None:
+        update_data["manager_id"] = data.manager_id
+    if data.receive_extend_notifications is not None:
+        update_data["receive_extend_notifications"] = data.receive_extend_notifications
     
     updated = update_user(user_id, update_data)
     
@@ -1163,12 +1171,15 @@ def resolve_manager_for_user(cur, user_id):
 
 # ===== Создание защиты =====
 @app.post("/api/protections", response_model=ProtectionOut)
-def create_protection(payload: ProtectionCreate):
+def create_protection(payload: ProtectionCreate, user=Depends(get_current_active_user)):
     conn = get_conn()
     cur = conn.cursor()
     created = now_iso()
     skus_in: List[SkuItem] = payload.sku_data or []
     has_per_sku_areas = any((it.area is not None) for it in skus_in)
+    
+    # Получаем user_id из текущего пользователя
+    current_user_id = user.get("id") if isinstance(user, dict) else None
 
     # представление и площадь
     if skus_in:
@@ -1261,7 +1272,12 @@ def create_protection(payload: ProtectionCreate):
     expires = add_days(created, ttl_days)
 
     # 🆕 Определяем менеджера для защиты через users → manager_id
-    manager_id = resolve_manager_for_user(cur, getattr(payload, "user_id", None))
+    # Используем manager_id текущего пользователя, если он привязан к менеджеру
+    manager_id = None
+    if current_user_id:
+        user_row = cur.execute("SELECT manager_id FROM users WHERE id = ?", (current_user_id,)).fetchone()
+        if user_row and user_row["manager_id"]:
+            manager_id = user_row["manager_id"]
 
     # 🆕 Вставляем новую защиту с manager_id
     cur.execute("""
@@ -1526,9 +1542,16 @@ def request_extend(pid: int, data: dict = Body(...)):
         {"days": days, "reason": reason},
     )
     
-    # Отправляем уведомление админам и суперадминам
+    # Отправляем уведомление только выбранным админам и суперадминам
+    # (которые имеют receive_extend_notifications = 1)
     admins = cur.execute(
-        "SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL"
+        """
+        SELECT tg_id, full_name, first_name 
+        FROM users 
+        WHERE role IN ('admin', 'superadmin') 
+          AND tg_id IS NOT NULL 
+          AND receive_extend_notifications = 1
+        """
     ).fetchall()
     
     msg = (
@@ -1545,8 +1568,9 @@ def request_extend(pid: int, data: dict = Body(...)):
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Продлить на 10 дней", callback_data=f"admin_extend:{pid}:10")
     kb.button(text="✅ Продлить на 30 дней", callback_data=f"admin_extend:{pid}:30")
+    kb.button(text="📅 Продлить на N дней", callback_data=f"admin_extend_custom:{pid}")
     kb.button(text="🚫 Отклонить", callback_data=f"admin_reject_extend:{pid}")
-    kb.adjust(2, 1)
+    kb.adjust(2, 2)
     
     # Отправляем уведомления асинхронно
     async def send_admin_notifications():
@@ -1627,10 +1651,11 @@ def mark_closed(pid: int, data: dict = Body(...)):
     return row_to_out(row)
 
 @app.delete("/api/protections/{pid}")
-def delete_protection(pid: int, reason: Optional[str] = None):
+def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user)):
     """
     Мягкое удаление: статус -> 'deleted' + запись в историю.
-    Если причина не передана — запишем 'not provided', чтобы не ломать старый фронт.
+    Удалить может только автор защиты (по manager_id) или админ/суперадмин.
+    При удалении админом отправляется уведомление автору с причиной.
     """
     conn = get_conn()
     cur = conn.cursor()
@@ -1638,11 +1663,63 @@ def delete_protection(pid: int, reason: Optional[str] = None):
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
+    
+    current_user_id = user.get("id") if isinstance(user, dict) else None
+    user_role = user.get("role", "") if isinstance(user, dict) else ""
+    is_admin = user_role in ("admin", "superadmin")
+    
+    # Проверяем права: автор или админ
+    protection_manager_id = row.get("manager_id")
+    is_author = current_user_id and protection_manager_id and current_user_id == protection_manager_id
+    
+    if not is_author and not is_admin:
+        conn.close()
+        raise HTTPException(
+            status_code=403, 
+            detail="Удалить защиту может только её автор или администратор"
+        )
+    
+    # Если удаляет админ - отправляем уведомление автору
+    if is_admin and not is_author and protection_manager_id:
+        # Получаем данные автора
+        author_row = cur.execute("SELECT tg_id, full_name, first_name FROM users WHERE id=?", (protection_manager_id,)).fetchone()
+        if author_row and author_row.get("tg_id"):
+            reason_text = reason or "не указана"
+            msg = (
+                f"⚠️ <b>Ваша защита была удалена администратором</b>\n\n"
+                f"🆔 Защита: #{pid}\n"
+                f"📦 SKU: {row.get('sku', '—')}\n"
+                f"👤 Менеджер: {row.get('manager', '—')}\n"
+                f"💬 Причина удаления: {reason_text}\n"
+            )
+            
+            # Отправляем уведомление асинхронно
+            async def send_delete_notification():
+                try:
+                    await bot.send_message(
+                        int(author_row["tg_id"]),
+                        msg,
+                        parse_mode="HTML"
+                    )
+                    print(f"📩 Уведомление об удалении защиты отправлено автору {author_row['tg_id']}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка отправки уведомления автору {author_row['tg_id']}: {e}")
+            
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(send_delete_notification())
+                else:
+                    asyncio.run(send_delete_notification())
+            except:
+                asyncio.create_task(send_delete_notification())
+    
+    actor = "admin" if is_admin else "manager"
     cur.execute(
         "UPDATE protections SET status='deleted', closed_at=? WHERE id=?",
         (now_iso(), pid),
     )
-    add_history(cur, pid, "manager", "delete", {"reason": reason or "not provided"})
+    add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -1893,9 +1970,10 @@ async def check_expiring_protections():
             two_days = (now + timedelta(days=2)).isoformat()
 
             rows = cur.execute("""
-                SELECT p.id, p.manager, p.sku, p.expires_at, u.tg_id, u.id AS user_id
+                SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id,
+                       u.tg_id, u.id AS user_id
                 FROM protections p
-                LEFT JOIN users u ON u.first_name = p.manager
+                LEFT JOIN users u ON u.id = p.manager_id
                 WHERE p.status='active' AND p.expires_at <= ?
             """, (two_days,)).fetchall()
 
@@ -1904,13 +1982,29 @@ async def check_expiring_protections():
                 sku = r["sku"]
                 pid = r["id"]
                 expires_at = r["expires_at"]
+                manager_id = r["manager_id"]
                 tg_id = r["tg_id"]
 
-                # ищем помощников
-                assistants = cur.execute(
-                    "SELECT tg_id FROM users WHERE manager_id=? AND role='assistant'",
-                    (r["user_id"],)
-                ).fetchall()
+                # Получаем всех пользователей, привязанных к этому менеджеру
+                # (через manager_id в таблице users)
+                recipients_query = """
+                    SELECT tg_id FROM users 
+                    WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
+                """
+                recipients_rows = cur.execute(recipients_query, (manager_id,)).fetchall() if manager_id else []
+                
+                # Также добавляем пользователя-менеджера, если у него есть tg_id
+                recipients: list[int] = []
+                if tg_id:
+                    recipients.append(int(tg_id))
+                
+                # Добавляем всех привязанных пользователей
+                for row in recipients_rows:
+                    if row["tg_id"]:
+                        try:
+                            recipients.append(int(row["tg_id"]))
+                        except:
+                            pass
 
                 msg = (
                     f"⚠️ <b>Защита #{pid} истекает через 2 дня!</b>\n\n"
@@ -1926,12 +2020,6 @@ async def check_expiring_protections():
                 kb.button(text="✅ Продлить на 30 дней", callback_data=f"extend:{pid}:30")
                 kb.button(text="🔒 Закрыть защиту", callback_data=f"close_exp:{pid}")
                 kb.adjust(2, 1)
-
-                recipients: list[int] = []
-                if tg_id:
-                    recipients.append(int(tg_id))
-
-                recipients.extend([int(a["tg_id"]) for a in assistants if a["tg_id"]])
 
                 for tid in recipients:
                     if not tid:
@@ -2278,9 +2366,14 @@ async def admin_extend_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
+    if row["status"] != "active":
+        await callback.answer("❌ Защита не активна", show_alert=True)
+        conn.close()
+        return
+    
     from datetime import datetime, timedelta
-    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat()
-    cur.execute("UPDATE protections SET expires_at=? WHERE id=?", (new_exp, pid))
+    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat() + "Z"
+    cur.execute("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?", (new_exp, now_iso(), pid))
     add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
     conn.commit()
     conn.close()
@@ -2295,6 +2388,48 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     )
 
 
+# === Обработка кастомного продления (выбор количества дней) ===
+@dp.callback_query(F.data.startswith("admin_extend_custom:"))
+async def admin_extend_custom_handler(callback: types.CallbackQuery):
+    """Обработчик для запроса количества дней продления"""
+    pid = int(callback.data.split(":")[1])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    conn.close()
+    
+    # Создаем клавиатуру с вариантами дней
+    kb = InlineKeyboardBuilder()
+    kb.button(text="7 дней", callback_data=f"admin_extend:{pid}:7")
+    kb.button(text="14 дней", callback_data=f"admin_extend:{pid}:14")
+    kb.button(text="21 день", callback_data=f"admin_extend:{pid}:21")
+    kb.button(text="45 дней", callback_data=f"admin_extend:{pid}:45")
+    kb.button(text="60 дней", callback_data=f"admin_extend:{pid}:60")
+    kb.button(text="90 дней", callback_data=f"admin_extend:{pid}:90")
+    kb.button(text="Отмена", callback_data=f"admin_extend_cancel:{pid}")
+    kb.adjust(3, 3, 1)
+    
+    await callback.answer()
+    await callback.message.edit_text(
+        f"📅 <b>Выберите количество дней для продления защиты #{pid}</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n\n"
+        f"Или выберите из предложенных вариантов:",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+
+@dp.callback_query(F.data.startswith("admin_extend_cancel:"))
+async def admin_extend_cancel_handler(callback: types.CallbackQuery):
+    """Отмена выбора количества дней"""
+    await callback.answer("Отменено")
+
 # === Обработка отклонения запроса на продление ===
 @dp.callback_query(F.data.startswith("admin_reject_extend:"))
 async def admin_reject_extend_handler(callback: types.CallbackQuery):
@@ -2308,16 +2443,54 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
-    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request"})
+    # Запрашиваем причину отклонения
+    await callback.answer()
+    await callback.message.edit_text(
+        f"🚫 <b>Отклонение запроса на продление защиты #{pid}</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n\n"
+        f"💬 <b>Причина отклонения:</b> (укажите в ответе на это сообщение)",
+        parse_mode="HTML"
+    )
+    
+    # Сохраняем состояние ожидания причины
+    # В реальном приложении можно использовать FSM (Finite State Machine)
+    # Для простоты - просто записываем в историю с причиной "не указана"
+    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": "не указана"})
+    conn.commit()
+    conn.close()
+
+@dp.message(F.text & F.reply_to_message)
+async def handle_reject_reason(message: types.Message):
+    """Обработка причины отклонения из ответа на сообщение"""
+    if "Отклонение запроса на продление" not in message.reply_to_message.text:
+        return
+    
+    # Извлекаем ID защиты из текста
+    import re
+    match = re.search(r'#(\d+)', message.reply_to_message.text)
+    if not match:
+        return
+    
+    pid = int(match.group(1))
+    reason = message.text.strip()
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await message.answer("❌ Защита не найдена")
+        conn.close()
+        return
+    
+    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": reason})
     conn.commit()
     conn.close()
     
-    await callback.answer("🚫 Запрос на продление отклонен")
-    await callback.message.edit_text(
-        f"🚫 <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
-        f"👤 Менеджер: {row['manager']}\n"
-        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}",
+    await message.answer(
+        f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
+        f"💬 Причина: {reason}",
         parse_mode="HTML"
     )
 

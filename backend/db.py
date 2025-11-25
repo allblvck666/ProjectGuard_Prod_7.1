@@ -229,7 +229,7 @@ def update_user(user_id: int, data: dict):
     cur = conn.cursor()
     
     # Разрешенные поля для обновления
-    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name"]
+    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name", "manager_id"]
     updates = []
     values = []
     
@@ -432,35 +432,59 @@ def init_db():
             is_active INTEGER DEFAULT 1,
             last_login TEXT,
             updated_at TEXT,
-            extra TEXT
+            extra TEXT,
+            receive_extend_notifications INTEGER DEFAULT 0
         )
         """
     )
 
     # === Миграция: добавляем новые колонки, если их нет ===
-    cur.execute("PRAGMA table_info(users)")
-    existing_columns = {row[1] for row in cur.fetchall()}
+    # Для PostgreSQL используем другой подход
+    if USE_POSTGRES:
+        # PostgreSQL - проверяем через information_schema
+        cur.execute("""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'users'
+        """)
+        existing_columns = {row[0] for row in cur.fetchall()}
+    else:
+        # SQLite
+        cur.execute("PRAGMA table_info(users)")
+        existing_columns = {row[1] for row in cur.fetchall()}
     
     new_columns = {
-        "email": "TEXT UNIQUE",
+        "email": "TEXT UNIQUE" if not USE_POSTGRES else "TEXT",
         "password_hash": "TEXT",
         "full_name": "TEXT",
         "phone": "TEXT",
         "position": "TEXT",
         "company": "TEXT",
         "city": "TEXT",
-        "is_active": "INTEGER DEFAULT 1",
+        "is_active": "INTEGER DEFAULT 1" if not USE_POSTGRES else "INTEGER DEFAULT 1",
         "last_login": "TEXT",
         "updated_at": "TEXT",
-        "extra": "TEXT"
+        "extra": "TEXT",
+        "receive_extend_notifications": "INTEGER DEFAULT 0"
     }
+    
+    # manager_id уже есть в таблице users, но проверим
+    if "manager_id" not in existing_columns:
+        new_columns["manager_id"] = "INTEGER" if not USE_POSTGRES else "INTEGER"
     
     for col_name, col_def in new_columns.items():
         if col_name not in existing_columns:
             try:
-                cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                if USE_POSTGRES:
+                    # PostgreSQL не поддерживает UNIQUE в ALTER TABLE ADD COLUMN
+                    if "UNIQUE" in col_def:
+                        col_def = col_def.replace(" UNIQUE", "")
+                    cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                else:
+                    cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                conn.commit()
                 print(f"✅ Added column {col_name} to users table")
-            except sqlite3.OperationalError as e:
+            except Exception as e:
                 # Колонка уже существует или другая ошибка
                 print(f"⚠️ Could not add column {col_name}: {e}")
     

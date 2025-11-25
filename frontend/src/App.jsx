@@ -49,9 +49,14 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
   }, [input, skus]);
 
   const pushSku = (skuObj) => {
-    if (selected.length >= 3) return alert("Можно добавить максимум 3 артикула");
-    if (selected.find((s) => s.sku === skuObj.sku && s.type === skuObj.type))
-      return alert("Этот артикул уже добавлен");
+    if (selected.length >= 3) {
+      alert("Можно добавить максимум 3 артикула");
+      return;
+    }
+    if (selected.find((s) => s.sku === skuObj.sku && s.type === skuObj.type)) {
+      alert("Этот артикул уже добавлен");
+      return;
+    }
     setSelected([...selected, { ...skuObj, area: "" }]);
     setInput("");
     setSuggestions([]);
@@ -198,6 +203,14 @@ function CreateProtectionPage({
           🛡️ Поставить защиту
         </h1>
       </div>
+      {/* Фиксированная кнопка "назад" на мобильной версии */}
+      <button 
+        className="back-button-fixed" 
+        onClick={onBack}
+        aria-label="Назад"
+      >
+        ←
+      </button>
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="row">
@@ -320,17 +333,25 @@ function ActiveProtectionsPage({
   const [search, setSearch] = useState("");
   const [managerFilter, setManagerFilter] = useState("");
 
-  // Получаем имя менеджера из формы или из auth.user для фильтрации "Мои защиты"
-  // Менеджер определяется по полю manager в защите, которое соответствует менеджеру, закрепленному за пользователем
-  const currentUserManager = auth.user?.full_name || auth.user?.first_name || "";
+  // Получаем manager_id пользователя для фильтрации "Мои защиты"
+  // Защиты привязываются к manager_id пользователя, который их создал
+  const currentUserId = auth.user?.id || auth.user?.user_id;
   
   // Фильтруем защиты
   let filteredItems = items.filter(it => it.status === "active");
   
   if (activeTab === "my") {
-    // Мои защиты - фильтруем по менеджеру из защиты
-    // Защиты, где manager совпадает с именем менеджера пользователя
-    filteredItems = filteredItems.filter(it => it.manager === currentUserManager);
+    // Мои защиты - фильтруем по manager_id из защиты
+    // Защиты, где manager_id соответствует manager_id текущего пользователя
+    filteredItems = filteredItems.filter(it => {
+      // Если у защиты есть manager_id, сравниваем с manager_id пользователя
+      if (it.manager_id && currentUserId) {
+        return it.manager_id === currentUserId;
+      }
+      // Fallback: если manager_id нет, используем имя менеджера
+      const currentUserManager = auth.user?.full_name || auth.user?.first_name || "";
+      return it.manager === currentUserManager;
+    });
   }
   
   if (search) {
@@ -358,6 +379,14 @@ function ActiveProtectionsPage({
           🔄 Обновить
         </button>
       </div>
+      {/* Фиксированная кнопка "назад" на мобильной версии */}
+      <button 
+        className="back-button-fixed" 
+        onClick={onBack}
+        aria-label="Назад"
+      >
+        ←
+      </button>
 
       {/* Вкладки */}
       <div className="card" style={{ marginTop: 16, marginBottom: 16 }}>
@@ -650,6 +679,14 @@ function ArchivePage({
           🔄 Обновить
         </button>
       </div>
+      {/* Фиксированная кнопка "назад" на мобильной версии */}
+      <button 
+        className="back-button-fixed" 
+        onClick={onBack}
+        aria-label="Назад"
+      >
+        ←
+      </button>
 
       {/* Поиск и фильтры */}
       <div className="toolbar" style={{ marginTop: 16, marginBottom: 16 }}>
@@ -747,6 +784,14 @@ function StatsPage({ stats, onBack }) {
           📊 Статистика
         </h1>
       </div>
+      {/* Фиксированная кнопка "назад" на мобильной версии */}
+      <button 
+        className="back-button-fixed" 
+        onClick={onBack}
+        aria-label="Назад"
+      >
+        ←
+      </button>
 
       <div className="grid" style={{ marginTop: 16 }}>
         {stats.map((s) => (

@@ -46,9 +46,24 @@
 
   @media (max-width: 768px) {
     .container {
-      padding: 0 16px 60px;
+      padding: 0 16px 100px; /* Увеличено для фиксированной кнопки */
       max-width: 100%;
       overflow-x: hidden;
+    }
+    
+    /* Улучшение полей в форме на мобильной версии */
+    .input, .select {
+      font-size: 16px !important; /* Предотвращает зум на iOS */
+      padding: 14px 16px !important;
+      min-height: 48px !important;
+    }
+    
+    .card {
+      padding: 20px 16px;
+    }
+    
+    .row {
+      gap: 12px;
     }
   }
   
@@ -706,6 +721,58 @@ html, body {
 input, select, textarea {
   font-size: 16px !important; /* обязательный фикс для iOS */
 }
+/* Фиксированная кнопка "назад" на мобильной версии */
+.back-button-fixed {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .back-button-fixed {
+    display: flex;
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    z-index: 9998;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 
+      0 8px 24px rgba(102, 126, 234, 0.4),
+      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+    color: #fff;
+    font-size: 24px;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 0;
+    margin: 0;
+  }
+
+  .back-button-fixed:hover {
+    transform: scale(1.1);
+    box-shadow: 
+      0 12px 32px rgba(102, 126, 234, 0.5),
+      0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+  }
+
+  .back-button-fixed:active {
+    transform: scale(0.95);
+  }
+
+  /* Safe area для iOS */
+  @supports (padding: max(0px)) {
+    .back-button-fixed {
+      bottom: max(20px, env(safe-area-inset-bottom) + 10px);
+      right: max(20px, env(safe-area-inset-right) + 10px);
+    }
+  }
+}
+
 /* Telegram FIX — header не должен быть sticky */
 .header.sticky {
   position: static !important;

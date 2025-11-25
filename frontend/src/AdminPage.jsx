@@ -183,6 +183,7 @@ function DashboardTab() {
 /* ===== Вкладка: пользователи (для супер-админа) ===== */
 function UsersTable() {
   const [users, setUsers] = useState([]);
+  const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [editUser, setEditUser] = useState(null);
@@ -193,6 +194,15 @@ function UsersTable() {
   const role = localStorage.getItem("role");
   const isSuperadmin = role === "superadmin";
   const roles = isSuperadmin ? ["user", "manager", "admin", "superadmin"] : ["user", "manager", "admin"];
+
+  const loadManagers = async () => {
+    try {
+      const r = await api.get("/api/admin/managers");
+      setManagers(r.data || []);
+    } catch (e) {
+      console.error("Ошибка загрузки менеджеров:", e);
+    }
+  };
 
   const loadUsers = async () => {
     setLoading(true);
@@ -264,8 +274,22 @@ function UsersTable() {
     }
   };
 
+  const changeManager = async (u, managerId) => {
+    const managerIdNum = managerId ? parseInt(managerId) : null;
+    if (managerIdNum === u.manager_id) return; // Не изменилось
+    
+    try {
+      await updateUser(u.id, { manager_id: managerIdNum });
+      alert(`✅ Пользователь привязан к менеджеру`);
+    } catch (e) {
+      console.error("Ошибка изменения менеджера:", e);
+      alert(e.response?.data?.detail || "Ошибка при изменении менеджера");
+    }
+  };
+
   useEffect(() => {
     loadUsers();
+    loadManagers();
   }, []);
 
   const filteredUsers = users.filter((u) => {
@@ -449,6 +473,62 @@ function UsersTable() {
                                   {r === "superadmin" ? "👑 Супер-админ" : 
                                    r === "admin" ? "👑 Админ" : 
                                    r === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
+                                </option>
+                              ))}
+                          </select>
+                          <select
+                              className="admin-select-small"
+                              value={u.manager_id || ""}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                changeManager(u, e.target.value);
+                              }}
+                              style={{ minWidth: 200 }}
+                            >
+                              <option value="">— Не привязан к менеджеру</option>
+                              {managers.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
+                                </option>
+                              ))}
+                          </select>
+                          {(u.role === "admin" || u.role === "superadmin") && (
+                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14 }}>
+                              <input
+                                type="checkbox"
+                                checked={u.receive_extend_notifications === 1}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={async (e) => {
+                                  e.stopPropagation();
+                                  try {
+                                    await updateUser(u.id, { receive_extend_notifications: e.target.checked ? 1 : 0 });
+                                    await loadUsers();
+                                  } catch (err) {
+                                    alert("Ошибка при обновлении настройки");
+                                  }
+                                }}
+                                style={{ width: 18, height: 18, cursor: "pointer" }}
+                              />
+                              <span style={{ color: "rgba(255, 255, 255, 0.8)" }}>Получать уведомления о продлении</span>
+                            </label>
+                          )}
+                          <select
+                              className="admin-select-small"
+                              value={u.manager_id || ""}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                changeManager(u, e.target.value);
+                              }}
+                              style={{ minWidth: 200 }}
+                            >
+                              <option value="">— Не привязан к менеджеру</option>
+                              {managers.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name}
                                 </option>
                               ))}
                           </select>
@@ -1286,12 +1366,6 @@ export default function AdminPage({ onBack }) {
         >
           🔍 Проверка
                       </div>
-        <div
-          className={`admin-tab ${tab === "notifications" ? "active" : ""}`}
-          onClick={() => setTab("notifications")}
-        >
-          🔔 Уведомления
-                        </div>
                       </div>
 
       <div style={{ marginTop: 24 }}>
@@ -1344,7 +1418,6 @@ export default function AdminPage({ onBack }) {
           />
         )}
       {tab === "pending" && <PendingProtections />}
-      {tab === "notifications" && <NotificationsTab />}
       </div>
 
       {remove && (
