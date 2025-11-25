@@ -3,11 +3,10 @@ import { api } from "./api";
 import "./styles.css";
 
 // ==============================
-// 🔐 ПРОВЕРКА ДОСТУПА (мягкая, через компонент)
+// 🎨 ПРЕМИУМ ДИЗАЙН АДМИНКИ
 // ==============================
 
-console.log("🔥 AdminPage loaded from", import.meta.url);
-console.log("🔥 AdminPage активен — путь:", import.meta.url);
+console.log("🔥 AdminPage loaded");
 
 /* ===== Универсальная строка с отступами ===== */
 function Row({ children, gap = 8, wrap = true }) {
@@ -36,7 +35,8 @@ function Confirm({
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,.5)",
+        background: "rgba(0,0,0,.7)",
+        backdropFilter: "blur(8px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -46,17 +46,17 @@ function Confirm({
       onClick={onCancel}
     >
       <div
-        className="card"
+        className="admin-card"
         style={{ width: "100%", maxWidth: 520 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div style={{ margin: "12px 0" }}>{children}</div>
+        <h3 style={{ marginTop: 0, color: "#fff" }}>{title}</h3>
+        <div style={{ margin: "12px 0", color: "rgba(255,255,255,0.8)" }}>{children}</div>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button className="btn secondary" onClick={onCancel}>
+          <button className="admin-btn-secondary" onClick={onCancel}>
             {cancelText}
           </button>
-          <button className="btn" onClick={onOk} disabled={disabled}>
+          <button className="admin-btn-primary" onClick={onOk} disabled={disabled}>
             {okText}
           </button>
         </div>
@@ -65,13 +65,102 @@ function Confirm({
   );
 }
 
-/* ===== Вкладка: пользователи (для супер-админа) ===== */
+/* ===== ДАШБОРД С СТАТИСТИКОЙ ===== */
+function DashboardTab() {
+  const [stats, setStats] = useState({
+    totalUsers: 0,
+    activeUsers: 0,
+    totalManagers: 0,
+    totalProtections: 0,
+    activeProtections: 0,
+    pendingRequests: 0,
+  });
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const loadStats = async () => {
+      setLoading(true);
+      try {
+        const [usersRes, managersRes, protectionsRes, requestsRes] = await Promise.all([
+          api.get("/api/admin/users").catch(() => ({ data: { users: [] } })),
+          api.get("/api/admin/managers").catch(() => ({ data: [] })),
+          api.get("/api/protections").catch(() => ({ data: [] })),
+          api.get("/api/admin/extend-requests").catch(() => ({ data: [] })),
+        ]);
+
+        const users = usersRes.data?.users || [];
+        const managers = managersRes.data || [];
+        const protections = protectionsRes.data || [];
+
+        setStats({
+          totalUsers: users.length,
+          activeUsers: users.filter((u) => u.is_active === 1).length,
+          totalManagers: managers.length,
+          totalProtections: protections.length,
+          activeProtections: protections.filter((p) => p.status === "active").length,
+          pendingRequests: requestsRes.data?.length || 0,
+        });
+      } catch (e) {
+        console.error("Ошибка загрузки статистики:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadStats();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="admin-card">
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+          Загрузка статистики...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+          <div className="admin-stat-icon">👥</div>
+          <div className="admin-stat-value">{stats.totalUsers}</div>
+          <div className="admin-stat-label">Всего пользователей</div>
+          <div className="admin-stat-sublabel">{stats.activeUsers} активных</div>
+        </div>
+
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" }}>
+          <div className="admin-stat-icon">👔</div>
+          <div className="admin-stat-value">{stats.totalManagers}</div>
+          <div className="admin-stat-label">Менеджеров</div>
+        </div>
+
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+          <div className="admin-stat-icon">🛡️</div>
+          <div className="admin-stat-value">{stats.totalProtections}</div>
+          <div className="admin-stat-label">Всего защит</div>
+          <div className="admin-stat-sublabel">{stats.activeProtections} активных</div>
+        </div>
+
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+          <div className="admin-stat-icon">⏰</div>
+          <div className="admin-stat-value">{stats.pendingRequests}</div>
+          <div className="admin-stat-label">Запросов на продление</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== Вкладка: пользователи (для супер-админа) ===== */
 function UsersTable() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editUser, setEditUser] = useState(null);
-  const [roles] = useState(["superadmin", "admin", "manager"]);
+  const [search, setSearch] = useState("");
+  const [roleFilter, setRoleFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [roles] = useState(["superadmin", "admin", "manager", "user"]);
 
   const loadUsers = async () => {
     setLoading(true);
@@ -126,111 +215,394 @@ function UsersTable() {
     loadUsers();
   }, []);
 
+  const filteredUsers = users.filter((u) => {
+    const matchesSearch = !search || 
+      (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
+      (u.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
+      (u.phone || "").includes(search);
+    const matchesRole = !roleFilter || u.role === roleFilter;
+    const matchesStatus = !statusFilter || 
+      (statusFilter === "active" && u.is_active === 1) ||
+      (statusFilter === "inactive" && u.is_active === 0);
+    return matchesSearch && matchesRole && matchesStatus;
+  });
+
   return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>👥 Управление пользователями</h3>
-      <button className="btn secondary" onClick={loadUsers} disabled={loading}>
+    <div>
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="admin-input"
+            placeholder="🔍 Поиск по email, имени, телефону..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ flex: 1, minWidth: 200 }}
+          />
+          <select
+            className="admin-select"
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value)}
+            style={{ minWidth: 150 }}
+          >
+            <option value="">Все роли</option>
+            {roles.map((r) => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+          <select
+            className="admin-select"
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            style={{ minWidth: 150 }}
+          >
+            <option value="">Все статусы</option>
+            <option value="active">Активные</option>
+            <option value="inactive">Заблокированные</option>
+          </select>
+          <button className="admin-btn-secondary" onClick={loadUsers} disabled={loading}>
         🔄 Обновить
       </button>
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>
+          👥 Управление пользователями ({filteredUsers.length})
+        </h3>
+        
       {loading && (
-        <div className="small" style={{ marginTop: 8 }}>
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
           Загрузка…
         </div>
       )}
-      {!loading && users.length === 0 && (
-        <div className="small" style={{ marginTop: 8 }}>
-          Пользователей пока нет.
+        
+        {!loading && filteredUsers.length === 0 && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Пользователей не найдено.
         </div>
       )}
-      {!loading && users.length > 0 && (
-        <div style={{ overflowX: "auto", marginTop: 12 }}>
-          <table className="table" style={{ width: "100%", minWidth: 1000 }}>
+        
+        {!loading && filteredUsers.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table className="admin-table" style={{ width: "100%", minWidth: 1200 }}>
             <thead>
               <tr>
                 <th>ID</th>
-                <th>Email</th>
+                  <th>Email / Telegram</th>
                 <th>Имя</th>
+                  <th>Телефон</th>
                 <th>Роль</th>
-                <th>Статус</th>
-                <th>Компания</th>
-                <th>Город</th>
-                <th>Последний вход</th>
+                  <th>Статус</th>
+                  <th>Компания</th>
+                  <th>Город</th>
+                  <th>Последний вход</th>
                 <th>Действия</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.6 : 1 }}>
-                  <td>{u.id}</td>
-                  <td>{u.email || "—"}</td>
-                  <td>{u.full_name || "—"}</td>
-                  <td>
-                    <span style={{
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      background: u.role === "superadmin" ? "rgba(255, 193, 7, 0.2)" : 
-                                   u.role === "admin" ? "rgba(33, 150, 243, 0.2)" : 
-                                   "rgba(158, 158, 158, 0.2)",
-                      fontSize: 12,
-                    }}>
-                      {u.role}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{
-                      padding: "4px 8px",
-                      borderRadius: "4px",
-                      background: u.is_active === 1 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                      fontSize: 12,
-                    }}>
-                      {u.is_active === 1 ? "✅ Активен" : "❌ Заблокирован"}
-                    </span>
-                  </td>
-                  <td>{u.company || "—"}</td>
-                  <td>{u.city || "—"}</td>
-                  <td className="small">{u.last_login ? new Date(u.last_login).toLocaleString("ru-RU") : "—"}</td>
-                  <td>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                      {/* Изменение роли */}
-                      {u.role !== "superadmin" && (
+                {filteredUsers.map((u) => (
+                  <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.6 : 1 }}>
+                    <td>{u.id}</td>
+                    <td>
+                      <div style={{ fontSize: 13 }}>
+                        {u.email || "—"}
+                        {u.tg_id && <div style={{ opacity: 0.7, fontSize: 11 }}>TG: {u.tg_id}</div>}
+                      </div>
+                    </td>
+                    <td><b>{u.full_name || "—"}</b></td>
+                    <td>{u.phone || "—"}</td>
+                    <td>
+                      <span className="admin-badge" style={{
+                        background: u.role === "superadmin" ? "rgba(255, 193, 7, 0.2)" : 
+                                     u.role === "admin" ? "rgba(33, 150, 243, 0.2)" : 
+                                     u.role === "manager" ? "rgba(76, 175, 80, 0.2)" :
+                                     "rgba(158, 158, 158, 0.2)",
+                        color: u.role === "superadmin" ? "#ffc107" : 
+                               u.role === "admin" ? "#2196f3" : 
+                               u.role === "manager" ? "#4caf50" : "#9e9e9e",
+                      }}>
+                        {u.role === "superadmin" ? "👑 Супер-админ" : 
+                         u.role === "admin" ? "👑 Админ" : 
+                         u.role === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="admin-badge" style={{
+                        background: u.is_active === 1 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                        color: u.is_active === 1 ? "#22c55e" : "#ef4444",
+                      }}>
+                        {u.is_active === 1 ? "✅ Активен" : "❌ Заблокирован"}
+                      </span>
+                    </td>
+                    <td>{u.company || "—"}</td>
+                    <td>{u.city || "—"}</td>
+                    <td style={{ fontSize: 12, opacity: 0.8 }}>
+                      {u.last_login ? new Date(u.last_login).toLocaleString("ru-RU") : "—"}
+                    </td>
+                    <td>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {u.role !== "superadmin" && (
                         <select
-                          className="select"
-                          style={{ fontSize: 12, padding: "4px 8px" }}
-                          value={u.role}
-                          onChange={(e) => changeRole(u, e.target.value)}
-                        >
-                          {roles.map((r) => (
+                            className="admin-select-small"
+                            value={u.role}
+                            onChange={(e) => changeRole(u, e.target.value)}
+                          >
+                            {roles.filter(r => r !== "superadmin" || u.role === "superadmin").map((r) => (
                             <option key={r} value={r}>
-                              {r === "superadmin" ? "👑 Супер-админ" : 
-                               r === "admin" ? "👑 Админ" : "👤 Менеджер"}
+                                {r === "superadmin" ? "👑 Супер-админ" : 
+                                 r === "admin" ? "👑 Админ" : 
+                                 r === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
                             </option>
                           ))}
                         </select>
-                      )}
-                      {/* Блокировка/разблокировка */}
-                      <button
-                        className="btn secondary small"
-                        onClick={() => toggleActive(u)}
-                        style={{ fontSize: 12, padding: "4px 8px" }}
-                      >
-                        {u.is_active === 1 ? "🚫" : "✅"}
-                      </button>
-                      {/* Удаление */}
-                      <button
-                        className="btn danger small"
-                        onClick={() => deleteUser(u)}
-                        style={{ fontSize: 12, padding: "4px 8px" }}
-                      >
-                        🗑️
-                      </button>
-                    </div>
-                  </td>
+                        )}
+                        <button
+                          className="admin-btn-icon"
+                          onClick={() => toggleActive(u)}
+                          title={u.is_active === 1 ? "Заблокировать" : "Разблокировать"}
+                        >
+                          {u.is_active === 1 ? "🚫" : "✅"}
+                        </button>
+                        <button
+                          className="admin-btn-icon-danger"
+                          onClick={() => deleteUser(u)}
+                          title="Удалить"
+                        >
+                          🗑️
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ===== Вкладка: Менеджеры ===== */
+function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewName, doAdd, edit, setEdit, startEdit, cancelEdit, saveEdit, askRemove, remove, setRemove, cancelRemove, confirmRemove, transferTo, setTransferTo, openedManagerId, setOpenedManagerId, openedProtections, loadingProtections, loadManagerProtections, adminCloseProtection, adminDeleteProtection }) {
+  const [search, setSearch] = useState("");
+
+  const filteredManagers = managers.filter((m) => 
+    !search || (m.name || "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>
+          👔 Управление менеджерами
+        </h3>
+
+        <Row>
+          <input
+            className="admin-input"
+            style={{ minWidth: 260 }}
+            placeholder="Новый менеджер…"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+          />
+          <button className="admin-btn-primary" onClick={doAdd}>
+            ➕ Добавить
+          </button>
+          <button
+            className="admin-btn-secondary"
+            onClick={loadManagers}
+            disabled={loadingManagers}
+          >
+            🔄 Обновить
+          </button>
+        </Row>
+      </div>
+
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <input
+          className="admin-input"
+          placeholder="🔍 Поиск менеджера..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: "100%" }}
+        />
+      </div>
+
+      <div className="admin-card">
+        {loadingManagers && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Загрузка…
+          </div>
+        )}
+        
+        {!loadingManagers && filteredManagers.length === 0 && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Пока нет менеджеров — добавьте первого 👆
+          </div>
+        )}
+        
+        {!loadingManagers && filteredManagers.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table className="admin-table" style={{ width: "100%", minWidth: 800 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left" }}>Имя</th>
+                  <th>Всего</th>
+                  <th>Активных</th>
+                  <th>Успешных</th>
+                  <th>Закрытых</th>
+                  <th style={{ width: 300 }}>Действия</th>
                 </tr>
-              ))}
+              </thead>
+              <tbody>
+                {filteredManagers.map((m) => {
+                  const isEdit = edit?.id === m.id;
+                  const isOpened = openedManagerId === m.id;
+                  return (
+                    <tr key={m.id}>
+                    <td>
+                      {isEdit ? (
+                          <input
+                            className="admin-input"
+                            value={edit.name}
+                          onChange={(e) =>
+                              setEdit((v) => ({
+                                ...v,
+                                name: e.target.value,
+                              }))
+                            }
+                          />
+                        ) : (
+                          <b>{m.name}</b>
+                      )}
+                    </td>
+                      <td style={{ textAlign: "center" }}>{m.total}</td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className="admin-badge" style={{ background: "rgba(61,220,151,0.2)", color: "#3ddc97" }}>
+                          {m.active}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className="admin-badge" style={{ background: "rgba(77,110,235,0.2)", color: "#6e8eff" }}>
+                          {m.success}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: "center" }}>
+                        <span className="admin-badge" style={{ background: "rgba(255,85,85,0.2)", color: "#ff5555" }}>
+                          {m.closed}
+                        </span>
+                      </td>
+                    <td>
+                      {isEdit ? (
+                          <Row gap={6} wrap={false}>
+                            <button className="admin-btn-success" onClick={saveEdit}>
+                              💾 Сохранить
+                          </button>
+                            <button className="admin-btn-secondary" onClick={cancelEdit}>
+                              Отмена
+                          </button>
+                          </Row>
+                        ) : (
+                          <Row gap={6} wrap={false}>
+                            <button className="admin-btn-secondary" onClick={() => startEdit(m)}>
+                              ✏️ Переименовать
+                          </button>
+                          <button
+                              className="admin-btn-secondary"
+                              onClick={() => {
+                                const newOpened = isOpened ? null : m.id;
+                                setOpenedManagerId(newOpened);
+                                if (!isOpened) {
+                                  loadManagerProtections(m.id);
+                                }
+                              }}
+                            >
+                              {isOpened ? "🔽 Скрыть" : "📂 Защиты"}
+                          </button>
+                            <button className="admin-btn-danger" onClick={() => askRemove(m)}>
+                              🗑️ Удалить
+                            </button>
+                          </Row>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
+
+        {openedManagerId && (
+          <div style={{ marginTop: 24 }}>
+            <h3 style={{ marginBottom: 12, color: "#fff" }}>
+              🧾 Защиты менеджера:{" "}
+              <span style={{ color: "#6b8aff" }}>
+                {managers.find((m) => m.id === openedManagerId)?.name || `ID ${openedManagerId}`}
+              </span>
+              {!loadingProtections && openedProtections.length > 0 && (
+                <span className="admin-badge" style={{ marginLeft: 8 }}>
+                  {openedProtections.length} шт.
+                </span>
+              )}
+            </h3>
+
+            {loadingProtections && (
+              <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
+                Загрузка защит...
+              </div>
+            )}
+
+            {!loadingProtections && openedProtections.length === 0 && (
+              <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
+                У этого менеджера пока нет защит.
+              </div>
+            )}
+
+            {!loadingProtections && openedProtections.length > 0 && (
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
+                {openedProtections.map((p) => (
+                  <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
+                      <b style={{ color: "#fff" }}>#{p.id}</b>
+                      <span className="admin-badge" style={{
+                        background: p.status === "active" ? "rgba(61,220,151,0.2)" :
+                                    p.status === "success" ? "rgba(77,110,235,0.25)" :
+                                    "rgba(255,85,85,0.25)",
+                        color: p.status === "active" ? "#3ddc97" :
+                               p.status === "success" ? "#6e8eff" : "#ff5555",
+                      }}>
+                        {p.status.toUpperCase()}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)" }}>
+                      <div><span style={{ opacity: 0.6 }}>Партнёр:</span> <b>{p.partner || "—"}</b></div>
+                      <div><span style={{ opacity: 0.6 }}>Клиент:</span> <b>{p.client || "—"}</b></div>
+                      <div><span style={{ opacity: 0.6 }}>SKU:</span> {p.sku || "—"}</div>
+                      <div><span style={{ opacity: 0.6 }}>Площадь:</span> {p.area_m2 ? `${p.area_m2} м²` : "—"}</div>
+                      <div><span style={{ opacity: 0.6 }}>Истекает:</span> {p.expires_at}</div>
+                      {p.comment && <div><span style={{ opacity: 0.6 }}>Комментарий:</span> <i>{p.comment}</i></div>}
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                      {p.status === "active" && (
+                        <button className="admin-btn-secondary" onClick={() => adminCloseProtection(p)}>
+                          🚫 Закрыть
+                        </button>
+                      )}
+                      <button className="admin-btn-danger" onClick={() => adminDeleteProtection(p)}>
+                        🗑️ Удалить
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -282,68 +654,44 @@ function PendingProtections() {
   }, []);
 
   return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Новые защиты (на проверке)</h3>
-      <button className="btn secondary" onClick={load} disabled={loading}>
+    <div className="admin-card">
+      <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>Новые защиты (на проверке)</h3>
+      <button className="admin-btn-secondary" onClick={load} disabled={loading}>
         🔄 Обновить
       </button>
 
       {loading && (
-        <div className="small" style={{ marginTop: 8 }}>
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
           Загрузка…
         </div>
       )}
+      
       {!loading && items.length === 0 && (
-        <div className="small" style={{ marginTop: 8 }}>
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
           Нет заявок.
         </div>
       )}
+      
       {!loading && items.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))",
-            marginTop: 12,
-          }}
-        >
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", marginTop: 16 }}>
           {items.map((p) => (
-            <div
-              key={p.id}
-              className="card"
-              style={{ background: "var(--bg-card)" }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b>#{p.id}</b>
-                <span className="small" style={{ opacity: 0.6 }}>
-                  {p.created_at}
-                </span>
+            <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <b style={{ color: "#fff" }}>#{p.id}</b>
+                <span style={{ fontSize: 12, opacity: 0.6 }}>{p.created_at}</span>
               </div>
-              <div className="small" style={{ marginTop: 4 }}>
-                👤 {p.manager}
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)", marginBottom: 12 }}>
+                <div>👤 {p.manager}</div>
+                <div>🏢 {p.partner} — {p.partner_city}</div>
+                <div>📦 {p.sku}</div>
+                <div>📏 {p.area_m2} м²</div>
+                {p.comment && <div style={{ marginTop: 4 }}>💬 {p.comment}</div>}
               </div>
-              <div className="small">
-                🏢 {p.partner} — {p.partner_city}
-              </div>
-              <div className="small">📦 {p.sku}</div>
-              <div className="small">📏 {p.area_m2} м²</div>
-              {p.comment && (
-                <div className="small" style={{ marginTop: 4 }}>
-                  💬 {p.comment}
-                </div>
-              )}
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "flex-end",
-                  gap: 8,
-                  marginTop: 8,
-                }}
-              >
-                <button className="btn success" onClick={() => approve(p)}>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="admin-btn-success" onClick={() => approve(p)}>
                   ✅ Принять
                 </button>
-                <button className="btn danger" onClick={() => reject(p)}>
+                <button className="admin-btn-danger" onClick={() => reject(p)}>
                   ❌ Отклонить
                 </button>
               </div>
@@ -424,46 +772,27 @@ function NotificationsTab() {
   }, []);
 
   return (
-    <div className="card">
-      <h3 style={{ marginTop: 0 }}>Уведомления менеджеров</h3>
-      <button className="btn secondary" onClick={loadManagers} disabled={loading}>
+    <div className="admin-card">
+      <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>🔔 Уведомления менеджеров</h3>
+      <button className="admin-btn-secondary" onClick={loadManagers} disabled={loading}>
         🔄 Обновить список
       </button>
 
-      {loading && <div className="small">Загрузка...</div>}
+      {loading && <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>Загрузка...</div>}
 
       {!loading && managers.length === 0 && (
-        <div className="small">Менеджеров пока нет.</div>
+        <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>Менеджеров пока нет.</div>
       )}
 
       {!loading && managers.length > 0 && (
-        <div
-          style={{
-            marginTop: 16,
-            display: "flex",
-            flexDirection: "column",
-            gap: 16,
-          }}
-        >
+        <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 16 }}>
           {managers.map((m) => (
-            <div
-              key={m.id}
-              className="card"
-              style={{ background: "rgba(255,255,255,0.02)" }}
-            >
-              <h4 style={{ marginTop: 0 }}>{m.name}</h4>
+            <div key={m.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
+              <h4 style={{ marginTop: 0, marginBottom: 12, color: "#fff" }}>{m.name}</h4>
               {m.telegrams.map((t, i) => (
-                <div
-                  key={i}
-                  style={{
-                    display: "flex",
-                    gap: 8,
-                    alignItems: "center",
-                    marginBottom: 6,
-                  }}
-                >
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
                   <input
-                    className="input"
+                    className="admin-input"
                     placeholder="@telegram_username"
                     value={t}
                     onChange={(e) =>
@@ -481,23 +810,17 @@ function NotificationsTab() {
                       )
                     }
                   />
-                  <button
-                    className="btn danger small"
-                    onClick={() => removeTelegram(m.id, i)}
-                  >
+                  <button className="admin-btn-icon-danger" onClick={() => removeTelegram(m.id, i)}>
                     🗑
                   </button>
                 </div>
               ))}
               <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <button
-                  className="btn secondary small"
-                  onClick={() => addTelegram(m.id)}
-                >
+                <button className="admin-btn-secondary" onClick={() => addTelegram(m.id)}>
                   ➕ Добавить адрес
                 </button>
                 <button
-                  className="btn success small"
+                  className="admin-btn-success"
                   disabled={saving === m.id}
                   onClick={() => saveTelegrams(m)}
                 >
@@ -512,9 +835,91 @@ function NotificationsTab() {
   );
 }
 
+/* ===== Вкладка: Запросы на продление ===== */
+function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extendBusy }) {
+  return (
+    <div className="admin-card">
+      <Row>
+        <h3 style={{ margin: 0, color: "#fff" }}>⏰ Запросы на продление</h3>
+        <button className="admin-btn-secondary" onClick={loadRequests} disabled={loadingReq}>
+          🔄 Обновить
+        </button>
+      </Row>
+
+      <div style={{ marginTop: 16 }}>
+        {loadingReq && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Загрузка…
+          </div>
+        )}
+        
+        {!loadingReq && requests.length === 0 && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Запросов нет.
+          </div>
+        )}
+        
+        {!loadingReq && requests.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table className="admin-table" style={{ width: "100%", minWidth: 1000 }}>
+              <thead>
+                <tr>
+                  <th>ID защиты</th>
+                  <th>Менеджер</th>
+                  <th>Партнёр</th>
+                  <th>SKU</th>
+                  <th>Запрошено</th>
+                  <th>Дней</th>
+                  <th>Истекает</th>
+                  <th>Причина продления</th>
+                  <th>Действие</th>
+                </tr>
+              </thead>
+              <tbody>
+                {requests.map((r) => (
+                  <tr key={r.history_id}>
+                    <td>#{r.protection_id}</td>
+                    <td>{r.manager}</td>
+                    <td>{r.partner}</td>
+                    <td style={{ fontSize: 12 }}>{r.sku}</td>
+                    <td style={{ fontSize: 12 }}>{new Date(r.requested_at).toLocaleString()}</td>
+                    <td style={{ textAlign: "center" }}>{r.days}</td>
+                    <td style={{ fontSize: 12 }}>{r.expires_at}</td>
+                    <td style={{ fontSize: 12, maxWidth: 240, whiteSpace: "pre-wrap" }}>
+                      💬 {r.reason || "—"}
+                    </td>
+                    <td>
+                      <Row gap={6} wrap={false}>
+                        <button
+                          className="admin-btn-success"
+                          onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
+                          disabled={extendBusy === r.protection_id}
+                        >
+                          ✅ Продлить
+                        </button>
+                        <button
+                          className="admin-btn-secondary"
+                          onClick={() => doAdminExtend(r.protection_id, 10)}
+                          disabled={extendBusy === r.protection_id}
+                        >
+                          ➕ 10 дн
+                        </button>
+                      </Row>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ===== ГЛАВНЫЙ КОМПОНЕНТ АДМИНКИ ===== */
 export default function AdminPage({ onBack }) {
-  const [tab, setTab] = useState("managers");
+  const [tab, setTab] = useState("dashboard");
   
   // 🔐 Проверка доступа при монтировании
   useEffect(() => {
@@ -674,506 +1079,107 @@ export default function AdminPage({ onBack }) {
   const role = localStorage.getItem("role");
 
   return (
-    <div className="container">
-      <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <h1 style={{ marginRight: "auto" }}>👑 Админка</h1>
-        <div className="mode-toggle">
-          <div
-            className={`tag ${tab === "managers" ? "active" : ""}`}
-            onClick={() => setTab("managers")}
-          >
-            Менеджеры
-          </div>
-          <div
-            className={`tag ${tab === "requests" ? "active" : ""}`}
-            onClick={() => setTab("requests")}
-          >
-            Запросы на продление
-          </div>
-          <div
-            className={`tag ${tab === "pending" ? "active" : ""}`}
-            onClick={() => setTab("pending")}
-          >
-            Защиты проверка
-          </div>
-          <div
-            className={`tag ${tab === "notifications" ? "active" : ""}`}
-            onClick={() => setTab("notifications")}
-          >
-            Уведомления
-          </div>
-          {role === "superadmin" && (
-            <div
-              className={`tag ${tab === "users" ? "active" : ""}`}
-              onClick={() => setTab("users")}
-            >
-              Пользователи
-            </div>
-          )}
-        </div>
-        <button className="btn" onClick={back}>
+    <div className="container" style={{ background: "linear-gradient(135deg, #0d1320 0%, #1a1f3a 100%)", minHeight: "100vh" }}>
+      <div className="admin-header">
+        <h1 style={{ margin: 0, background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontWeight: 700 }}>
+          👑 Панель администратора
+        </h1>
+        <button className="admin-btn-secondary" onClick={back}>
           ⬅️ Назад
         </button>
-      </div>
-
-      {/* ===== TAB: MANAGERS ===== */}
-      {tab === "managers" && (
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Управление менеджерами</h3>
-
-          <Row>
-            <input
-              className="input"
-              style={{ minWidth: 260 }}
-              placeholder="Новый менеджер…"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <button className="btn" onClick={doAdd}>
-              ➕ Добавить
-            </button>
-            <button
-              className="btn secondary"
-              onClick={loadManagers}
-              disabled={loadingManagers}
-            >
-              🔄 Обновить
-            </button>
-          </Row>
-
-          <div style={{ marginTop: 12 }}>
-            {loadingManagers && <div className="small">Загрузка…</div>}
-            {!loadingManagers && managers.length === 0 && (
-              <div className="small">
-                Пока нет менеджеров — добавьте первого 👆
-              </div>
-            )}
-            {!loadingManagers && managers.length > 0 && (
-              <div style={{ overflowX: "auto" }}>
-                <table
-                  className="table"
-                  style={{ width: "100%", minWidth: 760 }}
-                >
-                  <thead>
-                    <tr>
-                      <th style={{ textAlign: "left" }}>Имя</th>
-                      <th>Всего</th>
-                      <th>Активных</th>
-                      <th>Успешных</th>
-                      <th>Закрытых</th>
-                      <th style={{ width: 280 }}>Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {managers.map((m) => {
-                      const isEdit = edit?.id === m.id;
-                      const isOpened = openedManagerId === m.id;
-                      return (
-                        <tr key={m.id}>
-                          <td>
-                            {isEdit ? (
-                              <input
-                                className="input"
-                                value={edit.name}
-                                onChange={(e) =>
-                                  setEdit((v) => ({
-                                    ...v,
-                                    name: e.target.value,
-                                  }))
-                                }
-                              />
-                            ) : (
-                              <b>{m.name}</b>
-                            )}
-                          </td>
-                          <td
-                            data-label="Всего"
-                            style={{ textAlign: "center" }}
-                          >
-                            {m.total}
-                          </td>
-                          <td
-                            data-label="Активных"
-                            style={{ textAlign: "center" }}
-                          >
-                            {m.active}
-                          </td>
-                          <td
-                            data-label="Успешных"
-                            style={{ textAlign: "center" }}
-                          >
-                            {m.success}
-                          </td>
-                          <td
-                            data-label="Закрытых"
-                            style={{ textAlign: "center" }}
-                          >
-                            {m.closed}
-                          </td>
-                          <td data-label="Действия">
-                            {isEdit ? (
-                              <Row gap={6} wrap={false}>
-                                <button
-                                  className="btn success"
-                                  onClick={saveEdit}
-                                >
-                                  💾 Сохранить
-                                </button>
-                                <button
-                                  className="btn secondary"
-                                  onClick={cancelEdit}
-                                >
-                                  Отмена
-                                </button>
-                              </Row>
-                            ) : (
-                              <Row gap={6} wrap={false}>
-                                <button
-                                  className="btn"
-                                  onClick={() => startEdit(m)}
-                                >
-                                  ✏️ Переименовать
-                                </button>
-                                <button
-                                  className="btn secondary"
-                                  onClick={() => {
-                                    const newOpened =
-                                      isOpened ? null : m.id;
-                                    setOpenedManagerId(newOpened);
-                                    if (!isOpened) {
-                                      loadManagerProtections(m.id);
-                                    }
-                                  }}
-                                >
-                                  {isOpened ? "🔽 Скрыть" : "📂 Защиты"}
-                                </button>
-                                <button
-                                  className="btn danger"
-                                  onClick={() => askRemove(m)}
-                                >
-                                  🗑️ Удалить
-                                </button>
-                              </Row>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
 
-          {openedManagerId && (
-            <div style={{ marginTop: 24 }}>
-              <h3
-                style={{
-                  marginBottom: 12,
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                🧾 Защиты менеджера:
-                <span style={{ color: "var(--accent-light)" }}>
-                  {managers.find((m) => m.id === openedManagerId)?.name ||
-                    `ID ${openedManagerId}`}
-                </span>
-                {!loadingProtections && openedProtections.length > 0 && (
-                  <span
-                    style={{
-                      background: "var(--bg-card)",
-                      padding: "2px 10px",
-                      borderRadius: 8,
-                      fontSize: 14,
-                      opacity: 0.9,
-                    }}
-                  >
-                    {`${openedProtections.length} шт.`}
-                  </span>
-                )}
-                {!loadingProtections && openedProtections.length > 0 && (
-                  <span
-                    style={{
-                      background: "rgba(61,220,151,0.15)",
-                      border: "1px solid rgba(61,220,151,0.3)",
-                      padding: "2px 10px",
-                      borderRadius: 8,
-                      fontSize: 14,
-                      color: "#3ddc97",
-                      fontWeight: 600,
-                    }}
-                  >
-                    {`${openedProtections.reduce(
-                      (sum, p) => sum + (p.area_m2 || 0),
-                      0
-                    )} м²`}
-                  </span>
-                )}
-                {loadingProtections && (
-                  <span
-                    style={{
-                      background: "var(--bg-card)",
-                      padding: "2px 10px",
-                      borderRadius: 8,
-                      fontSize: 14,
-                      opacity: 0.8,
-                    }}
-                  >
-                    Загрузка...
-                  </span>
-                )}
-              </h3>
-
-              {loadingProtections && (
-                <div className="small">Загрузка защит...</div>
-              )}
-
-              {!loadingProtections && openedProtections.length === 0 && (
-                <div className="small" style={{ opacity: 0.8 }}>
-                  У этого менеджера пока нет защит.
-                </div>
-              )}
-
-              {!loadingProtections && openedProtections.length > 0 && (
-                <div
-                  style={{
-                    display: "grid",
-                    gap: 12,
-                    gridTemplateColumns:
-                      "repeat(auto-fill, minmax(380px, 1fr))",
-                  }}
-                >
-                  {openedProtections.map((p) => (
-                    <div
-                      key={p.id}
-                      className="card"
-                      style={{
-                        background: "var(--bg-card)",
-                        border: "1px solid var(--border)",
-                        padding: 16,
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        <b>#{p.id}</b>
-                        <span
-                          style={{
-                            background:
-                              p.status === "active"
-                                ? "rgba(61,220,151,0.2)"
-                                : p.status === "success"
-                                ? "rgba(77,110,235,0.25)"
-                                : "rgba(255,85,85,0.25)",
-                            color:
-                              p.status === "active"
-                                ? "#3ddc97"
-                                : p.status === "success"
-                                ? "#6e8eff"
-                                : "#ff5555",
-                            borderRadius: 8,
-                            fontSize: 12,
-                            padding: "2px 8px",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {p.status.toUpperCase()}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          marginTop: 8,
-                          fontSize: 14,
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        <div>
-                          <span className="text-muted">Партнёр:</span>{" "}
-                          <b>{p.partner || "—"}</b>
-                        </div>
-                        <div>
-                          <span className="text-muted">Клиент:</span>{" "}
-                          <b>{p.client || "—"}</b>
-                        </div>
-                        <div>
-                          <span className="text-muted">SKU:</span>{" "}
-                          <span style={{ opacity: 0.9 }}>
-                            {p.sku || "—"}
-                          </span>
-                        </div>
-                        <div>
-                          <span className="text-muted">Площадь:</span>{" "}
-                          {p.area_m2 ? `${p.area_m2} м²` : "—"}
-                        </div>
-                        <div>
-                          <span className="text-muted">Истекает:</span>{" "}
-                          <span style={{ opacity: 0.8 }}>
-                            {p.expires_at}
-                          </span>
-                        </div>
-                        {p.comment && (
-                          <div>
-                            <span className="text-muted">
-                              Комментарий:
-                            </span>{" "}
-                            <i>{p.comment}</i>
-                          </div>
-                        )}
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "flex-end",
-                          gap: 8,
-                          marginTop: 14,
-                        }}
-                      >
-                        {p.status === "active" && (
-                          <button
-                            className="btn secondary"
-                            onClick={() => adminCloseProtection(p)}
-                          >
-                            🚫 Закрыть
-                          </button>
-                        )}
-                        <button
-                          className="btn danger"
-                          onClick={() => adminDeleteProtection(p)}
-                        >
-                          🗑️ Удалить
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+      <div className="admin-tabs">
+          <div
+          className={`admin-tab ${tab === "dashboard" ? "active" : ""}`}
+          onClick={() => setTab("dashboard")}
+          >
+          📊 Дашборд
+          </div>
+          <div
+          className={`admin-tab ${tab === "users" ? "active" : ""}`}
+          onClick={() => setTab("users")}
+          >
+          👥 Пользователи
+          </div>
+          <div
+          className={`admin-tab ${tab === "managers" ? "active" : ""}`}
+          onClick={() => setTab("managers")}
+          >
+          👔 Менеджеры
+          </div>
+            <div
+          className={`admin-tab ${tab === "requests" ? "active" : ""}`}
+          onClick={() => setTab("requests")}
+            >
+          ⏰ Запросы
             </div>
-          )}
-        </div>
-      )}
+        <div
+          className={`admin-tab ${tab === "pending" ? "active" : ""}`}
+          onClick={() => setTab("pending")}
+        >
+          🔍 Проверка
+                      </div>
+        <div
+          className={`admin-tab ${tab === "notifications" ? "active" : ""}`}
+          onClick={() => setTab("notifications")}
+        >
+          🔔 Уведомления
+                        </div>
+                      </div>
 
-      {/* ===== TAB: REQUESTS ===== */}
-      {tab === "requests" && (
-        <div className="card">
-          <Row>
-            <h3 style={{ margin: 0 }}>Запросы на продление</h3>
-            <button
-              className="btn secondary"
-              onClick={loadRequests}
-              disabled={loadingReq}
-            >
-              🔄 Обновить
-            </button>
-          </Row>
-
-          <div style={{ marginTop: 12 }}>
-            {loadingReq && <div className="small">Загрузка…</div>}
-            {!loadingReq && requests.length === 0 && (
-              <div className="small">Запросов нет.</div>
-            )}
-            {!loadingReq && requests.length > 0 && (
-              <div style={{ overflowX: "auto" }}>
-                <table
-                  className="table"
-                  style={{ width: "100%", minWidth: 860 }}
-                >
-                  <thead>
-                    <tr>
-                      <th>ID защиты</th>
-                      <th>Менеджер</th>
-                      <th>Партнёр</th>
-                      <th>SKU</th>
-                      <th>Запрошено</th>
-                      <th>Дней</th>
-                      <th>Истекает</th>
-                      <th>Причина продления</th>
-                      <th>Действие</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {requests.map((r) => (
-                      <tr key={r.history_id}>
-                        <td data-label="ID защиты">#{r.protection_id}</td>
-                        <td data-label="Менеджер">{r.manager}</td>
-                        <td data-label="Партнёр">{r.partner}</td>
-                        <td data-label="SKU" className="small">
-                          {r.sku}
-                        </td>
-                        <td
-                          data-label="Запрошено"
-                          className="small"
-                        >
-                          {new Date(r.requested_at).toLocaleString()}
-                        </td>
-                        <td
-                          data-label="Дней"
-                          style={{ textAlign: "center" }}
-                        >
-                          {r.days}
-                        </td>
-                        <td
-                          data-label="Истекает"
-                          className="small"
-                        >
-                          {r.expires_at}
-                        </td>
-                        <td
-                          data-label="Причина"
-                          className="small"
-                          style={{
-                            maxWidth: 240,
-                            whiteSpace: "pre-wrap",
-                          }}
-                        >
-                          💬 {r.reason || "—"}
-                        </td>
-                        <td>
-                          <Row gap={6} wrap={false}>
-                            <button
-                              className="btn success"
-                              onClick={() =>
-                                doAdminExtend(
-                                  r.protection_id,
-                                  r.days || 10
-                                )
-                              }
-                              disabled={extendBusy === r.protection_id}
-                            >
-                              ✅ Продлить
-                            </button>
-                            <button
-                              className="btn secondary"
-                              onClick={() =>
-                                doAdminExtend(r.protection_id, 10)
-                              }
-                              disabled={extendBusy === r.protection_id}
-                            >
-                              ➕ 10 дн
-                            </button>
-                          </Row>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+      <div style={{ marginTop: 24 }}>
+        {tab === "dashboard" && <DashboardTab />}
+        {tab === "users" && (
+          role === "superadmin" ? <UsersTable /> : (
+            <div className="admin-card">
+              <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+                ⛔ Доступ к управлению пользователями только для супер-администратора
               </div>
-            )}
-          </div>
-        </div>
-      )}
-
+            </div>
+          )
+        )}
+        {tab === "managers" && (
+          <ManagersTab
+            managers={managers}
+            loadingManagers={loadingManagers}
+            loadManagers={loadManagers}
+            newName={newName}
+            setNewName={setNewName}
+            doAdd={doAdd}
+            edit={edit}
+            setEdit={setEdit}
+            startEdit={startEdit}
+            cancelEdit={cancelEdit}
+            saveEdit={saveEdit}
+            askRemove={askRemove}
+            remove={remove}
+            setRemove={setRemove}
+            cancelRemove={cancelRemove}
+            confirmRemove={confirmRemove}
+            transferTo={transferTo}
+            setTransferTo={setTransferTo}
+            openedManagerId={openedManagerId}
+            setOpenedManagerId={setOpenedManagerId}
+            openedProtections={openedProtections}
+            loadingProtections={loadingProtections}
+            loadManagerProtections={loadManagerProtections}
+            adminCloseProtection={adminCloseProtection}
+            adminDeleteProtection={adminDeleteProtection}
+          />
+        )}
+      {tab === "requests" && (
+          <RequestsTab
+            requests={requests}
+            loadingReq={loadingReq}
+            loadRequests={loadRequests}
+            doAdminExtend={doAdminExtend}
+            extendBusy={extendBusy}
+          />
+        )}
       {tab === "pending" && <PendingProtections />}
       {tab === "notifications" && <NotificationsTab />}
-      {tab === "users" && role === "superadmin" && <UsersTable />}
+      </div>
 
       {remove && (
         <Confirm
@@ -1183,22 +1189,19 @@ export default function AdminPage({ onBack }) {
           onCancel={cancelRemove}
           disabled={false}
         >
-          <div className="small" style={{ lineHeight: 1.5 }}>
+          <div style={{ lineHeight: 1.5, color: "rgba(255,255,255,0.8)" }}>
             Вы собираетесь удалить менеджера <b>{remove.name}</b>.
             {remove.total > 0 ? (
               <>
                 <br />
-                У него есть <b>{remove.total}</b> защит(ы). Выберите, кому их
-                перевести, или удаление не будет выполнено.
+                У него есть <b>{remove.total}</b> защит(ы). Выберите, кому их перевести, или удаление не будет выполнено.
                 <div style={{ marginTop: 10 }}>
                   <select
-                    className="select"
+                    className="admin-select"
                     value={transferTo}
                     onChange={(e) => setTransferTo(e.target.value)}
                   >
-                    <option value="">
-                      — выбрать менеджера для перевода —
-                    </option>
+                    <option value="">— выбрать менеджера для перевода —</option>
                     {managers
                       .filter((m) => m.id !== remove.id)
                       .map((m) => (
