@@ -359,14 +359,6 @@ class UserLogin(BaseModel):
     company: Optional[str] = None
 
 
-class RegisterOrLogin(BaseModel):
-    """Модель для единого эндпоинта регистрации/входа"""
-    tg_id: str  # Обязательное, из Telegram WebApp или dev-режима
-    full_name: str
-    phone: str
-    position: Optional[str] = None  # Должность
-
-
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
@@ -398,6 +390,54 @@ async def get_me(user=Depends(get_current_active_user)):
             "city": user.get("city", ""),
         }
     }
+
+
+@app.post("/api/auth/register_or_login")
+async def register_or_login(data: RegisterOrLogin):
+    """
+    Единый эндпоинт для регистрации/входа по Telegram данным.
+    Использует UPSERT логику: если пользователь с таким tg_id есть - обновляет, иначе создает.
+    """
+    if not data.tg_id:
+        raise HTTPException(status_code=400, detail="tg_id is required")
+    
+    # Валидация обязательных полей
+    if not data.full_name or not data.phone:
+        raise HTTPException(status_code=400, detail="full_name and phone are required")
+    
+    try:
+        # Используем upsert_user для создания или обновления
+        user = upsert_user({
+            "tg_id": str(data.tg_id),
+            "full_name": data.full_name,
+            "phone": data.phone,
+            "position": data.position,
+            "role": "user",  # По умолчанию роль user
+            "is_active": 1,
+        })
+        
+        # Создание токена
+        token = create_access_token(user)
+        
+        return {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "tg_id": user.get("tg_id"),
+                "full_name": user.get("full_name", ""),
+                "phone": user.get("phone", ""),
+                "position": user.get("position", ""),
+                "role": user["role"],
+            }
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        print(f"❌ Error in register_or_login: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.post("/api/auth/register")

@@ -101,12 +101,23 @@ def get_conn():
 
 # === CRUD пользователи ===
 def get_user_by_id(user_id: int):
+    """Получить пользователя по ID"""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        if row:
+            # Преобразуем Row в dict
+            columns = [description[0] for description in cur.description]
+            user_dict = dict(zip(columns, row))
+            return user_dict
+        return None
+    except Exception as e:
+        print(f"⚠️ Error in get_user_by_id({user_id}): {e}")
+        return None
+    finally:
+        conn.close()
 
 
 def get_user_by_tg_id(tg_id: int):

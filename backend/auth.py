@@ -133,7 +133,10 @@ def get_current_user(credentials=Depends(security)):
         try:
             user_id_int = int(user_id) if isinstance(user_id, str) else user_id
             user = get_user_by_id(user_id_int)
-        except (ValueError, TypeError):
+            if user:
+                print(f"✅ User found by user_id: {user_id_int}")
+        except (ValueError, TypeError) as e:
+            print(f"⚠️ Error converting user_id {user_id}: {e}")
             pass
     
     # Если не нашли по user_id, пробуем по tg_id из payload
@@ -155,8 +158,16 @@ def get_current_user(credentials=Depends(security)):
                 pass
     
     if not user:
-        print(f"⚠️ User not found. user_id={user_id}, sub={sub}, payload keys: {list(payload.keys())}")
-        raise HTTPException(status_code=401, detail="User not found")
+        print(f"⚠️ User not found. user_id={user_id}, sub={sub}, tg_id={tg_id}, payload keys: {list(payload.keys())}")
+        # Пробуем найти пользователя по tg_id, если он есть в payload
+        if tg_id:
+            from backend.db import get_user_by_tg_id
+            user = get_user_by_tg_id(tg_id)
+            if user:
+                print(f"✅ User found by tg_id: {tg_id}")
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
     
     # Проверяем is_active
     is_active = user.get("is_active", 1)
