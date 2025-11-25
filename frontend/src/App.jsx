@@ -816,7 +816,9 @@ function App() {
     const role = localStorage.getItem("role") || "";
     const userStr = localStorage.getItem("auth_user");
     const user = userStr ? JSON.parse(userStr) : null;
-    return { token, role, user };
+    // Если есть user, используем роль из user, иначе из localStorage
+    const finalRole = user?.role || role;
+    return { token, role: finalRole, user };
   });
 
   const [route, setRoute] = useState("home"); // "home" | "create" | "active" | "archive" | "stats" | "admin"
@@ -844,19 +846,21 @@ function App() {
       return;
     }
 
-    // Проверяем валидность токена
+    // Проверяем валидность токена и получаем актуальные данные пользователя
     api
       .get("/api/auth/verify")
-      .then((res) => {
-        if (res.data.ok) {
-          // Токен валидный - обновляем роль из ответа
-          const role = res.data.role;
-          localStorage.setItem("role", role);
-          setAuth((prev) => ({ ...prev, role }));
+      .then(() => {
+        // Получаем актуальные данные пользователя
+        return api.get("/api/auth/me").then((res) => {
+          const user = res.data.user || res.data;
+          if (user) {
+            const role = user.role || "";
+            localStorage.setItem("auth_user", JSON.stringify(user));
+            localStorage.setItem("role", role);
+            setAuth((prev) => ({ ...prev, role, user }));
+          }
           setTokenValid(true);
-        } else {
-          throw new Error("Token invalid");
-        }
+        });
       })
       .catch((err) => {
         console.warn("⚠️ Token verification failed:", err);
@@ -1532,13 +1536,31 @@ if (isTG && (!ready || loading)) {
   if (!isTG && (!auth.token || !tokenValid)) {
     return (
       <LoginPage
-        onLogin={(roleFromLogin) => {
+        onLogin={async (roleFromLogin) => {
           const token = localStorage.getItem("jwt_token") || "";
           const userStr = localStorage.getItem("auth_user");
-          const user = userStr ? JSON.parse(userStr) : { role: roleFromLogin };
-          setAuth({ token, role: roleFromLogin, user });
+          let user = userStr ? JSON.parse(userStr) : { role: roleFromLogin };
+          let finalRole = user.role || roleFromLogin;
+          
+          // Обновляем данные пользователя через API для получения актуальной роли
+          if (token) {
+            try {
+              const res = await api.get("/api/auth/me");
+              const updatedUser = res.data.user || res.data;
+              if (updatedUser) {
+                user = updatedUser;
+                finalRole = updatedUser.role || finalRole;
+                localStorage.setItem("auth_user", JSON.stringify(updatedUser));
+                localStorage.setItem("role", finalRole);
+              }
+            } catch (e) {
+              console.warn("Не удалось обновить данные пользователя:", e);
+            }
+          }
+          
+          setAuth({ token, role: finalRole, user });
           setTokenValid(true);
-          if (roleFromLogin === "admin" || roleFromLogin === "superadmin") {
+          if (finalRole === "admin" || finalRole === "superadmin") {
             setRoute("admin");
           } else {
             setRoute("home");

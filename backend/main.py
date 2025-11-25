@@ -413,14 +413,23 @@ async def register_or_login(data: RegisterOrLogin):
     
     try:
         # Используем upsert_user для создания или обновления
+        # Роль будет определена внутри upsert_user по телефону
         user = upsert_user({
             "tg_id": str(data.tg_id),
             "full_name": data.full_name,
             "phone": data.phone,
             "position": data.position,
-            "role": role,  # Определяем роль по телефону
+            "role": role,  # Определяем роль по телефону (для новых пользователей)
             "is_active": 1,
         })
+        
+        # После upsert проверяем, что роль правильная (на случай обновления существующего пользователя)
+        import re
+        phone_clean_check = re.sub(r'\D', '', str(data.phone))
+        if phone_clean_check == "79207455960" and user.get("role") != "superadmin":
+            # Если роль не обновилась, обновляем вручную
+            from backend.db import update_user
+            user = update_user(user["id"], {"role": "superadmin"})
         
         # Создание токена
         token = create_access_token(user)
