@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
 import axios from "axios";
-import { api, fetchMe } from "./api";
+import { api, fetchMe, adminUsersAPI } from "./api";
 
 import AdminPage from "./AdminPage.jsx";
 console.log("📦 App.jsx загружает AdminPage из", import.meta.url);
@@ -430,6 +430,7 @@ function App() {
   const goActive = () => setRoute("active");
   const goArchive = () => setRoute("archive");
   const goStats = () => setRoute("stats");
+  const goSettings = () => setRoute("settings");
 
   // ===== Основное состояние приложения =====
   const [stats, setStats] = useState([]);
@@ -958,7 +959,7 @@ if (isTG && (!ready || loading)) {
             </div>
           )}
 
-          <div className="home-card" onClick={() => alert("Настройки в разработке")}>
+          <div className="home-card" onClick={() => setRoute("settings")}>
             <div className="home-card-icon">⚙️</div>
             <h3 className="home-card-title">Настройки</h3>
             <p className="home-card-subtitle">Профиль и параметры приложения</p>

@@ -56,17 +56,21 @@ def create_access_token(user: dict):
     """
     user_id = user.get("id")
     email = user.get("email")
-    role = user.get("role", "manager")
+    tg_id = user.get("tg_id")
+    role = user.get("role", "user")
     
     # Для обратной совместимости: если нет email, используем tg_id или user_id
-    sub = email or str(user.get("tg_id", user_id))
+    sub = email or str(tg_id) if tg_id else str(user_id)
     
     payload = {
-        "sub": str(sub),
+        "sub": str(user_id),  # Всегда user_id в sub для единообразия
         "user_id": user_id,
+        "tg_id": str(tg_id) if tg_id else None,  # Добавляем tg_id в payload
         "role": role,
         "exp": datetime.utcnow() + timedelta(days=30)
     }
+    # Убираем None значения из payload
+    payload = {k: v for k, v in payload.items() if v is not None}
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
     return token
 
@@ -120,6 +124,7 @@ def get_current_user(credentials=Depends(security)):
     # Поддерживаем оба формата: user_id напрямую или через sub
     user_id = payload.get("user_id")
     sub = payload.get("sub")
+    tg_id = payload.get("tg_id")
     
     user = None
     
@@ -131,7 +136,12 @@ def get_current_user(credentials=Depends(security)):
         except (ValueError, TypeError):
             pass
     
-    # Если не нашли по user_id, пробуем по sub (может быть email или tg_id)
+    # Если не нашли по user_id, пробуем по tg_id из payload
+    if not user and tg_id:
+        from backend.db import get_user_by_tg_id
+        user = get_user_by_tg_id(tg_id)
+    
+    # Если не нашли, пробуем по sub (может быть email или user_id)
     if not user and sub:
         # Пробуем как email
         if "@" in str(sub):

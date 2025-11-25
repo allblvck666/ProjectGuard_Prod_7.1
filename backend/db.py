@@ -179,7 +179,7 @@ def update_user(user_id: int, data: dict):
     cur = conn.cursor()
     
     # Разрешенные поля для обновления
-    allowed_fields = ["full_name", "phone", "company", "city", "role", "is_active", "last_login"]
+    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name"]
     updates = []
     values = []
     
@@ -187,6 +187,11 @@ def update_user(user_id: int, data: dict):
         if field in data:
             updates.append(f"{field} = ?")
             values.append(data[field])
+    
+    # Всегда обновляем updated_at
+    if updates:
+        updates.append("updated_at = ?")
+        values.append(now_iso())
     
     if not updates:
         conn.close()
@@ -209,6 +214,94 @@ def get_all_users():
     rows = cur.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+
+def upsert_user(data: dict):
+    """
+    Создать или обновить пользователя по tg_id (UPSERT логика).
+    Если пользователь с таким tg_id существует - обновляет данные.
+    Если нет - создает нового.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    tg_id = str(data.get("tg_id", ""))
+    if not tg_id:
+        conn.close()
+        raise ValueError("tg_id is required")
+    
+    # Проверяем, существует ли пользователь
+    cur.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
+    existing = cur.fetchone()
+    
+    now = now_iso()
+    
+    if existing:
+        # Обновляем существующего пользователя
+        user_dict = dict(existing)
+        user_id = user_dict["id"]
+        
+        # Подготовка данных для обновления
+        update_fields = []
+        update_values = []
+        
+        allowed_update_fields = ["full_name", "phone", "position", "company", "city", "tg_username", "first_name", "is_active"]
+        for field in allowed_update_fields:
+            if field in data:
+                update_fields.append(f"{field} = ?")
+                update_values.append(data[field])
+        
+        # Всегда обновляем updated_at
+        update_fields.append("updated_at = ?")
+        update_values.append(now)
+        
+        # Если is_active был 0, можно снова сделать 1
+        if "is_active" not in data and user_dict.get("is_active", 1) == 0:
+            update_fields.append("is_active = ?")
+            update_values.append(1)
+        
+        if update_fields:
+            update_values.append(user_id)
+            query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+            cur.execute(query, update_values)
+            conn.commit()
+        
+        # Получаем обновленного пользователя
+        conn.close()
+        return get_user_by_id(user_id)
+    else:
+        # Создаем нового пользователя
+        full_name = data.get("full_name", "")
+        phone = data.get("phone", "")
+        position = data.get("position")
+        company = data.get("company")
+        role = data.get("role", "user")
+        is_active = data.get("is_active", 1)
+        tg_username = data.get("tg_username", "")
+        first_name = data.get("first_name", full_name)
+        
+        try:
+            cur.execute(
+                """
+                INSERT INTO users (
+                    tg_id, tg_username, first_name, full_name, phone, position,
+                    company, role, is_active, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tg_id, tg_username, first_name, full_name, phone, position,
+                    company, role, is_active, now, now
+                )
+            )
+            conn.commit()
+            user_id = cur.lastrowid
+            conn.close()
+            return get_user_by_id(user_id)
+        except sqlite3.IntegrityError as e:
+            conn.close()
+            # Если все же произошла ошибка UNIQUE (например, параллельный запрос)
+            # Пытаемся получить существующего пользователя
+            return get_user_by_tg_id(int(tg_id) if tg_id.isdigit() else None) or get_user_by_tg_id(tg_id)
 
 
 # === Инициализация таблиц ===
@@ -251,10 +344,10 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tg_id INTEGER UNIQUE,
+            tg_id TEXT UNIQUE,
             tg_username TEXT,
             first_name TEXT,
-            role TEXT DEFAULT 'manager',
+            role TEXT DEFAULT 'user',
             group_tag TEXT,
             manager_id INTEGER,
             region TEXT,
@@ -264,10 +357,13 @@ def init_db():
             password_hash TEXT,
             full_name TEXT,
             phone TEXT,
+            position TEXT,
             company TEXT,
             city TEXT,
             is_active INTEGER DEFAULT 1,
-            last_login TEXT
+            last_login TEXT,
+            updated_at TEXT,
+            extra TEXT
         )
         """
     )
@@ -281,10 +377,13 @@ def init_db():
         "password_hash": "TEXT",
         "full_name": "TEXT",
         "phone": "TEXT",
+        "position": "TEXT",
         "company": "TEXT",
         "city": "TEXT",
         "is_active": "INTEGER DEFAULT 1",
-        "last_login": "TEXT"
+        "last_login": "TEXT",
+        "updated_at": "TEXT",
+        "extra": "TEXT"
     }
     
     for col_name, col_def in new_columns.items():
@@ -296,8 +395,16 @@ def init_db():
                 # Колонка уже существует или другая ошибка
                 print(f"⚠️ Could not add column {col_name}: {e}")
     
-    # Убираем NOT NULL с tg_id, если он был обязательным (для email-пользователей)
-    # Это уже сделано в CREATE TABLE выше (tg_id INTEGER UNIQUE без NOT NULL)
+    # Миграция: изменяем tg_id с INTEGER на TEXT, если нужно
+    # SQLite не поддерживает ALTER COLUMN напрямую, но можно проверить тип
+    try:
+        cur.execute("SELECT typeof(tg_id) FROM users LIMIT 1")
+        result = cur.fetchone()
+        # Если таблица пустая или tg_id уже TEXT - ничего не делаем
+        # Если есть данные с INTEGER - нужно будет пересоздать таблицу (но это сложно)
+        # Для простоты оставляем как есть, но в новых записях будем использовать TEXT
+    except:
+        pass
 
     # === Managers ===
     cur.execute(

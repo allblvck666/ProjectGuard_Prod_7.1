@@ -49,6 +49,16 @@ api.interceptors.response.use(
 
 // ===== ХЕЛПЕРЫ ДЛЯ АВТОРИЗАЦИИ =====
 
+export const registerOrLogin = async (data) => {
+  const res = await api.post("/api/auth/register_or_login", data);
+  if (res.data.token && res.data.user) {
+    localStorage.setItem("jwt_token", res.data.token);
+    localStorage.setItem("role", res.data.user.role);
+    localStorage.setItem("auth_user", JSON.stringify(res.data.user));
+  }
+  return res.data;
+};
+
 export const login = async (data) => {
   const res = await api.post("/api/auth/login", data);
   if (res.data.token && res.data.user) {

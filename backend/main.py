@@ -58,7 +58,8 @@ if not BOT_TOKEN:
 # === Локальные модули ===
 from backend.db import (
     get_conn, init_db, now_iso, add_days, load_skus,
-    get_user_by_email, create_user, update_user, get_all_users
+    get_user_by_email, create_user, update_user, get_all_users,
+    get_user_by_tg_id, upsert_user
 )
 from backend.users import router as users_router, init_users_table
 from backend.auth import (
@@ -336,6 +337,14 @@ class UserRegister(BaseModel):
     city: str = ""
 
 
+class RegisterOrLogin(BaseModel):
+    """Модель для единого эндпоинта регистрации/входа"""
+    tg_id: str  # Обязательное, из Telegram WebApp или dev-режима
+    full_name: str
+    phone: str
+    position: Optional[str] = None  # Должность
+
+
 class UserLogin(BaseModel):
     # Поддержка разных форматов входа
     email: Optional[str] = None
@@ -350,9 +359,18 @@ class UserLogin(BaseModel):
     company: Optional[str] = None
 
 
+class RegisterOrLogin(BaseModel):
+    """Модель для единого эндпоинта регистрации/входа"""
+    tg_id: str  # Обязательное, из Telegram WebApp или dev-режима
+    full_name: str
+    phone: str
+    position: Optional[str] = None  # Должность
+
+
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
+    position: Optional[str] = None
     company: Optional[str] = None
     city: Optional[str] = None
     role: Optional[str] = None
@@ -619,7 +637,7 @@ async def telegram_auth(request: Request):
         conn.commit()
         row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
 
-    role = row["role"]
+        role = row["role"]
     token = create_access_token(dict(row))
     conn.close()
 
@@ -698,15 +716,16 @@ def admin_list_users(admin_user=Depends(get_superadmin_user)):
             {
                 "id": u["id"],
                 "email": u.get("email"),
-                "full_name": u.get("full_name", ""),
+                "tg_id": u.get("tg_id"),
+                "full_name": u.get("full_name", u.get("first_name", "")),
                 "phone": u.get("phone", ""),
+                "position": u.get("position", ""),
                 "company": u.get("company", ""),
                 "city": u.get("city", ""),
                 "role": u["role"],
                 "is_active": u.get("is_active", 1),
                 "created_at": u.get("created_at", ""),
                 "last_login": u.get("last_login"),
-                "telegram_id": u.get("tg_id"),
             }
             for u in users
         ]
@@ -741,6 +760,8 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_sup
         update_data["full_name"] = data.full_name
     if data.phone is not None:
         update_data["phone"] = data.phone
+    if data.position is not None:
+        update_data["position"] = data.position
     if data.company is not None:
         update_data["company"] = data.company
     if data.city is not None:
@@ -757,8 +778,10 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_sup
         "user": {
             "id": updated["id"],
             "email": updated.get("email"),
+            "tg_id": updated.get("tg_id"),
             "full_name": updated.get("full_name", ""),
             "phone": updated.get("phone", ""),
+            "position": updated.get("position", ""),
             "company": updated.get("company", ""),
             "city": updated.get("city", ""),
             "role": updated["role"],
@@ -1737,50 +1760,8 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
 
     return {"ok": True, "id": new_id, "msg": "✅ Защита отправлена админу на проверку"}
 
-# ===== USERS MANAGEMENT =====
-from fastapi import BackgroundTasks
-
-@app.get("/api/users")
-def get_users():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, tg_id, tg_username, first_name, role, group_tag, manager_id, region, created_at
-        FROM users
-        ORDER BY id ASC
-    """)
-    rows = [dict(zip([c[0] for c in cur.description], r)) for r in cur.fetchall()]
-    conn.close()
-    return rows
-
-
-@app.patch("/api/users/{user_id}")
-def update_user(user_id: int, data: dict):
-    conn = get_conn()
-    cur = conn.cursor()
-    fields = []
-    values = []
-    for key in ["role", "group_tag", "manager_id"]:
-        if key in data:
-            fields.append(f"{key} = ?")
-            values.append(data[key])
-    if not fields:
-        raise HTTPException(status_code=400, detail="Нет полей для обновления")
-    values.append(user_id)
-    cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = ?", values)
-    conn.commit()
-    conn.close()
-    return {"ok": True}
-
-
-@app.delete("/api/users/{user_id}")
-def delete_user(user_id: int):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM users WHERE id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+# ===== USERS MANAGEMENT (новые эндпоинты) =====
+# Старые эндпоинты /api/users удалены, используются /api/users/me и /api/users (для superadmin)
 
 from aiogram import Bot
 import asyncio
