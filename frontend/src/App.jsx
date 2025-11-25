@@ -492,6 +492,21 @@ function ActiveProtectionsPage({
                     {it.comment && (
                       <div className="small">💬 {it.comment}</div>
                     )}
+                    {it.close_reason && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(255, 85, 85, 0.1)", borderRadius: 8, border: "1px solid rgba(255, 85, 85, 0.2)" }}>
+                        🔒 <b>Причина закрытия:</b> {it.close_reason}
+                      </div>
+                    )}
+                    {it.success_doc && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(61, 220, 151, 0.1)", borderRadius: 8, border: "1px solid rgba(61, 220, 151, 0.2)" }}>
+                        ✅ <b>Документ 1С:</b> {it.success_doc}
+                      </div>
+                    )}
+                    {it.delete_reason && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(239, 68, 68, 0.1)", borderRadius: 8, border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                        🗑️ <b>Причина удаления:</b> {it.delete_reason}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -645,6 +660,28 @@ function ActiveProtectionsPage({
           </div>
         </Modal>
       )}
+
+      {extendRequestModal.open && (
+        <Modal
+          title="Запрос на продление защиты"
+          onClose={() => setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" })}
+          onOk={submitExtendRequest}
+          okText="📤 Отправить запрос"
+        >
+          <div className="small" style={{ marginBottom: 12, color: "rgba(255, 255, 255, 0.8)" }}>
+            {extendRequestModal.message}
+          </div>
+          <textarea
+            className="input"
+            placeholder="Причина продления (например: клиент ждёт оплату, перенос поставки и т.п.)"
+            value={extendRequestModal.reason}
+            onChange={(e) =>
+              setExtendRequestModal({ ...extendRequestModal, reason: e.target.value })
+            }
+            style={{ minHeight: 100, width: "100%", resize: "vertical" }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }
@@ -736,10 +773,16 @@ function ArchivePage({
                     <div className="small">
                       {statusText} | Менеджер: {it.manager}
                       {it.closed_at && ` | Закрыто: ${new Date(it.closed_at).toLocaleDateString()}`}
+                      {it.created_at && ` | Создано: ${new Date(it.created_at).toLocaleDateString()}`}
                     </div>
-                    {it.close_reason && (
-                      <div className="small" style={{ marginTop: 4, opacity: 0.8 }}>
-                        Причина: {it.close_reason}
+                    {it.area_m2 && (
+                      <div className="small" style={{ marginTop: 4, opacity: 0.9 }}>
+                        📏 Метраж: {it.area_m2} м²
+                      </div>
+                    )}
+                    {it.sku && (
+                      <div className="small" style={{ marginTop: 4, opacity: 0.9 }}>
+                        📦 SKU: {it.sku}
                       </div>
                     )}
                   </div>
@@ -1225,6 +1268,7 @@ function App() {
 
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState([]);
+  const [extendRequestModal, setExtendRequestModal] = useState({ open: false, id: null, reason: "", days: 10, message: "" });
 
   const load = async () => {
     // Загружаем данные в зависимости от текущего route
@@ -1427,23 +1471,36 @@ function App() {
       const det = err.response?.data?.detail;
 
       if (err.response?.status === 403 && (det?.needs_admin || det?.msg)) {
-        const reason = prompt(
-          (det?.msg || "Лимит продлений.") +
-            "\nВведите причину продления (например: клиент ждёт оплату, перенос поставки и т.п.):"
-        );
-
-        if (reason && reason.trim()) {
-          await api.post(`/api/protections/${id}/request-extend`, {
-            days,
-            reason: reason.trim(),
-          });
-          alert("✅ Запрос на продление отправлен администратору.");
-        } else {
-          alert("⚠️ Причина не указана — запрос отменён.");
-        }
+        // Открываем модальное окно вместо prompt
+        setExtendRequestModal({
+          open: true,
+          id,
+          reason: "",
+          days,
+          message: det?.msg || "Лимит продлений. Введите причину продления:"
+        });
       } else {
         alert("Не удалось продлить.");
       }
+    }
+  };
+
+  const submitExtendRequest = async () => {
+    if (!extendRequestModal.reason.trim()) {
+      alert("⚠️ Причина не указана — запрос отменён.");
+      return;
+    }
+
+    try {
+      await api.post(`/api/protections/${extendRequestModal.id}/request-extend`, {
+        days: extendRequestModal.days,
+        reason: extendRequestModal.reason.trim(),
+      });
+      alert("✅ Запрос на продление отправлен администратору.");
+      setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" });
+      await load();
+    } catch (err) {
+      alert("Ошибка при отправке запроса на продление.");
     }
   };
 

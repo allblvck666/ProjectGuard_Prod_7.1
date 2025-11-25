@@ -1268,6 +1268,57 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             if normalize_sku(row["sku"]) != sku_code:
                 continue
             if min_a <= float(row["area_m2"]) <= max_a:
+                # Отправляем уведомление всем админам и суперадминам о похожей защите
+                admins = cur.execute(
+                    """
+                    SELECT tg_id, full_name, first_name 
+                    FROM users 
+                    WHERE role IN ('admin', 'superadmin') 
+                      AND tg_id IS NOT NULL 
+                      AND tg_id != ''
+                    """
+                ).fetchall()
+                
+                duplicate_msg = (
+                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                    f"👤 Менеджер: {row['manager']}\n"
+                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                    f"❗️Артикул: {row['sku']}\n"
+                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                    f"👤 Пытается создать: {payload.manager or '—'}\n"
+                    f"📦 SKU: {sku_display}\n"
+                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                    f"💬 Пользователь должен обратиться к коллеге перед созданием."
+                )
+                
+                # Отправляем уведомления асинхронно
+                async def send_duplicate_notifications():
+                    sent_count = 0
+                    for admin in admins:
+                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                        if tg_id:
+                            try:
+                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                if tg_id_int:
+                                    await bot.send_message(
+                                        tg_id_int,
+                                        duplicate_msg,
+                                        parse_mode="HTML"
+                                    )
+                                    sent_count += 1
+                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                            except Exception as e:
+                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                    
+                    if sent_count > 0:
+                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+                
+                try:
+                    asyncio.create_task(send_duplicate_notifications())
+                except Exception as e:
+                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                
                 conn.close()
                 raise HTTPException(
                     status_code=409,
@@ -1599,7 +1650,7 @@ def request_extend(pid: int, data: dict = Body(...)):
     async def send_admin_notifications():
         sent_count = 0
         for admin in admins:
-            tg_id = admin.get("tg_id")
+            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
             if tg_id:
                 try:
                     tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
@@ -1611,14 +1662,15 @@ def request_extend(pid: int, data: dict = Body(...)):
                             reply_markup=kb.as_markup()
                         )
                         sent_count += 1
-                        print(f"📩 Уведомление о запросе продления отправлено админу {tg_id_int} ({admin.get('full_name', admin.get('first_name', 'Unknown'))})")
+                        admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                        print(f"📩 Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name})")
                 except Exception as e:
                     print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
         else:
-            print(f"✅ Уведомления отправлены {sent_count} админам из {len(admins)}")
+            print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
     
     # Запускаем в фоне
     try:

@@ -1188,6 +1188,17 @@ export default function AdminPage({ onBack }) {
     }
   }, [onBack]);
 
+  // Слушаем события переключения вкладок из дашборда
+  useEffect(() => {
+    const handleTabSwitch = (e) => {
+      if (e.detail && typeof e.detail === "string") {
+        setTab(e.detail);
+      }
+    };
+    window.addEventListener("admin:switch-tab", handleTabSwitch);
+    return () => window.removeEventListener("admin:switch-tab", handleTabSwitch);
+  }, []);
+
   const [managers, setManagers] = useState([]);
   const [loadingManagers, setLoadingManagers] = useState(false);
   const [newName, setNewName] = useState("");
@@ -1350,19 +1361,28 @@ export default function AdminPage({ onBack }) {
 
   return (
     <div className="container" style={{ background: "linear-gradient(135deg, #0d1320 0%, #1a1f3a 100%)", minHeight: "100vh" }}>
+      {/* Фиксированная кнопка "назад" на мобильной версии */}
+      <button 
+        className="fixed-back-button" 
+        onClick={back}
+        aria-label="Назад"
+      >
+        ←
+      </button>
+      
       <div className="admin-header">
         <h1 style={{ margin: 0, background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontWeight: 700 }}>
           👑 Панель администратора
         </h1>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <button className="admin-btn-secondary" onClick={handleLogout} style={{ fontSize: 14, padding: "10px 16px" }}>
             🚪 Выйти
           </button>
-          <button className="admin-btn-secondary" onClick={back}>
+          <button className="admin-btn-secondary" onClick={back} style={{ display: "none" }}>
             ⬅️ Назад
           </button>
         </div>
-          </div>
+      </div>
 
       <div className="admin-tabs">
           <div
