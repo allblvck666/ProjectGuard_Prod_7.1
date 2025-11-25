@@ -843,6 +843,10 @@ body {
   margin-bottom: 24px;
   border-radius: 16px;
   backdrop-filter: blur(10px);
+  width: 100%;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 .admin-header h1 {
@@ -865,6 +869,9 @@ body {
   background: rgba(255, 255, 255, 0.03);
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: center;
 }
 
 .admin-tab {
@@ -919,6 +926,9 @@ body {
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
   transition: all 0.3s ease;
+  width: 100%;
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .admin-card:hover {
@@ -937,6 +947,18 @@ body {
   backdrop-filter: blur(10px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   transition: all 0.3s ease;
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .admin-stat-card::before {
@@ -1204,16 +1226,20 @@ body {
     gap: 16px;
     align-items: stretch;
     padding: 20px 16px;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .admin-header > div {
     width: 100%;
     flex-direction: column;
     gap: 8px;
+    display: flex;
   }
 
   .admin-header button {
     width: 100%;
+    box-sizing: border-box;
   }
 
   .admin-tabs {
@@ -1221,6 +1247,8 @@ body {
     flex-wrap: wrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    width: 100%;
+    justify-content: center;
   }
 
   .admin-tab {
@@ -1228,6 +1256,20 @@ body {
     text-align: center;
     font-size: 13px;
     padding: 10px 16px;
+    flex: 1 1 auto;
+    max-width: 200px;
+  }
+
+  .admin-stat-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .admin-card {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 20px;
   }
 
   .admin-table {

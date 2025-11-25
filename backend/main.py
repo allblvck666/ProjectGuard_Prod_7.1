@@ -57,6 +57,7 @@ if not BOT_TOKEN:
 
 # === Локальные модули ===
 from backend.db import (
+    get_user_by_id,
     get_conn, init_db, now_iso, add_days, load_skus,
     get_user_by_email, create_user, update_user, get_all_users,
     get_user_by_tg_id, upsert_user

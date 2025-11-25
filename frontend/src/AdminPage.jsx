@@ -121,7 +121,7 @@ function DashboardTab() {
 
   return (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
+      <div className="admin-stat-grid">
         <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
           <div className="admin-stat-icon">👥</div>
           <div className="admin-stat-value">{stats.totalUsers}</div>
