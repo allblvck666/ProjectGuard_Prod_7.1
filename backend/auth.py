@@ -5,7 +5,7 @@ from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
-from backend.db import get_user_by_id
+from backend.db import get_user_by_id, get_user_by_email
 
 # ИСПОЛЬЗУЕМ ТОТ ЖЕ СПОСОБ ПОЛУЧЕНИЯ СЕКРЕТА, ЧТО И В main.py
 # Копируем логику env_get() из main.py для точного совпадения
@@ -49,7 +49,30 @@ security = HTTPBearer()
 
 # === JWT ФУНКЦИИ ===
 
+def create_access_token(user: dict):
+    """
+    Создает JWT токен для пользователя.
+    user должен содержать: id, email (или tg_id для обратной совместимости), role
+    """
+    user_id = user.get("id")
+    email = user.get("email")
+    role = user.get("role", "manager")
+    
+    # Для обратной совместимости: если нет email, используем tg_id или user_id
+    sub = email or str(user.get("tg_id", user_id))
+    
+    payload = {
+        "sub": str(sub),
+        "user_id": user_id,
+        "role": role,
+        "exp": datetime.utcnow() + timedelta(days=30)
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    return token
+
+
 def create_jwt(user_id: int):
+    """Старая функция для обратной совместимости"""
     payload = {
         "user_id": user_id,
         "exp": datetime.utcnow() + timedelta(days=30)
@@ -78,9 +101,10 @@ def decode_jwt(token: str):
 
 # === AUTH CHECK ===
 
-def require_auth(credentials=Depends(security)):
+def get_current_user(credentials=Depends(security)):
     """
-    Проверяет валидность токена и возвращает пользователя (любая роль)
+    Проверяет валидность токена и возвращает пользователя (любая роль).
+    Поддерживает поиск по user_id или email (из sub).
     """
     token = credentials.credentials
     if not token:
@@ -90,59 +114,87 @@ def require_auth(credentials=Depends(security)):
     try:
         payload = decode_jwt(token)
     except HTTPException as e:
-        print(f"⚠️ JWT decode failed in require_auth: {e.detail}")
+        print(f"⚠️ JWT decode failed in get_current_user: {e.detail}")
         raise
     
-    # Поддерживаем оба формата: "sub" (из main.py) и "user_id" (из create_jwt)
-    user_id = payload.get("user_id") or payload.get("sub")
-    if not user_id:
-        print("⚠️ JWT payload missing user_id and sub:", list(payload.keys()))
-        raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
+    # Поддерживаем оба формата: user_id напрямую или через sub
+    user_id = payload.get("user_id")
+    sub = payload.get("sub")
     
-    user_id = int(user_id) if isinstance(user_id, str) else user_id
+    user = None
     
-    user = get_user_by_id(user_id)
+    # Сначала пробуем по user_id
+    if user_id:
+        try:
+            user_id_int = int(user_id) if isinstance(user_id, str) else user_id
+            user = get_user_by_id(user_id_int)
+        except (ValueError, TypeError):
+            pass
+    
+    # Если не нашли по user_id, пробуем по sub (может быть email или tg_id)
+    if not user and sub:
+        # Пробуем как email
+        if "@" in str(sub):
+            user = get_user_by_email(str(sub))
+        else:
+            # Пробуем как user_id (старые токены)
+            try:
+                user_id_int = int(sub)
+                user = get_user_by_id(user_id_int)
+            except (ValueError, TypeError):
+                pass
     
     if not user:
-        print(f"⚠️ User not found for user_id: {user_id}, payload keys: {list(payload.keys())}")
+        print(f"⚠️ User not found. user_id={user_id}, sub={sub}, payload keys: {list(payload.keys())}")
         raise HTTPException(status_code=401, detail="User not found")
-
+    
+    # Проверяем is_active
+    is_active = user.get("is_active", 1)
+    if is_active == 0:
+        print(f"⚠️ User {user.get('id')} is inactive")
+        raise HTTPException(status_code=401, detail="User is inactive")
+    
     return user
+
+
+def get_current_active_user(credentials=Depends(security)):
+    """Алиас для get_current_user (для ясности)"""
+    return get_current_user(credentials)
+
+
+def require_auth(credentials=Depends(security)):
+    """Старая функция для обратной совместимости"""
+    return get_current_user(credentials)
 
 
 # === ADMIN CHECK ===
 
-def require_admin(credentials=Depends(security)):
+def get_admin_user(credentials=Depends(security)):
     """
     Проверяет, что у пользователя роль admin или superadmin
     """
-    token = credentials.credentials
-    if not token:
-        print("⚠️ No token provided in Authorization header")
-        raise HTTPException(status_code=401, detail="No token provided")
+    user = get_current_user(credentials)
     
-    try:
-        payload = decode_jwt(token)
-    except HTTPException as e:
-        print(f"⚠️ JWT decode failed in require_admin: {e.detail}")
-        raise
-    
-    # Поддерживаем оба формата: "sub" (из main.py) и "user_id" (из create_jwt)
-    user_id = payload.get("user_id") or payload.get("sub")
-    if not user_id:
-        print("⚠️ JWT payload missing user_id and sub:", list(payload.keys()))
-        raise HTTPException(status_code=401, detail="Invalid token: missing user_id")
-    
-    user_id = int(user_id) if isinstance(user_id, str) else user_id
-    
-    user = get_user_by_id(user_id)
-    
-    if not user:
-        print(f"⚠️ User not found for user_id: {user_id}, payload keys: {list(payload.keys())}")
-        raise HTTPException(status_code=401, detail="User not found")
-
     if user["role"] not in ("admin", "superadmin"):
-        print(f"⚠️ Access denied for user_id {user_id}, role: {user['role']}")
+        print(f"⚠️ Access denied for user_id {user.get('id')}, role: {user['role']}")
         raise HTTPException(status_code=403, detail="Access denied")
-
+    
     return user
+
+
+def get_superadmin_user(credentials=Depends(security)):
+    """
+    Проверяет, что у пользователя роль superadmin
+    """
+    user = get_current_user(credentials)
+    
+    if user["role"] != "superadmin":
+        print(f"⚠️ Access denied for user_id {user.get('id')}, role: {user['role']}")
+        raise HTTPException(status_code=403, detail="Superadmin access required")
+    
+    return user
+
+
+def require_admin(credentials=Depends(security)):
+    """Старая функция для обратной совместимости"""
+    return get_admin_user(credentials)

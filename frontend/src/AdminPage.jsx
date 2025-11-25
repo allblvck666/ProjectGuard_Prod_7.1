@@ -69,67 +69,66 @@ function Confirm({
 
 function UsersTable() {
   const [users, setUsers] = useState([]);
-  const [managers, setManagers] = useState([]); // список менеджеров
   const [loading, setLoading] = useState(false);
   const [editUser, setEditUser] = useState(null);
-  const [roles] = useState(["superadmin", "admin", "manager", "assistant"]);
+  const [roles] = useState(["superadmin", "admin", "manager"]);
 
   const loadUsers = async () => {
     setLoading(true);
     try {
-      const r = await api.get("/api/users");
+      const r = await api.get("/api/admin/users");
       setUsers(r.data?.users || []);
-    } catch {
-      alert("Не удалось загрузить пользователей");
+    } catch (e) {
+      console.error("Ошибка загрузки пользователей:", e);
+      alert(e.response?.data?.detail || "Не удалось загрузить пользователей");
     } finally {
       setLoading(false);
     }
   };
 
-  const loadManagers = async () => {
+  const updateUser = async (userId, data) => {
     try {
-      const res = await api.get("/api/managers");
-      const data = Array.isArray(res.data)
-        ? res.data
-        : res.data.managers || [];
-      setManagers(data);
-    } catch (e) {
-      console.error("Ошибка загрузки менеджеров:", e);
-    }
-  };
-
-  const saveUser = async (u) => {
-    try {
-      await api.patch(`/api/users/${u.id}`, {
-        role: u.role,
-        group_tag: u.group_tag,
-        manager_id: u.manager_id || null,
-      });
+      await api.patch(`/api/admin/users/${userId}`, data);
       setEditUser(null);
       await loadUsers();
-    } catch {
-      alert("Ошибка при сохранении");
+      alert("✅ Пользователь обновлён");
+    } catch (e) {
+      console.error("Ошибка обновления:", e);
+      alert(e.response?.data?.detail || "Ошибка при обновлении");
     }
   };
 
-  const removeUser = async (u) => {
-    if (!window.confirm(`Удалить пользователя ${u.first_name}?`)) return;
+  const toggleActive = async (u) => {
+    const newStatus = u.is_active === 1 ? 0 : 1;
+    const action = newStatus === 1 ? "разблокировать" : "заблокировать";
+    if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} пользователя ${u.email || u.full_name || u.id}?`)) return;
+    await updateUser(u.id, { is_active: newStatus });
+  };
+
+  const changeRole = async (u, newRole) => {
+    if (!window.confirm(`Изменить роль пользователя ${u.email || u.full_name || u.id} на "${newRole}"?`)) return;
+    await updateUser(u.id, { role: newRole });
+  };
+
+  const deleteUser = async (u) => {
+    if (!window.confirm(`Удалить пользователя ${u.email || u.full_name || u.id}?`)) return;
     try {
-      await api.delete(`/api/users/${u.id}`);
+      await api.delete(`/api/admin/users/${u.id}`);
       await loadUsers();
-    } catch {
-      alert("Ошибка при удалении");
+      alert("✅ Пользователь удалён");
+    } catch (e) {
+      console.error("Ошибка удаления:", e);
+      alert(e.response?.data?.detail || "Ошибка при удалении");
     }
   };
 
   useEffect(() => {
     loadUsers();
-    loadManagers();
   }, []);
 
   return (
     <div className="card">
-      <h3 style={{ marginTop: 0 }}>Пользователи</h3>
+      <h3 style={{ marginTop: 0 }}>👥 Управление пользователями</h3>
       <button className="btn secondary" onClick={loadUsers} disabled={loading}>
         🔄 Обновить
       </button>
@@ -145,127 +144,89 @@ function UsersTable() {
       )}
       {!loading && users.length > 0 && (
         <div style={{ overflowX: "auto", marginTop: 12 }}>
-          <table className="table" style={{ width: "100%", minWidth: 880 }}>
+          <table className="table" style={{ width: "100%", minWidth: 1000 }}>
             <thead>
               <tr>
                 <th>ID</th>
+                <th>Email</th>
                 <th>Имя</th>
-                <th>Username</th>
                 <th>Роль</th>
-                <th>Группа</th>
-                <th>Менеджер</th>
-                <th>Регион</th>
+                <th>Статус</th>
+                <th>Компания</th>
+                <th>Город</th>
+                <th>Последний вход</th>
                 <th>Действия</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => {
-                const isEdit = editUser?.id === u.id;
-                const managerName =
-                  managers.find((m) => m.id === u.manager_id)?.name || "—";
-
-                return (
-                  <tr key={u.id}>
-                    <td>{u.id}</td>
-                    <td>{u.first_name}</td>
-                    <td>@{u.tg_username || "—"}</td>
-                    <td>
-                      {isEdit ? (
+              {users.map((u) => (
+                <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.6 : 1 }}>
+                  <td>{u.id}</td>
+                  <td>{u.email || "—"}</td>
+                  <td>{u.full_name || "—"}</td>
+                  <td>
+                    <span style={{
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      background: u.role === "superadmin" ? "rgba(255, 193, 7, 0.2)" : 
+                                   u.role === "admin" ? "rgba(33, 150, 243, 0.2)" : 
+                                   "rgba(158, 158, 158, 0.2)",
+                      fontSize: 12,
+                    }}>
+                      {u.role}
+                    </span>
+                  </td>
+                  <td>
+                    <span style={{
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      background: u.is_active === 1 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                      fontSize: 12,
+                    }}>
+                      {u.is_active === 1 ? "✅ Активен" : "❌ Заблокирован"}
+                    </span>
+                  </td>
+                  <td>{u.company || "—"}</td>
+                  <td>{u.city || "—"}</td>
+                  <td className="small">{u.last_login ? new Date(u.last_login).toLocaleString("ru-RU") : "—"}</td>
+                  <td>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {/* Изменение роли */}
+                      {u.role !== "superadmin" && (
                         <select
                           className="select"
-                          value={editUser.role}
-                          onChange={(e) =>
-                            setEditUser({ ...editUser, role: e.target.value })
-                          }
+                          style={{ fontSize: 12, padding: "4px 8px" }}
+                          value={u.role}
+                          onChange={(e) => changeRole(u, e.target.value)}
                         >
                           {roles.map((r) => (
                             <option key={r} value={r}>
-                              {r}
+                              {r === "superadmin" ? "👑 Супер-админ" : 
+                               r === "admin" ? "👑 Админ" : "👤 Менеджер"}
                             </option>
                           ))}
                         </select>
-                      ) : (
-                        u.role
                       )}
-                    </td>
-                    <td>
-                      {isEdit ? (
-                        <input
-                          className="input"
-                          value={editUser.group_tag || ""}
-                          onChange={(e) =>
-                            setEditUser({
-                              ...editUser,
-                              group_tag: e.target.value,
-                            })
-                          }
-                        />
-                      ) : (
-                        u.group_tag || "—"
-                      )}
-                    </td>
-                    <td>
-                      {isEdit ? (
-                        <select
-                          className="select"
-                          value={editUser.manager_id || ""}
-                          onChange={(e) =>
-                            setEditUser({
-                              ...editUser,
-                              manager_id: e.target.value
-                                ? parseInt(e.target.value)
-                                : null,
-                            })
-                          }
-                        >
-                          <option value="">—</option>
-                          {managers.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        managerName
-                      )}
-                    </td>
-                    <td>{u.region || "—"}</td>
-                    <td>
-                      {isEdit ? (
-                        <>
-                          <button
-                            className="btn success"
-                            onClick={() => saveUser(editUser)}
-                          >
-                            💾
-                          </button>
-                          <button
-                            className="btn secondary"
-                            onClick={() => setEditUser(null)}
-                          >
-                            ❌
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="btn secondary"
-                            onClick={() => setEditUser(u)}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            className="btn danger"
-                            onClick={() => removeUser(u)}
-                          >
-                            🗑️
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                      {/* Блокировка/разблокировка */}
+                      <button
+                        className="btn secondary small"
+                        onClick={() => toggleActive(u)}
+                        style={{ fontSize: 12, padding: "4px 8px" }}
+                      >
+                        {u.is_active === 1 ? "🚫" : "✅"}
+                      </button>
+                      {/* Удаление */}
+                      <button
+                        className="btn danger small"
+                        onClick={() => deleteUser(u)}
+                        style={{ fontSize: 12, padding: "4px 8px" }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

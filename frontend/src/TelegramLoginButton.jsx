@@ -28,13 +28,14 @@ export default function TelegramLoginButton({ onLogin }) {
             return;
           }
 
-          // Сохраняем токен и роль
+          // Сохраняем токен и роль (поддерживаем оба формата: старый и новый)
+          const role = data.user?.role || data.role || "manager";
           localStorage.setItem("jwt_token", data.token);
-          localStorage.setItem("role", data.role || "manager");
+          localStorage.setItem("role", role);
 
           // Вызываем callback вместо перезагрузки
           if (onLogin) {
-            onLogin(data.role || "manager");
+            onLogin(role);
           } else {
             // Если callback нет, делаем мягкую перезагрузку
             window.location.href = "/";

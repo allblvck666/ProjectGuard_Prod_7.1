@@ -118,6 +118,99 @@ def get_user_by_tg_id(tg_id: int):
     return dict(row) if row else None
 
 
+def get_user_by_email(email: str):
+    """Получить пользователя по email"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE email = ?", (email,))
+    row = cur.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def create_user(data: dict):
+    """Создать нового пользователя"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Подготовка данных
+    email = data.get("email")
+    password_hash = data.get("password_hash")
+    full_name = data.get("full_name", "")
+    phone = data.get("phone", "")
+    company = data.get("company", "")
+    city = data.get("city", "")
+    role = data.get("role", "manager")
+    is_active = data.get("is_active", 1)
+    created_at = data.get("created_at", now_iso())
+    
+    # Telegram поля (опционально)
+    tg_id = data.get("tg_id")
+    tg_username = data.get("tg_username", "")
+    first_name = data.get("first_name", "")
+    
+    try:
+        cur.execute(
+            """
+            INSERT INTO users (
+                email, password_hash, full_name, phone, company, city,
+                role, is_active, created_at,
+                tg_id, tg_username, first_name
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                email, password_hash, full_name, phone, company, city,
+                role, is_active, created_at,
+                tg_id, tg_username, first_name
+            )
+        )
+        conn.commit()
+        user_id = cur.lastrowid
+        conn.close()
+        return get_user_by_id(user_id)
+    except sqlite3.IntegrityError as e:
+        conn.close()
+        raise ValueError(f"User with email {email} already exists") from e
+
+
+def update_user(user_id: int, data: dict):
+    """Обновить данные пользователя"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Разрешенные поля для обновления
+    allowed_fields = ["full_name", "phone", "company", "city", "role", "is_active", "last_login"]
+    updates = []
+    values = []
+    
+    for field in allowed_fields:
+        if field in data:
+            updates.append(f"{field} = ?")
+            values.append(data[field])
+    
+    if not updates:
+        conn.close()
+        return get_user_by_id(user_id)
+    
+    values.append(user_id)
+    query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+    
+    cur.execute(query, values)
+    conn.commit()
+    conn.close()
+    return get_user_by_id(user_id)
+
+
+def get_all_users():
+    """Получить всех пользователей (для админки)"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 # === Инициализация таблиц ===
 def init_db():
     conn = get_conn()
@@ -158,17 +251,53 @@ def init_db():
         """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tg_id INTEGER UNIQUE NOT NULL,
+            tg_id INTEGER UNIQUE,
             tg_username TEXT,
             first_name TEXT,
             role TEXT DEFAULT 'manager',
             group_tag TEXT,
             manager_id INTEGER,
             region TEXT,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            -- Новые поля для email-регистрации
+            email TEXT UNIQUE,
+            password_hash TEXT,
+            full_name TEXT,
+            phone TEXT,
+            company TEXT,
+            city TEXT,
+            is_active INTEGER DEFAULT 1,
+            last_login TEXT
         )
         """
     )
+
+    # === Миграция: добавляем новые колонки, если их нет ===
+    cur.execute("PRAGMA table_info(users)")
+    existing_columns = {row[1] for row in cur.fetchall()}
+    
+    new_columns = {
+        "email": "TEXT UNIQUE",
+        "password_hash": "TEXT",
+        "full_name": "TEXT",
+        "phone": "TEXT",
+        "company": "TEXT",
+        "city": "TEXT",
+        "is_active": "INTEGER DEFAULT 1",
+        "last_login": "TEXT"
+    }
+    
+    for col_name, col_def in new_columns.items():
+        if col_name not in existing_columns:
+            try:
+                cur.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+                print(f"✅ Added column {col_name} to users table")
+            except sqlite3.OperationalError as e:
+                # Колонка уже существует или другая ошибка
+                print(f"⚠️ Could not add column {col_name}: {e}")
+    
+    # Убираем NOT NULL с tg_id, если он был обязательным (для email-пользователей)
+    # Это уже сделано в CREATE TABLE выше (tg_id INTEGER UNIQUE без NOT NULL)
 
     # === Managers ===
     cur.execute(

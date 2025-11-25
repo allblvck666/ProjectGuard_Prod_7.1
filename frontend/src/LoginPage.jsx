@@ -1,59 +1,103 @@
 // frontend/src/LoginPage.jsx
-import { useState } from "react";
-import { api } from "./api";
+import { useState, useEffect } from "react";
+import { login, register, fetchMe } from "./api";
 import TelegramLoginButton from "./TelegramLoginButton";
 
 export default function LoginPage({ onLogin }) {
-  const [tgId, setTgId] = useState("");
-  const [username, setUsername] = useState("");
-  const [firstName, setFirstName] = useState("");
+  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [telegramLoading, setTelegramLoading] = useState(false);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    setErr("");
+  // === Форма входа/регистрации (для браузера) ===
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [company, setCompany] = useState("");
 
-    if (!tgId) {
-      setErr("Введите Telegram ID (числом)");
+  // === Telegram авто-логин ===
+  useEffect(() => {
+    if (!isTG) return;
+
+    const tg = window.Telegram?.WebApp;
+    if (!tg?.initDataUnsafe?.user) {
+      console.log("Telegram WebApp: нет initDataUnsafe.user");
       return;
     }
 
-    const payload = {
-      id: Number(tgId),
-      username: username || "",
-      first_name: firstName || "",
-    };
+    const user = tg.initDataUnsafe.user;
+    console.log("🔐 Telegram авто-логин для:", user);
+
+    setTelegramLoading(true);
+
+    // Отправляем Telegram данные на /api/auth/login
+    login({
+      telegram_id: user.id,
+      username: user.username || "",
+      first_name: user.first_name || "",
+    })
+      .then((data) => {
+        console.log("✅ Telegram авто-логин успешен:", data);
+        if (onLogin) {
+          onLogin(data.user?.role || "manager");
+        }
+      })
+      .catch((err) => {
+        console.error("❌ Telegram авто-логин ошибка:", err);
+        setErr(err.response?.data?.detail || "Ошибка авторизации через Telegram");
+        setTelegramLoading(false);
+      });
+  }, [isTG, onLogin]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setErr("");
+
+    if (!fullName || !phone) {
+      setErr("Заполните имя и телефон");
+      return;
+    }
 
     try {
       setLoading(true);
-      const res = await api.post("/api/auth/telegram", payload);
+      // Используем loginOrRegister - он создаст пользователя, если его нет
+      const data = await login({
+        full_name: fullName,
+        phone: phone,
+        company: company || null,
+      });
 
-      const { token, role } = res.data;
-
-      localStorage.setItem("jwt_token", token);
-      localStorage.setItem("role", role);
-
-      // 👉 вместо перезагрузки — вызываем onLogin()
       if (onLogin) {
-        onLogin(role);
-      } else {
-        // 👉 безопасное переключение маршрута
-        localStorage.setItem(
-          "route",
-          role === "admin" || role === "superadmin" ? "admin" : "main"
-        );
+        onLogin(data.user?.role || "manager");
       }
     } catch (e) {
       console.error(e);
-      setErr(e.response?.data?.detail || "Ошибка авторизации");
+      setErr(e.response?.data?.detail || "Ошибка входа");
     } finally {
       setLoading(false);
     }
   };
 
-  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
+  // === Telegram Mini App - показываем спиннер ===
+  if (isTG && telegramLoading) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          gap: 16,
+          padding: 20,
+        }}
+      >
+        <div style={{ fontSize: 48 }}>⏳</div>
+        <div style={{ fontSize: 18, opacity: 0.8 }}>Авторизуем через Telegram...</div>
+      </div>
+    );
+  }
 
+  // === Обычный браузер - форма входа ===
   return (
     <div
       className="container"
@@ -69,83 +113,92 @@ export default function LoginPage({ onLogin }) {
         justifyContent: isTG ? "center" : "flex-start",
       }}
     >
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: 32 }}>
         <h2 style={{ margin: "0 0 12px 0", fontSize: isTG ? "24px" : "28px" }}>
-          🔐 Вход в систему
+          🔐 ProjectGuard
         </h2>
         <p className="small" style={{ opacity: 0.7, margin: 0 }}>
           {isTG 
-            ? "Авторизуйтесь для доступа к ProjectGuard" 
-            : "Авторизуйтесь, чтобы попасть в ProjectGuard"}
+            ? "Авторизуйтесь для доступа" 
+            : "Войдите или зарегистрируйтесь"}
         </p>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-        <TelegramLoginButton onLogin={onLogin} />
-      </div>
-
-      {!isTG && (
-        <div style={{ marginTop: 32, opacity: 0.6, fontSize: 13 }}>
-          или ручной вход (для тестов)
+      {/* Telegram Login Button (если доступен) */}
+      {isTG && (
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+          <TelegramLoginButton onLogin={onLogin} />
         </div>
       )}
 
+      {/* Fallback форма для браузера */}
       {!isTG && (
         <form
-          onSubmit={submit}
+          onSubmit={handleSubmit}
           className="card"
           style={{
-            gap: 12,
+            gap: 16,
             display: "flex",
             flexDirection: "column",
-            marginTop: 12,
             textAlign: "left",
           }}
         >
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 14, opacity: 0.8 }}>Telegram ID</span>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Полное имя *</span>
             <input
               className="input"
-              value={tgId}
-              onChange={(e) => setTgId(e.target.value)}
-              placeholder="426188469"
-              type="number"
-              inputMode="numeric"
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Иван Иванов"
+              required
             />
           </label>
+
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 14, opacity: 0.8 }}>Username</span>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Телефон *</span>
             <input
               className="input"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="@username"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+7 (999) 123-45-67"
+              required
             />
           </label>
+
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <span style={{ fontSize: 14, opacity: 0.8 }}>Имя</span>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Компания</span>
             <input
               className="input"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Дмитрий"
+              type="text"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              placeholder="Название компании (необязательно)"
             />
           </label>
 
           {err && (
-            <div style={{ 
-              color: "var(--danger)", 
-              padding: "8px 12px",
-              background: "rgba(239, 68, 68, 0.1)",
-              borderRadius: "8px",
-              fontSize: 14
-            }}>
+            <div
+              style={{
+                color: "var(--danger)",
+                padding: "12px",
+                background: "rgba(239, 68, 68, 0.1)",
+                borderRadius: "8px",
+                fontSize: 14,
+              }}
+            >
               {err}
             </div>
           )}
 
-          <button className="btn" type="submit" disabled={loading} style={{ marginTop: 8 }}>
-            {loading ? "⏳ Входим..." : "🚪 Войти вручную"}
+          <button
+            className="btn"
+            type="submit"
+            disabled={loading}
+            style={{ marginTop: 8 }}
+          >
+            {loading ? "⏳ Входим..." : "🚪 Войти / Зарегистрироваться"}
           </button>
         </form>
       )}

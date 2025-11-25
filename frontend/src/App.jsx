@@ -1,6 +1,6 @@
 // frontend/src/App.jsx
 import axios from "axios";
-import { api } from "./api";
+import { api, fetchMe } from "./api";
 
 import AdminPage from "./AdminPage.jsx";
 console.log("📦 App.jsx загружает AdminPage из", import.meta.url);
@@ -184,15 +184,15 @@ function App() {
   // =====================================
   const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
 
-  const [auth, setAuth] = useState(() => ({
-    token: localStorage.getItem("jwt_token") || "",
-    role: localStorage.getItem("role") || "",
-  }));
-
-  const [route, setRoute] = useState(() => {
-    if (auth.role === "admin" || auth.role === "superadmin") return "admin";
-    return "main";
+  const [auth, setAuth] = useState(() => {
+    const token = localStorage.getItem("jwt_token") || "";
+    const role = localStorage.getItem("role") || "";
+    const userStr = localStorage.getItem("auth_user");
+    const user = userStr ? JSON.parse(userStr) : null;
+    return { token, role, user };
   });
+
+  const [route, setRoute] = useState("home"); // "home" | "create" | "active" | "archive" | "stats" | "admin"
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -263,7 +263,7 @@ function App() {
             if (role === "admin" || role === "superadmin") {
               setRoute("admin");
             } else {
-              setRoute("main");
+              setRoute("home");
             }
           } else {
             throw new Error("Token invalid");
@@ -324,15 +324,19 @@ function App() {
             return;
           }
 
+          // Поддерживаем оба формата: старый (data.role) и новый (data.user.role)
+          const role = data.user?.role || data.role || "manager";
+          const user = data.user || { role };
           localStorage.setItem("jwt_token", data.token);
-          localStorage.setItem("role", data.role);
+          localStorage.setItem("role", role);
+          localStorage.setItem("auth_user", JSON.stringify(user));
 
-          setAuth({ token: data.token, role: data.role });
+          setAuth({ token: data.token, role, user });
 
-          if (data.role === "admin" || data.role === "superadmin") {
+          if (role === "admin" || role === "superadmin") {
             setRoute("admin");
           } else {
-            setRoute("main");
+            setRoute("home");
           }
 
           tg.ready();
@@ -365,19 +369,23 @@ function App() {
       const data = await res.json();
 
       if (data.ok) {
+        // Поддерживаем оба формата: старый (data.role) и новый (data.user.role)
+        const role = data.user?.role || data.role || "manager";
+        const user = data.user || { role };
         localStorage.setItem("jwt_token", data.token);
-        localStorage.setItem("role", data.role);
-        setAuth({ token: data.token, role: data.role });
+        localStorage.setItem("role", role);
+        localStorage.setItem("auth_user", JSON.stringify(user));
+        setAuth({ token: data.token, role, user });
 
-        if (data.role === "admin" || data.role === "superadmin") {
+        if (role === "admin" || role === "superadmin") {
           setRoute("admin");
         } else {
-          setRoute("main");
+          setRoute("home");
         }
 
         // Показываем уведомление только в браузере
         if (!isTG) {
-          alert("✅ Вход выполнен как " + data.role);
+          alert("✅ Вход выполнен как " + role);
         } else {
           const tg = window.Telegram?.WebApp;
           if (tg?.HapticFeedback) {
@@ -414,8 +422,14 @@ function App() {
   };
 
   const goMain = () => {
-    setRoute("main");
+    setRoute("home");
   };
+
+  const goHome = () => setRoute("home");
+  const goCreate = () => setRoute("create");
+  const goActive = () => setRoute("active");
+  const goArchive = () => setRoute("archive");
+  const goStats = () => setRoute("stats");
 
   // ===== Основное состояние приложения =====
   const [stats, setStats] = useState([]);
@@ -880,12 +894,14 @@ if (isTG && (!ready || loading)) {
       <LoginPage
         onLogin={(roleFromLogin) => {
           const token = localStorage.getItem("jwt_token") || "";
-          setAuth({ token, role: roleFromLogin });
+          const userStr = localStorage.getItem("auth_user");
+          const user = userStr ? JSON.parse(userStr) : { role: roleFromLogin };
+          setAuth({ token, role: roleFromLogin, user });
           setTokenValid(true);
           if (roleFromLogin === "admin" || roleFromLogin === "superadmin") {
             setRoute("admin");
           } else {
-            setRoute("main");
+            setRoute("home");
           }
         }}
       />
@@ -894,38 +910,87 @@ if (isTG && (!ready || loading)) {
 
   // 👑 Админка
   if (route === "admin") {
-    return <AdminPage onBack={goMain} />;
+    return <AdminPage onBack={goHome} />;
   }
 
+  // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
+  if (route === "home") {
+    const userName = auth.user?.full_name || auth.user?.first_name || "Пользователь";
+    const isAdmin = auth.role === "admin" || auth.role === "superadmin";
+
+    return (
+      <div className="container">
+        <div className="home-header">
+          <h1 className="home-greeting">Привет, {userName} 👋</h1>
+          <p className="home-subtitle">Выберите раздел для работы</p>
+        </div>
+
+        <div className="home-grid">
+          <div className="home-card" onClick={goCreate}>
+            <div className="home-card-icon">🛡️</div>
+            <h3 className="home-card-title">Поставить защиту</h3>
+            <p className="home-card-subtitle">Создать новую защиту для объекта</p>
+          </div>
+
+          <div className="home-card" onClick={goActive}>
+            <div className="home-card-icon">📋</div>
+            <h3 className="home-card-title">Активные защиты</h3>
+            <p className="home-card-subtitle">Список активных защит и управление</p>
+          </div>
+
+          <div className="home-card" onClick={goArchive}>
+            <div className="home-card-icon">📦</div>
+            <h3 className="home-card-title">Архив</h3>
+            <p className="home-card-subtitle">История закрытых и успешных защит</p>
+          </div>
+
+          <div className="home-card" onClick={goStats}>
+            <div className="home-card-icon">📊</div>
+            <h3 className="home-card-title">Статистика</h3>
+            <p className="home-card-subtitle">KPI и аналитика по защитам</p>
+          </div>
+
+          {isAdmin && (
+            <div className="home-card" onClick={goAdmin}>
+              <div className="home-card-icon">👑</div>
+              <h3 className="home-card-title">Админка</h3>
+              <p className="home-card-subtitle">Управление пользователями и настройки</p>
+            </div>
+          )}
+
+          <div className="home-card" onClick={() => alert("Настройки в разработке")}>
+            <div className="home-card-icon">⚙️</div>
+            <h3 className="home-card-title">Настройки</h3>
+            <p className="home-card-subtitle">Профиль и параметры приложения</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==== ОСТАЛЬНЫЕ ЭКРАНЫ (create, active, archive, stats) ====
+  // Для экранов active, archive, create, stats - показываем существующий интерфейс с кнопкой "Назад"
   // ==== Обычный экран CRM ====
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+        <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+          ← Назад
+        </button>
         <h1
           style={{
-            marginRight: "auto",
+            margin: 0,
             color: "#4d6eeb",
             fontWeight: 700,
             letterSpacing: "0.5px",
           }}
         >
-          🔰 Aquafloor защиты
+          {route === "create" ? "🛡️ Поставить защиту" :
+           route === "active" ? "📋 Активные защиты" :
+           route === "archive" ? "📦 Архив защит" :
+           route === "stats" ? "📊 Статистика" :
+           "🔰 Aquafloor защиты"}
         </h1>
-
-        {(role === "admin" || role === "superadmin") && (
-          <button className="btn" onClick={goAdmin}>
-            👑 Админка
-          </button>
-        )}
-        {!isTG && (
-          <button
-            onClick={devLogin}
-            className="btn success small"
-            style={{ display: role === "admin" || role === "superadmin" ? "none" : "inline-flex" }}
-          >
-            🚪 Вход
-          </button>
-        )}
 
         <button className="btn refresh" onClick={load}>
           🔄 Обновить

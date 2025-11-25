@@ -56,9 +56,27 @@ if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Проверь backend/.env или переменные окружения.")
 
 # === Локальные модули ===
-from backend.db import get_conn, init_db, now_iso, add_days, load_skus
+from backend.db import (
+    get_conn, init_db, now_iso, add_days, load_skus,
+    get_user_by_email, create_user, update_user, get_all_users
+)
 from backend.users import router as users_router, init_users_table
-from backend.auth import require_admin, require_auth
+from backend.auth import (
+    require_admin, require_auth, get_current_user, get_current_active_user,
+    get_admin_user, get_superadmin_user, create_access_token
+)
+from passlib.context import CryptContext
+
+# === Password hashing ===
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Проверка пароля"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    """Хеширование пароля"""
+    return pwd_context.hash(password)
 
 
 
@@ -303,33 +321,222 @@ def verify_telegram_auth(data: dict) -> bool:
 
 # --- JWT токен ---
 def create_token(user_id: int, role: str):
-    # ВАЖНО: Используем ТОЧНО ТОТ ЖЕ секрет, что и в auth.py
-    # В auth.py: JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
-    # Здесь мы используем уже вычисленный JWT_SECRET (который уже содержит fallback на SECRET_KEY)
-    secret = JWT_SECRET  # JWT_SECRET уже содержит env_get("JWT_SECRET") or SECRET_KEY
-    if not secret:
-        # на всякий случай, чтобы не словить пустой секрет
-        raise RuntimeError("JWT secret is not set (JWT_SECRET / SECRET_KEY)")
-    # Используем user_id для совместимости с auth.py
-    # Добавляем exp для валидности токена
-    from datetime import datetime, timedelta
-    payload = {
-        "user_id": user_id,
-        "sub": str(user_id),
-        "role": role,
-        "exp": datetime.utcnow() + timedelta(days=30)
-    }
-    token = jwt.encode(payload, secret, algorithm=ALGORITHM)
-    # Логируем для отладки
-    if os.environ.get("RENDER"):
-        print(f"✅ Token created: user_id={user_id}, role={role}, secret_len={len(secret) if secret else 0}, secret_start={secret[:10] if secret else 'None'}...")
-    return token
+    """Старая функция для обратной совместимости. Использует create_access_token из auth.py"""
+    user = {"id": user_id, "role": role}
+    return create_access_token(user)
+
+
+# === Pydantic модели для регистрации и логина ===
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    full_name: str = ""
+    phone: str = ""
+    company: str = ""
+    city: str = ""
+
+
+class UserLogin(BaseModel):
+    # Поддержка разных форматов входа
+    email: Optional[str] = None
+    password: Optional[str] = None
+    # Telegram данные
+    telegram_id: Optional[int] = None
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    # Простой вход по телефону/имени
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    company: Optional[str] = None
+    city: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[int] = None
 
 
 @app.get("/api/auth/verify")
 async def verify_token(user=Depends(require_auth)):
     """Проверка валидности токена"""
     return {"ok": True, "user_id": user["id"], "role": user["role"]}
+
+
+@app.get("/api/auth/me")
+async def get_me(user=Depends(get_current_active_user)):
+    """Получить информацию о текущем пользователе"""
+    return {
+        "ok": True,
+        "user": {
+            "id": user["id"],
+            "email": user.get("email"),
+            "full_name": user.get("full_name", ""),
+            "role": user["role"],
+            "phone": user.get("phone", ""),
+            "company": user.get("company", ""),
+            "city": user.get("city", ""),
+        }
+    }
+
+
+@app.post("/api/auth/register")
+async def register(data: UserRegister):
+    """Регистрация нового пользователя"""
+    # Валидация email
+    import re
+    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    if not re.match(email_pattern, data.email):
+        raise HTTPException(status_code=400, detail="Invalid email format")
+    
+    # Валидация пароля
+    if len(data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    
+    # Проверка существования email
+    existing = get_user_by_email(data.email)
+    if existing:
+        raise HTTPException(status_code=400, detail="User with this email already exists")
+    
+    # Создание пользователя
+    try:
+        user = create_user({
+            "email": data.email,
+            "password_hash": get_password_hash(data.password),
+            "full_name": data.full_name,
+            "phone": data.phone,
+            "company": data.company,
+            "city": data.city,
+            "role": "manager",
+            "is_active": 1,
+            "created_at": now_iso()
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    # Создание токена
+    token = create_access_token(user)
+    
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name", ""),
+            "role": user["role"],
+        }
+    }
+
+
+@app.post("/api/auth/login")
+async def login(data: UserLogin):
+    """
+    Универсальный вход:
+    - По email/password
+    - По Telegram данным (telegram_id, username, first_name)
+    - По телефону/имени (phone, full_name) - создает пользователя, если его нет
+    """
+    user = None
+    
+    # 1. Вход по email/password
+    if data.email and data.password:
+        user = get_user_by_email(data.email)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+        
+        password_hash = user.get("password_hash")
+        if not password_hash or not verify_password(data.password, password_hash):
+            raise HTTPException(status_code=401, detail="Invalid email or password")
+    
+    # 2. Вход по Telegram данным
+    elif data.telegram_id:
+        from backend.db import get_user_by_tg_id
+        user = get_user_by_tg_id(data.telegram_id)
+        
+        if not user:
+            # Создаем пользователя, если его нет
+            role = "superadmin" if data.telegram_id == 426188469 else "manager"
+            try:
+                user = create_user({
+                    "tg_id": data.telegram_id,
+                    "tg_username": data.username or "",
+                    "first_name": data.first_name or "",
+                    "full_name": data.first_name or "",
+                    "role": role,
+                    "is_active": 1,
+                    "created_at": now_iso()
+                })
+            except ValueError:
+                # Пользователь уже существует, получаем его
+                user = get_user_by_tg_id(data.telegram_id)
+        else:
+            # Обновляем данные Telegram, если изменились
+            if data.username or data.first_name:
+                update_data = {}
+                if data.username:
+                    update_data["tg_username"] = data.username
+                if data.first_name:
+                    update_data["first_name"] = data.first_name
+                    if not user.get("full_name"):
+                        update_data["full_name"] = data.first_name
+                if update_data:
+                    update_user(user["id"], update_data)
+                    user = get_user_by_id(user["id"])
+    
+    # 3. Вход по телефону/имени (простая регистрация/логин)
+    elif data.phone and data.full_name:
+        # Ищем по телефону
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM users WHERE phone = ?", (data.phone,))
+        row = cur.fetchone()
+        conn.close()
+        
+        if row:
+            user = dict(row)
+        else:
+            # Создаем нового пользователя
+            try:
+                user = create_user({
+                    "full_name": data.full_name,
+                    "phone": data.phone,
+                    "company": data.company or "",
+                    "role": "manager",
+                    "is_active": 1,
+                    "created_at": now_iso()
+                })
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+    else:
+        raise HTTPException(status_code=400, detail="Provide email/password, telegram_id, or phone/full_name")
+    
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    # Проверка is_active
+    if user.get("is_active", 1) == 0:
+        raise HTTPException(status_code=401, detail="User is inactive")
+    
+    # Обновление last_login
+    update_user(user["id"], {"last_login": now_iso()})
+    user = get_user_by_id(user["id"])  # Обновляем данные
+    
+    # Создание токена
+    token = create_access_token(user)
+    
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user.get("email"),
+            "full_name": user.get("full_name", user.get("first_name", "")),
+            "role": user["role"],
+        }
+    }
 
 
 @app.post("/api/auth/telegram")
@@ -358,8 +565,17 @@ async def telegram_auth(request: Request):
         user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
         conn.close()
 
-        token = create_token(user["id"], role)
-        return {"ok": True, "role": role, "token": token}
+        token = create_access_token(dict(user))
+        return {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user.get("email"),
+                "full_name": user.get("full_name", user.get("first_name", "")),
+                "role": role,
+            }
+        }
 
     # ===== Real Telegram Auth =====
     if not verify_telegram_auth(data):
@@ -381,8 +597,17 @@ async def telegram_auth(request: Request):
         conn.commit()
         user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
         conn.close()
-        token = create_token(user["id"], "superadmin")
-        return {"ok": True, "role": "superadmin", "token": token}
+        token = create_access_token(dict(user))
+        return {
+            "ok": True,
+            "token": token,
+            "user": {
+                "id": user["id"],
+                "email": user.get("email"),
+                "full_name": user.get("full_name", user.get("first_name", "")),
+                "role": "superadmin",
+            }
+        }
 
     # --- Остальные пользователи ---
     row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
@@ -395,10 +620,19 @@ async def telegram_auth(request: Request):
         row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
 
     role = row["role"]
-    token = create_token(row["id"], role)
+    token = create_access_token(dict(row))
     conn.close()
 
-    return {"ok": True, "role": role, "token": token}
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": row["id"],
+            "email": row.get("email"),
+            "full_name": row.get("full_name", row.get("first_name", "")),
+            "role": role,
+        }
+    }
 
 
 # ===== DEV-авторизация без проверки Telegram =====
@@ -439,10 +673,126 @@ def dev_login(payload: dict):
     if not user:
         raise HTTPException(status_code=500, detail="Failed to create user")
 
-    token = create_token(user["id"], user["role"])
-    return {"ok": True, "token": token, "role": user["role"], "user": dict(user)}
+    token = create_access_token(dict(user))
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user.get("email"),
+            "full_name": user.get("full_name", user.get("first_name", "")),
+            "role": user["role"],
+        }
+    }
 
 
+
+# ===== Admin: Управление пользователями =====
+@app.get("/api/admin/users")
+def admin_list_users(admin_user=Depends(get_superadmin_user)):
+    """Список всех пользователей (только для superadmin)"""
+    users = get_all_users()
+    return {
+        "ok": True,
+        "users": [
+            {
+                "id": u["id"],
+                "email": u.get("email"),
+                "full_name": u.get("full_name", ""),
+                "phone": u.get("phone", ""),
+                "company": u.get("company", ""),
+                "city": u.get("city", ""),
+                "role": u["role"],
+                "is_active": u.get("is_active", 1),
+                "created_at": u.get("created_at", ""),
+                "last_login": u.get("last_login"),
+                "telegram_id": u.get("tg_id"),
+            }
+            for u in users
+        ]
+    }
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_superadmin_user)):
+    """Обновить пользователя (только для superadmin)"""
+    # Нельзя изменять самого себя (защита от случайного понижения)
+    if user_id == admin_user["id"]:
+        # Разрешаем изменение только не-ролевых полей
+        if data.role is not None or data.is_active is not None:
+            raise HTTPException(status_code=400, detail="Cannot change your own role or status")
+    
+    # Проверка: нельзя понизить последнего superadmin
+    if data.role and data.role != "superadmin":
+        conn = get_conn()
+        cur = conn.cursor()
+        superadmin_count = cur.execute(
+            "SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1"
+        ).fetchone()[0]
+        target_user = get_user_by_id(user_id)
+        if target_user and target_user["role"] == "superadmin" and superadmin_count <= 1:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Cannot demote the last superadmin")
+        conn.close()
+    
+    # Обновление
+    update_data = {}
+    if data.full_name is not None:
+        update_data["full_name"] = data.full_name
+    if data.phone is not None:
+        update_data["phone"] = data.phone
+    if data.company is not None:
+        update_data["company"] = data.company
+    if data.city is not None:
+        update_data["city"] = data.city
+    if data.role is not None:
+        update_data["role"] = data.role
+    if data.is_active is not None:
+        update_data["is_active"] = data.is_active
+    
+    updated = update_user(user_id, update_data)
+    
+    return {
+        "ok": True,
+        "user": {
+            "id": updated["id"],
+            "email": updated.get("email"),
+            "full_name": updated.get("full_name", ""),
+            "phone": updated.get("phone", ""),
+            "company": updated.get("company", ""),
+            "city": updated.get("city", ""),
+            "role": updated["role"],
+            "is_active": updated.get("is_active", 1),
+        }
+    }
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, admin_user=Depends(get_superadmin_user)):
+    """Удалить пользователя (soft-delete: is_active=0)"""
+    # Нельзя удалить самого себя
+    if user_id == admin_user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete yourself")
+    
+    # Проверка: нельзя удалить последнего superadmin
+    target_user = get_user_by_id(user_id)
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if target_user["role"] == "superadmin":
+        conn = get_conn()
+        cur = conn.cursor()
+        superadmin_count = cur.execute(
+            "SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1"
+        ).fetchone()[0]
+        conn.close()
+        if superadmin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot delete the last superadmin")
+    
+    # Soft delete: is_active = 0
+    update_user(user_id, {"is_active": 0})
+    
+    return {"ok": True, "message": "User deleted"}
 
 
 # ===== Managers CRUD =====
@@ -533,9 +883,18 @@ async def telegram_login(request: Request):
     conn.close()
 
     # выдаём токен
-    token = create_token(user["id"], role)
+    token = create_access_token(dict(user))
 
-    return {"ok": True, "token": token, "role": role, "user": dict(user)}
+    return {
+        "ok": True,
+        "token": token,
+        "user": {
+            "id": user["id"],
+            "email": user.get("email"),
+            "full_name": user.get("full_name", user.get("first_name", "")),
+            "role": role,
+        }
+    }
 
 
 @app.post("/api/admin/managers")
