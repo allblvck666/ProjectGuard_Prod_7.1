@@ -195,8 +195,15 @@ function UsersTable() {
   };
 
   const changeRole = async (u, newRole) => {
+    if (newRole === u.role) return; // Роль не изменилась
     if (!window.confirm(`Изменить роль пользователя ${u.email || u.full_name || u.id} на "${newRole}"?`)) return;
-    await updateUser(u.id, { role: newRole });
+    try {
+      await updateUser(u.id, { role: newRole });
+      alert(`✅ Роль изменена на "${newRole}"`);
+    } catch (e) {
+      console.error("Ошибка изменения роли:", e);
+      alert(e.response?.data?.detail || "Ошибка при изменении роли");
+    }
   };
 
   const deleteUser = async (u) => {

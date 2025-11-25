@@ -194,7 +194,7 @@ function CreateProtectionPage({
         <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontWeight: 700 }}>
           🛡️ Поставить защиту
         </h1>
       </div>
@@ -351,7 +351,7 @@ function ActiveProtectionsPage({
         <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontWeight: 700 }}>
           📋 Активные защиты
         </h1>
         <button className="btn refresh" onClick={load}>
@@ -643,7 +643,7 @@ function ArchivePage({
         <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontWeight: 700 }}>
           📦 Архив защит
         </h1>
         <button className="btn refresh" onClick={load}>
@@ -743,7 +743,7 @@ function StatsPage({ stats, onBack }) {
         <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontWeight: 700 }}>
           📊 Статистика
         </h1>
       </div>
@@ -1726,7 +1726,7 @@ if (isTG && (!ready || loading)) {
         <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+        <h1 style={{ margin: 0, fontWeight: 700 }}>
           🔰 Aquafloor защиты
         </h1>
       </div>
