@@ -229,7 +229,7 @@ def update_user(user_id: int, data: dict):
     cur = conn.cursor()
     
     # Разрешенные поля для обновления
-    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name", "manager_id"]
+    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name", "manager_id", "receive_extend_notifications", "manager_ids"]
     updates = []
     values = []
     
@@ -433,7 +433,8 @@ def init_db():
             last_login TEXT,
             updated_at TEXT,
             extra TEXT,
-            receive_extend_notifications INTEGER DEFAULT 0
+            receive_extend_notifications INTEGER DEFAULT 0,
+            manager_ids TEXT DEFAULT '[]'
         )
         """
     )
@@ -465,7 +466,8 @@ def init_db():
         "last_login": "TEXT",
         "updated_at": "TEXT",
         "extra": "TEXT",
-        "receive_extend_notifications": "INTEGER DEFAULT 0"
+        "receive_extend_notifications": "INTEGER DEFAULT 0",
+        "manager_ids": "TEXT DEFAULT '[]'"
     }
     
     # manager_id уже есть в таблице users, но проверим

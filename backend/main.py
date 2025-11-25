@@ -205,6 +205,7 @@ class ProtectionOut(BaseModel):
     warn2d: Optional[bool] = None
     warn_text: Optional[str] = None
     extend_count: Optional[int] = 0
+    manager_id: Optional[int] = None  # ID пользователя, создавшего защиту
 
 class ProtectionUpdate(BaseModel):
     sku: Optional[str] = ""
@@ -292,6 +293,7 @@ def row_to_out(row) -> ProtectionOut:
         warn2d=warn2d,
         warn_text=warn_text,
         extend_count=row["extend_count"] if "extend_count" in row.keys() else 0,
+        manager_id=row.get("manager_id"),  # ID пользователя, создавшего защиту
     )
 
 def normalize_sku(raw: str) -> str:
@@ -370,6 +372,7 @@ class UserUpdate(BaseModel):
     is_active: Optional[int] = None
     manager_id: Optional[int] = None
     receive_extend_notifications: Optional[int] = None
+    manager_ids: Optional[str] = None  # JSON массив ID менеджеров
 
 
 @app.get("/api/auth/verify")
@@ -786,6 +789,7 @@ def admin_list_users(admin_user=Depends(require_admin)):
                 "last_login": u.get("last_login"),
                 "manager_id": u.get("manager_id"),
                 "receive_extend_notifications": u.get("receive_extend_notifications", 0),
+                "manager_ids": u.get("manager_ids", "[]"),
             }
             for u in users
         ]
@@ -842,6 +846,27 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
         update_data["manager_id"] = data.manager_id
     if data.receive_extend_notifications is not None:
         update_data["receive_extend_notifications"] = data.receive_extend_notifications
+    if data.manager_ids is not None:
+        # Валидируем, что это валидный JSON массив
+        import json
+        try:
+            parsed = json.loads(data.manager_ids) if isinstance(data.manager_ids, str) else data.manager_ids
+            if isinstance(parsed, list):
+                # Фильтруем null значения и дубликаты для проверки уникальности
+                non_null = [id for id in parsed if id is not None and id != ""]
+                # Проверяем на дубликаты
+                if len(non_null) != len(set(non_null)):
+                    raise HTTPException(status_code=400, detail="Нельзя выбрать одного менеджера дважды")
+                
+                # Ограничиваем до 3 элементов, заполняем null до 3
+                result = list(parsed[:3])
+                while len(result) < 3:
+                    result.append(None)
+                update_data["manager_ids"] = json.dumps(result[:3], ensure_ascii=False)
+            else:
+                raise HTTPException(status_code=400, detail="manager_ids должен быть массивом")
+        except (json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="manager_ids должен быть валидным JSON массивом")
     
     updated = update_user(user_id, update_data)
     
@@ -1271,13 +1296,9 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
 
     expires = add_days(created, ttl_days)
 
-    # 🆕 Определяем менеджера для защиты через users → manager_id
-    # Используем manager_id текущего пользователя, если он привязан к менеджеру
-    manager_id = None
-    if current_user_id:
-        user_row = cur.execute("SELECT manager_id FROM users WHERE id = ?", (current_user_id,)).fetchone()
-        if user_row and user_row["manager_id"]:
-            manager_id = user_row["manager_id"]
+    # 🆕 Сохраняем user_id создателя защиты в поле manager_id защиты
+    # Это нужно для привязки защиты к пользователю и проверки прав на удаление
+    manager_id = current_user_id  # Сохраняем ID пользователя, который создал защиту
 
     # 🆕 Вставляем новую защиту с manager_id
     cur.execute("""
@@ -1542,15 +1563,14 @@ def request_extend(pid: int, data: dict = Body(...)):
         {"days": days, "reason": reason},
     )
     
-    # Отправляем уведомление только выбранным админам и суперадминам
-    # (которые имеют receive_extend_notifications = 1)
+    # Отправляем уведомление всем админам и суперадминам
     admins = cur.execute(
         """
         SELECT tg_id, full_name, first_name 
         FROM users 
         WHERE role IN ('admin', 'superadmin') 
           AND tg_id IS NOT NULL 
-          AND receive_extend_notifications = 1
+          AND tg_id != ''
         """
     ).fetchall()
     
@@ -1574,18 +1594,28 @@ def request_extend(pid: int, data: dict = Body(...)):
     
     # Отправляем уведомления асинхронно
     async def send_admin_notifications():
+        sent_count = 0
         for admin in admins:
-            if admin["tg_id"]:
+            tg_id = admin.get("tg_id")
+            if tg_id:
                 try:
-                    await bot.send_message(
-                        int(admin["tg_id"]),
-                        msg,
-                        parse_mode="HTML",
-                        reply_markup=kb.as_markup()
-                    )
-                    print(f"📩 Уведомление о запросе продления отправлено админу {admin['tg_id']}")
+                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                    if tg_id_int:
+                        await bot.send_message(
+                            tg_id_int,
+                            msg,
+                            parse_mode="HTML",
+                            reply_markup=kb.as_markup()
+                        )
+                        sent_count += 1
+                        print(f"📩 Уведомление о запросе продления отправлено админу {tg_id_int} ({admin.get('full_name', admin.get('first_name', 'Unknown'))})")
                 except Exception as e:
-                    print(f"⚠️ Ошибка отправки уведомления админу {admin['tg_id']}: {e}")
+                    print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
+        
+        if sent_count == 0:
+            print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
+        else:
+            print(f"✅ Уведомления отправлены {sent_count} админам из {len(admins)}")
     
     # Запускаем в фоне
     try:
@@ -1594,9 +1624,13 @@ def request_extend(pid: int, data: dict = Body(...)):
             loop.create_task(send_admin_notifications())
         else:
             asyncio.run(send_admin_notifications())
-    except:
+    except Exception as e:
+        print(f"⚠️ Ошибка при запуске отправки уведомлений: {e}")
         # Если loop не запущен, создаем новый
-        asyncio.create_task(send_admin_notifications())
+        try:
+            asyncio.create_task(send_admin_notifications())
+        except:
+            pass
     
     conn.commit()
     conn.close()
@@ -1986,25 +2020,49 @@ async def check_expiring_protections():
                 tg_id = r["tg_id"]
 
                 # Получаем всех пользователей, привязанных к этому менеджеру
-                # (через manager_id в таблице users)
-                recipients_query = """
-                    SELECT tg_id FROM users 
-                    WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
-                """
-                recipients_rows = cur.execute(recipients_query, (manager_id,)).fetchall() if manager_id else []
-                
-                # Также добавляем пользователя-менеджера, если у него есть tg_id
+                # (через manager_id или manager_ids в таблице users)
                 recipients: list[int] = []
-                if tg_id:
-                    recipients.append(int(tg_id))
                 
-                # Добавляем всех привязанных пользователей
-                for row in recipients_rows:
-                    if row["tg_id"]:
+                # Добавляем пользователя-менеджера, если у него есть tg_id
+                if tg_id:
+                    try:
+                        recipients.append(int(tg_id))
+                    except:
+                        pass
+                
+                # Ищем пользователей, привязанных через manager_id
+                if manager_id:
+                    recipients_query = """
+                        SELECT tg_id FROM users 
+                        WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
+                    """
+                    recipients_rows = cur.execute(recipients_query, (manager_id,)).fetchall()
+                    for row in recipients_rows:
+                        if row["tg_id"]:
+                            try:
+                                recipients.append(int(row["tg_id"]))
+                            except:
+                                pass
+                
+                # Ищем пользователей, привязанных через manager_ids (JSON массив)
+                import json
+                all_users = cur.execute("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''").fetchall()
+                for user_row in all_users:
+                    user_tg_id = user_row.get("tg_id")
+                    manager_ids_json = user_row.get("manager_ids", "[]")
+                    if user_tg_id and manager_ids_json:
                         try:
-                            recipients.append(int(row["tg_id"]))
+                            user_manager_ids = json.loads(manager_ids_json)
+                            if isinstance(user_manager_ids, list) and manager_id in user_manager_ids:
+                                try:
+                                    recipients.append(int(user_tg_id))
+                                except:
+                                    pass
                         except:
                             pass
+                
+                # Убираем дубликаты
+                recipients = list(dict.fromkeys(recipients))
 
                 msg = (
                     f"⚠️ <b>Защита #{pid} истекает через 2 дня!</b>\n\n"

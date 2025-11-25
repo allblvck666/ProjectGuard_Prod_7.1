@@ -514,12 +514,15 @@ function ActiveProtectionsPage({
                   >
                     🔒 Закрыть
                   </button>
-                  <button
-                    className="btn danger"
-                    onClick={() => act(it.id, "delete")}
-                  >
-                    🗑️ Удалить
-                  </button>
+                  {/* Показываем кнопку удаления только автору или админу */}
+                  {(it.manager_id === currentUserId || auth.role === "admin" || auth.role === "superadmin") && (
+                    <button
+                      className="btn danger"
+                      onClick={() => act(it.id, "delete")}
+                    >
+                      🗑️ Удалить
+                    </button>
+                  )}
                   <button
                     className="btn secondary"
                     onClick={() => openEditModal(it)}

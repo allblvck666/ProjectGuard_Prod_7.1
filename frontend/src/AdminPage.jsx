@@ -274,16 +274,60 @@ function UsersTable() {
     }
   };
 
-  const changeManager = async (u, managerId) => {
+  const changeManager = async (u, managerId, index) => {
+    // Получаем текущий список менеджеров из manager_ids или manager_id
+    let managerIds = [];
+    try {
+      if (u.manager_ids) {
+        managerIds = JSON.parse(u.manager_ids);
+      } else if (u.manager_id) {
+        managerIds = [u.manager_id];
+      }
+    } catch (e) {
+      managerIds = [];
+    }
+    
     const managerIdNum = managerId ? parseInt(managerId) : null;
-    if (managerIdNum === u.manager_id) return; // Не изменилось
+    
+    // Обновляем менеджера по индексу
+    if (index !== undefined && index >= 0 && index < 3) {
+      // Заполняем массив до нужной длины (3 элемента)
+      while (managerIds.length < 3) {
+        managerIds.push(null);
+      }
+      
+      // Проверяем, не выбран ли уже этот менеджер в другом поле
+      if (managerIdNum) {
+        const existingIndex = managerIds.findIndex(id => id === managerIdNum);
+        if (existingIndex !== -1 && existingIndex !== index) {
+          // Если менеджер уже выбран в другом поле, очищаем старое поле
+          managerIds[existingIndex] = null;
+        }
+      }
+      
+      // Устанавливаем новое значение
+      managerIds[index] = managerIdNum;
+      
+      // Сохраняем массив из 3 элементов (может содержать null)
+      // Удаляем только undefined, но сохраняем null для пустых полей
+      const cleaned = managerIds.map(id => (id === undefined ? null : id)).slice(0, 3);
+      while (cleaned.length < 3) {
+        cleaned.push(null);
+      }
+      managerIds = cleaned;
+    } else {
+      // Старая логика для обратной совместимости
+      if (managerIdNum === (u.manager_id || null)) return; // Не изменилось
+      managerIds = managerIdNum ? [managerIdNum, null, null] : [null, null, null];
+    }
     
     try {
-      await updateUser(u.id, { manager_id: managerIdNum });
-      alert(`✅ Пользователь привязан к менеджеру`);
+      await updateUser(u.id, { manager_ids: JSON.stringify(managerIds) });
+      await loadUsers(); // Перезагружаем список для обновления UI
     } catch (e) {
       console.error("Ошибка изменения менеджера:", e);
       alert(e.response?.data?.detail || "Ошибка при изменении менеджера");
+      await loadUsers(); // Перезагружаем даже при ошибке
     }
   };
 
@@ -476,62 +520,47 @@ function UsersTable() {
                                 </option>
                               ))}
                           </select>
-                          <select
-                              className="admin-select-small"
-                              value={u.manager_id || ""}
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                changeManager(u, e.target.value);
-                              }}
-                              style={{ minWidth: 200 }}
-                            >
-                              <option value="">— Не привязан к менеджеру</option>
-                              {managers.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
-                          {(u.role === "admin" || u.role === "superadmin") && (
-                            <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 14 }}>
-                              <input
-                                type="checkbox"
-                                checked={u.receive_extend_notifications === 1}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={async (e) => {
-                                  e.stopPropagation();
-                                  try {
-                                    await updateUser(u.id, { receive_extend_notifications: e.target.checked ? 1 : 0 });
-                                    await loadUsers();
-                                  } catch (err) {
-                                    alert("Ошибка при обновлении настройки");
-                                  }
-                                }}
-                                style={{ width: 18, height: 18, cursor: "pointer" }}
-                              />
-                              <span style={{ color: "rgba(255, 255, 255, 0.8)" }}>Получать уведомления о продлении</span>
-                            </label>
-                          )}
-                          <select
-                              className="admin-select-small"
-                              value={u.manager_id || ""}
-                              onClick={(e) => e.stopPropagation()}
-                              onMouseDown={(e) => e.stopPropagation()}
-                              onChange={(e) => {
-                                e.stopPropagation();
-                                changeManager(u, e.target.value);
-                              }}
-                              style={{ minWidth: 200 }}
-                            >
-                              <option value="">— Не привязан к менеджеру</option>
-                              {managers.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                          </select>
+                          <div style={{ width: "100%" }}>
+                            <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", marginBottom: 8 }}>
+                              Привязка к менеджерам (максимум 3):
+                            </div>
+                            {[0, 1, 2].map((idx) => {
+                              // Получаем текущий список менеджеров
+                              let managerIds = [];
+                              try {
+                                if (u.manager_ids) {
+                                  managerIds = JSON.parse(u.manager_ids);
+                                } else if (u.manager_id && idx === 0) {
+                                  managerIds = [u.manager_id];
+                                }
+                              } catch (e) {
+                                managerIds = [];
+                              }
+                              const currentManagerId = managerIds[idx] || "";
+                              
+                              return (
+                                <select
+                                  key={idx}
+                                  className="admin-select-small"
+                                  value={currentManagerId}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
+                                    changeManager(u, e.target.value, idx);
+                                  }}
+                                  style={{ minWidth: 200, marginBottom: 8 }}
+                                >
+                                  <option value="">— Не выбран</option>
+                                  {managers.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              );
+                            })}
+                          </div>
                           <button
                             className="admin-btn-secondary"
                             onClick={(e) => {

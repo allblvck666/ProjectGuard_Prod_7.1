@@ -19,6 +19,10 @@
     --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
   }
   
+  * {
+    box-sizing: border-box;
+  }
+  
   body {
     margin: 0;
     background: linear-gradient(180deg, #0a0e1a 0%, #0f172a 50%, #1a1f3a 100%);
@@ -41,7 +45,6 @@
     width: 100%;
     box-sizing: border-box;
     overflow-x: hidden;
-    box-sizing: border-box;
   }
 
   @media (max-width: 768px) {
@@ -102,7 +105,19 @@
     margin-bottom: 16px;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeInUp 0.4s ease-out;
+  }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .card:hover {
@@ -111,6 +126,7 @@
     box-shadow: 
       0 8px 24px rgba(0, 0, 0, 0.3),
       0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+    transform: translateY(-2px);
   }
   
   .row {
@@ -151,7 +167,7 @@
     flex: 1;
     min-width: 150px;
     font-size: 15px;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
   }
@@ -161,6 +177,7 @@
     border-color: rgba(77, 110, 235, 0.5);
     background: rgba(255, 255, 255, 0.08);
     box-shadow: 0 0 0 3px rgba(77, 110, 235, 0.15);
+    transform: translateY(-1px);
   }
 
   .input::placeholder {
@@ -189,12 +206,38 @@
     border: none;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 6px;
+    position: relative;
+    overflow: hidden;
   }
+  
+  .btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.2);
+    transform: translate(-50%, -50%);
+    transition: width 0.6s, height 0.6s;
+  }
+  
+  .btn:hover::before {
+    width: 300px;
+    height: 300px;
+  }
+  
+  .btn > * {
+    position: relative;
+    z-index: 1;
+  }
+  
   .btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
@@ -254,6 +297,16 @@
     border-radius: 16px;
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    animation: fadeIn 0.3s ease;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   .toolbar .input.search {
@@ -276,19 +329,21 @@
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     font-weight: 500;
     font-size: 14px;
   }
   .tag:hover {
     background: rgba(255, 255, 255, 0.08);
     border-color: rgba(255, 255, 255, 0.15);
+    transform: scale(1.05);
   }
   .tag.active { 
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-color: rgba(102, 126, 234, 0.5);
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
     color: #fff;
+    transform: scale(1.05);
   }
   
   .list {
@@ -306,7 +361,15 @@
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    animation: fadeInUp 0.4s ease-out;
+    animation-fill-mode: both;
   }
+
+  .item:nth-child(1) { animation-delay: 0.05s; }
+  .item:nth-child(2) { animation-delay: 0.1s; }
+  .item:nth-child(3) { animation-delay: 0.15s; }
+  .item:nth-child(4) { animation-delay: 0.2s; }
+  .item:nth-child(5) { animation-delay: 0.25s; }
 
   .item:hover {
     background: rgba(255, 255, 255, 0.05);
@@ -346,8 +409,21 @@
     border-radius: 12px;
     flex-wrap: wrap;
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-    transition: all 0.3s ease;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: slideIn 0.3s ease-out;
   }
+
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(-20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+
   .sku-chip:hover {
     transform: translateY(-2px);
     box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
@@ -371,14 +447,30 @@
     max-height: 180px;
     overflow-y: auto;
     z-index: 20;
+    animation: fadeInDown 0.2s ease-out;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
   }
+
+  @keyframes fadeInDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
   .suggestion-item {
     padding: 8px;
     border-bottom: 1px solid var(--border);
     cursor: pointer;
+    transition: all 0.2s ease;
   }
   .suggestion-item:hover {
     background: rgba(255, 255, 255, 0.05);
+    transform: translateX(4px);
   }
   
   @media (max-width: 768px) {
@@ -397,119 +489,30 @@
       box-sizing: border-box;
     }
     .header h1 { 
-      font-size: 22px; 
+      font-size: 24px;
       margin: 0;
-      text-align: center;
-    }
-    .input, .select, .btn { 
-      flex: 1 1 100%; 
-      min-width: unset; 
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-    .row {
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .row > * {
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-    .grid { 
-      grid-template-columns: 1fr; 
-      gap: 12px;
-    }
-    .toolbar { 
-      flex-direction: column;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .toolbar > * {
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-    }
-    .toolbar .btn { 
-      flex: 1; 
-      width: 100%;
-    }
-    .actions { 
-      flex-direction: column;
-      width: 100%;
-    }
-    .actions .btn { 
-      flex: 1 1 100%; 
-      width: 100%;
-      max-width: 100%;
     }
     .card {
       padding: 16px;
-      margin-bottom: 12px;
+    }
+    .item {
+      padding: 14px;
+    }
+    .btn {
       width: 100%;
-      box-sizing: border-box;
-      max-width: 100%;
+      margin: 4px 0;
     }
-    .header .btn {
-      font-size: 14px;
-      padding: 10px 16px;
+    .actions {
+      flex-direction: column;
+    }
+    .actions .btn {
       width: 100%;
     }
   }
-  
-  /* ОТДЕЛЬНЫЙ ПРАВИЛЬНЫЙ БЛОК */
-  @media (max-width: 768px) {
-    .toolbar {
-        position: static !important;
-        bottom: auto !important;
-        background: transparent;
-        padding: 8px 0;
-        border: none;
-    }
-  }
-  
-  /* можно вставить в конец styles.css */
-.input.error {
-    border-color: #ef4444 !important;
-    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.25) !important;
-    background: rgba(239, 68, 68, 0.05) !important;
-  }
-  /* 📱 Мобильная адаптация таблиц */
-@media (max-width: 768px) {
-  table.table,
-  table.table thead {
-    display: none;
-  }
-  table.table tbody,
-  table.table tr,
-  table.table td {
-    display: block;
-    width: 100%;
-  }
-  table.table tr {
-    margin-bottom: 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-card);
-    padding: 10px;
-  }
-  table.table td {
-    padding: 4px 0;
-    font-size: 14px;
-  }
-  table.table td::before {
-    content: attr(data-label);
-    display: block;
-    font-weight: 600;
-    opacity: 0.7;
-    margin-bottom: 2px;
-  }
-}
 
   /* ============================================
-     🍎 ПРЕМИУМ ДИЗАЙН ГЛАВНОЙ СТРАНИЦЫ (APPLE STYLE)
-     ============================================ */
-  
+     🏠 ГЛАВНАЯ СТРАНИЦА (HOME DASHBOARD)
+  ============================================ */
   .home-header {
     padding: 32px 20px;
     background: linear-gradient(180deg, 
@@ -522,6 +525,7 @@
     -webkit-backdrop-filter: blur(20px) saturate(180%);
     position: relative;
     overflow: hidden;
+    animation: fadeInDown 0.5s ease-out;
   }
 
   .home-header::before {
@@ -538,7 +542,7 @@
   }
 
   .home-greeting {
-    font-size: 32px;
+    font-size: 28px;
     font-weight: 700;
     background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.8) 100%);
     -webkit-background-clip: text;
@@ -549,11 +553,10 @@
   }
 
   .home-subtitle {
-    font-size: 15px;
+    font-size: 16px;
     color: rgba(255, 255, 255, 0.6);
     margin: 0;
     font-weight: 400;
-    letter-spacing: 0.2px;
   }
 
   .home-grid {
@@ -605,17 +608,21 @@
     transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 
       0 8px 32px rgba(0, 0, 0, 0.3),
-      0 0 0 1px rgba(255, 255, 255, 0.08) inset,
-      0 2px 8px rgba(0, 0, 0, 0.2) inset;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-height: 180px;
-    position: relative;
-    overflow: hidden;
+      0 0 0 1px rgba(255, 255, 255, 0.05) inset;
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
+    position: relative;
+    overflow: hidden;
+    animation: fadeInUp 0.5s ease-out;
+    animation-fill-mode: both;
   }
+
+  .home-card:nth-child(1) { animation-delay: 0.1s; }
+  .home-card:nth-child(2) { animation-delay: 0.15s; }
+  .home-card:nth-child(3) { animation-delay: 0.2s; }
+  .home-card:nth-child(4) { animation-delay: 0.25s; }
+  .home-card:nth-child(5) { animation-delay: 0.3s; }
+  .home-card:nth-child(6) { animation-delay: 0.35s; }
 
   .home-card::before {
     content: '';
@@ -679,6 +686,7 @@
     transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     z-index: 1;
+    display: block;
   }
 
   .home-card:hover .home-card-icon {
@@ -711,92 +719,76 @@
     z-index: 1;
   }
 
-  /* Fix Telegram WebApp keyboard on iOS */
-html, body {
-  height: auto !important;
-  min-height: 100% !important;
-  overflow-x: hidden;
-}
-
-input, select, textarea {
-  font-size: 16px !important; /* обязательный фикс для iOS */
-}
-/* Фиксированная кнопка "назад" на мобильной версии */
-.back-button-fixed {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  .back-button-fixed {
-    display: flex;
+  /* ============================================
+     🔙 ФИКСИРОВАННАЯ КНОПКА "НАЗАД"
+  ============================================ */
+  .fixed-back-button {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    z-index: 9998;
+    z-index: 1000;
     width: 56px;
     height: 56px;
     border-radius: 50%;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
     box-shadow: 
       0 8px 24px rgba(102, 126, 234, 0.4),
-      0 0 0 1px rgba(255, 255, 255, 0.1) inset;
-    color: #fff;
-    font-size: 24px;
+      0 0 0 4px rgba(102, 126, 234, 0.1);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    display: flex;
     align-items: center;
     justify-content: center;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
-    padding: 0;
-    margin: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    animation: fadeInUp 0.5s ease-out;
   }
 
-  .back-button-fixed:hover {
-    transform: scale(1.1);
+  .fixed-back-button:hover {
+    transform: translateY(-4px) scale(1.1);
     box-shadow: 
       0 12px 32px rgba(102, 126, 234, 0.5),
-      0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+      0 0 0 6px rgba(102, 126, 234, 0.15);
   }
 
-  .back-button-fixed:active {
-    transform: scale(0.95);
+  .fixed-back-button:active {
+    transform: translateY(-2px) scale(1.05);
   }
 
-  /* Safe area для iOS */
-  @supports (padding: max(0px)) {
-    .back-button-fixed {
-      bottom: max(20px, env(safe-area-inset-bottom) + 10px);
-      right: max(20px, env(safe-area-inset-right) + 10px);
+  @media (max-width: 768px) {
+    .fixed-back-button {
+      width: 52px;
+      height: 52px;
+      font-size: 22px;
+      bottom: max(20px, env(safe-area-inset-bottom));
+      right: max(20px, env(safe-area-inset-right));
     }
   }
-}
 
-/* Telegram FIX — header не должен быть sticky */
-.header.sticky {
-  position: static !important;
-  top: auto !important;
-}
-body {
-  overscroll-behavior: contain;
-}
+  /* ============================================
+     📊 СТАТИСТИКА
+  ============================================ */
+  .stat-card {
+    background: linear-gradient(135deg, 
+      rgba(255, 255, 255, 0.05) 0%, 
+      rgba(255, 255, 255, 0.02) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    padding: 24px;
+    margin-bottom: 16px;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: fadeInUp 0.4s ease-out;
+  }
 
-.container {
-  padding-bottom: 40px;
-}
-
-/* Улучшения для мобильных устройств */
-.stat-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  transition: transform 0.2s ease;
-}
-
-.stat-card:hover {
-  transform: translateY(-2px);
+  .stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  }
 }
 
 .stat-card h3 {
@@ -823,7 +815,7 @@ body {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(0, 0, 0, 0.85);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -835,8 +827,8 @@ body {
 }
 
 .modal-content {
-  background: rgba(15, 23, 42, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
   padding: 28px;
   max-width: 500px;
@@ -845,38 +837,29 @@ body {
   overflow-y: auto;
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+  animation: slideUp 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes slideUp {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(30px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
   }
 }
 
 /* Анимации загрузки */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 .card, .item {
-  animation: fadeIn 0.3s ease;
+  animation: fadeInUp 0.4s ease-out;
 }
 
-/* Улучшенный скроллбар для мобильных */
+/* Улучшенный скроллбар */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -889,6 +872,7 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 3px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
@@ -897,58 +881,58 @@ body {
 
 /* ============================================
    🎨 ПРЕМИУМ СТИЛИ ДЛЯ АДМИНКИ
-   ============================================ */
-
-/* Заголовок админки */
+============================================ */
 .admin-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 24px;
-  background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
-  border-bottom: 2px solid rgba(102, 126, 234, 0.3);
+  background: linear-gradient(135deg, 
+    rgba(15, 23, 42, 0.95) 0%, 
+    rgba(15, 23, 42, 0.85) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
   margin-bottom: 24px;
-  border-radius: 16px;
-  backdrop-filter: blur(10px);
-  width: 100%;
-  box-sizing: border-box;
-  flex-wrap: wrap;
-  gap: 16px;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  animation: fadeInDown 0.4s ease-out;
 }
 
-.admin-header h1 {
+.admin-header h2 {
+  margin: 0;
   font-size: 28px;
   font-weight: 700;
-  margin: 0;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.8) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  letter-spacing: -0.5px;
 }
 
-/* Вкладки админки */
 .admin-tabs {
   display: flex;
   gap: 8px;
-  flex-wrap: wrap;
   margin-bottom: 24px;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.03);
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  width: 100%;
-  box-sizing: border-box;
+  flex-wrap: wrap;
   justify-content: center;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .admin-tab {
   padding: 12px 20px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   font-weight: 500;
+  font-size: 14px;
   color: rgba(255, 255, 255, 0.7);
   position: relative;
   overflow: hidden;
@@ -961,8 +945,11 @@ body {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-  transition: left 0.5s;
+  background: linear-gradient(90deg, 
+    transparent 0%, 
+    rgba(255, 255, 255, 0.1) 50%, 
+    transparent 100%);
+  transition: left 0.5s ease;
 }
 
 .admin-tab:hover::before {
@@ -970,240 +957,120 @@ body {
 }
 
 .admin-tab:hover {
-  background: rgba(102, 126, 234, 0.2);
-  border-color: rgba(102, 126, 234, 0.5);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
   transform: translateY(-2px);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .admin-tab.active {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
+  border-color: rgba(102, 126, 234, 0.5);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-}
-
-/* Карточки админки */
-.admin-card {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.06) 0%, 
-    rgba(255, 255, 255, 0.03) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 20px;
-  padding: 24px;
-  margin-bottom: 20px;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 
-    0 8px 32px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  transition: all 0.3s ease;
-  width: 100%;
-  box-sizing: border-box;
-  max-width: 100%;
-}
-
-.admin-user-card {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.08) 0%, 
-    rgba(255, 255, 255, 0.04) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 20px;
-  padding: 24px;
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 
-    0 4px 20px rgba(0, 0, 0, 0.25),
-    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  width: 100%;
-  box-sizing: border-box;
-  margin-bottom: 16px;
-}
-
-.admin-user-card:hover {
-  background: linear-gradient(135deg, 
-    rgba(102, 126, 234, 0.1) 0%, 
-    rgba(118, 75, 162, 0.05) 100%);
-  border-color: rgba(102, 126, 234, 0.3);
-  box-shadow: 
-    0 8px 24px rgba(0, 0, 0, 0.3),
-    0 0 0 1px rgba(102, 126, 234, 0.1) inset,
-    0 0 40px rgba(102, 126, 234, 0.1);
   transform: translateY(-2px);
 }
 
-/* Карточки защит */
-.admin-protection-card {
+.admin-card {
   background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.06) 0%, 
-    rgba(255, 255, 255, 0.03) 100%);
+    rgba(255, 255, 255, 0.05) 0%, 
+    rgba(255, 255, 255, 0.02) 100%);
   border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 16px;
-  padding: 16px;
-  backdrop-filter: blur(15px);
-  -webkit-backdrop-filter: blur(15px);
+  border-radius: 20px;
+  padding: 24px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   box-shadow: 
-    0 4px 12px rgba(0, 0, 0, 0.2),
+    0 4px 16px rgba(0, 0, 0, 0.2),
     0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeInUp 0.4s ease-out;
   width: 100%;
   box-sizing: border-box;
-}
-
-.admin-protection-card:hover {
-  background: linear-gradient(135deg, 
-    rgba(102, 126, 234, 0.08) 0%, 
-    rgba(118, 75, 162, 0.04) 100%);
-  border-color: rgba(102, 126, 234, 0.25);
-  box-shadow: 
-    0 6px 16px rgba(0, 0, 0, 0.25),
-    0 0 0 1px rgba(102, 126, 234, 0.1) inset;
-  transform: translateY(-1px);
 }
 
 .admin-card:hover {
-  border-color: rgba(102, 126, 234, 0.4);
-  box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(102, 126, 234, 0.1) inset;
+  border-color: rgba(102, 126, 234, 0.3);
 }
 
-/* Статистические карточки */
-.admin-stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  padding: 24px;
-  position: relative;
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  transition: all 0.3s ease;
+.admin-table {
   width: 100%;
-  box-sizing: border-box;
-  text-align: center;
-}
-
-.admin-stat-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-  margin-bottom: 24px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.admin-stat-card::before {
-  content: '';
-  position: absolute;
-  top: -50%;
-  right: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
-  animation: pulse 3s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 0.6; }
-}
-
-.admin-stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
-}
-
-.admin-stat-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
-}
-
-.admin-stat-value {
-  font-size: 36px;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 8px;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
-}
-
-.admin-stat-label {
+  border-collapse: collapse;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.9);
-  font-weight: 500;
-  margin-bottom: 4px;
 }
 
-.admin-stat-sublabel {
+.admin-table th {
+  text-align: left;
+  padding: 12px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.8);
+  text-transform: uppercase;
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.5px;
 }
 
-/* Кнопки админки */
+.admin-table td {
+  padding: 16px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.admin-table tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
 .admin-btn-primary {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
+  color: white;
   border: none;
-  padding: 12px 24px;
+  padding: 10px 20px;
   border-radius: 10px;
-  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .admin-btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5);
-}
-
-.admin-btn-primary:active {
-  transform: translateY(0);
+  box-shadow: 0 6px 16px rgba(102, 126, 234, 0.4);
 }
 
 .admin-btn-secondary {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 12px 24px;
+  padding: 10px 20px;
   border-radius: 10px;
-  font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  font-weight: 500;
+  font-size: 14px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .admin-btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
 }
 
-.admin-btn-success {
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: #fff;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-}
-
-.admin-btn-success:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
-}
-
 .admin-btn-danger {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-  color: #fff;
+  color: white;
   border: none;
   padding: 10px 20px;
-  border-radius: 8px;
-  font-weight: 600;
+  border-radius: 10px;
   cursor: pointer;
-  transition: all 0.3s ease;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
 }
 
@@ -1212,195 +1079,181 @@ body {
   box-shadow: 0 6px 16px rgba(239, 68, 68, 0.4);
 }
 
-.admin-btn-icon {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: rgba(255, 255, 255, 0.9);
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 18px;
-}
-
-.admin-btn-icon:hover {
-  background: rgba(255, 255, 255, 0.12);
-  transform: scale(1.1);
-}
-
-.admin-btn-icon-danger {
-  background: rgba(239, 68, 68, 0.2);
-  border: 1px solid rgba(239, 68, 68, 0.4);
-  color: #ef4444;
-  padding: 8px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  font-size: 18px;
-}
-
-.admin-btn-icon-danger:hover {
-  background: rgba(239, 68, 68, 0.3);
-  transform: scale(1.1);
-}
-
-/* Поля ввода админки */
-.admin-input {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.08) 0%, 
-    rgba(255, 255, 255, 0.05) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 12px;
-  padding: 12px 16px;
-  color: #fff;
-  font-size: 14px;
-  transition: all 0.3s ease;
-  width: 100%;
-  box-sizing: border-box;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.admin-input:hover {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.12) 0%, 
-    rgba(255, 255, 255, 0.08) 100%);
-  border-color: rgba(255, 255, 255, 0.2);
-}
-
-.admin-input:focus {
-  outline: none;
-  border-color: #667eea;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-}
-
-.admin-input::placeholder {
-  color: rgba(255, 255, 255, 0.4);
-}
-
+.admin-input,
 .admin-select {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
+  width: 100%;
   padding: 12px 16px;
-  color: #fff;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: white;
   font-size: 14px;
-  cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+.admin-input:focus,
 .admin-select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: rgba(102, 126, 234, 0.5);
   background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
 }
 
-.admin-select-small {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.08) 0%, 
-    rgba(255, 255, 255, 0.05) 100%);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-  padding: 8px 12px;
-  color: #fff;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-.admin-select-small:hover {
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.12) 0%, 
-    rgba(255, 255, 255, 0.08) 100%);
-  border-color: rgba(102, 126, 234, 0.4);
-}
-
-.admin-select-small:focus {
-  outline: none;
-  border-color: rgba(102, 126, 234, 0.6);
-  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
-}
-
-/* Таблицы админки */
-.admin-table {
-  width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
-  background: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.04) 0%, 
-    rgba(255, 255, 255, 0.02) 100%);
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.admin-table thead {
-  background: linear-gradient(135deg, 
-    rgba(102, 126, 234, 0.25) 0%, 
-    rgba(118, 75, 162, 0.2) 100%);
-  border-bottom: 2px solid rgba(102, 126, 234, 0.3);
-}
-
-.admin-table th {
-  padding: 16px;
-  text-align: left;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.admin-table td {
-  padding: 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 14px;
-  transition: background 0.2s ease;
-}
-
-.admin-table tbody tr {
-  transition: all 0.2s ease;
-}
-
-.admin-table tbody tr:hover {
-  background: rgba(102, 126, 234, 0.08);
-}
-
-.admin-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.admin-table tbody tr {
-  transition: all 0.2s ease;
-}
-
-.admin-table tbody tr:hover {
-  background: rgba(102, 126, 234, 0.1);
-}
-
-.admin-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-/* Бейджи */
 .admin-badge {
   display: inline-block;
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 4px 12px;
+  border-radius: 12px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.admin-stat-card {
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.05) 0%, 
+    rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 24px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  animation: fadeInUp 0.4s ease-out;
+  animation-fill-mode: both;
+}
+
+.admin-stat-card:nth-child(1) { animation-delay: 0.1s; }
+.admin-stat-card:nth-child(2) { animation-delay: 0.15s; }
+.admin-stat-card:nth-child(3) { animation-delay: 0.2s; }
+.admin-stat-card:nth-child(4) { animation-delay: 0.25s; }
+
+.admin-stat-card:hover {
+  transform: translateY(-4px) scale(1.02);
+  background: linear-gradient(135deg, 
+    rgba(102, 126, 234, 0.15) 0%, 
+    rgba(118, 75, 162, 0.1) 100%);
+  border-color: rgba(102, 126, 234, 0.4);
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(102, 126, 234, 0.2) inset,
+    0 0 40px rgba(102, 126, 234, 0.2);
+}
+
+.admin-stat-label {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.admin-stat-value {
+  font-size: 36px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.8) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
+}
+
+.admin-user-card {
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.05) 0%, 
+    rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 20px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 
+    0 4px 16px rgba(0, 0, 0, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeInUp 0.4s ease-out;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.admin-user-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(102, 126, 234, 0.1) inset;
+  border-color: rgba(102, 126, 234, 0.3);
+}
+
+.admin-select-small {
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 150px;
+}
+
+.admin-select-small:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.admin-select-small:focus {
+  outline: none;
+  border-color: rgba(102, 126, 234, 0.5);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+.admin-protection-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: all 0.3s ease;
+}
+
+.admin-protection-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: translateX(4px);
+}
+
+.admin-request-card {
+  background: linear-gradient(135deg, 
+    rgba(255, 255, 255, 0.05) 0%, 
+    rgba(255, 255, 255, 0.02) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.admin-request-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  border-color: rgba(102, 126, 234, 0.3);
 }
 
 /* Адаптивность */
