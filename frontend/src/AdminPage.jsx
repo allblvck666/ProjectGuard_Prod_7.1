@@ -177,13 +177,15 @@ function UsersTable() {
 
   const updateUser = async (userId, data) => {
     try {
-      await api.patch(`/api/admin/users/${userId}`, data);
+      const response = await api.patch(`/api/admin/users/${userId}`, data);
       setEditUser(null);
-      await loadUsers();
-      alert("✅ Пользователь обновлён");
+      await loadUsers(); // Перезагружаем список пользователей
+      return response.data;
     } catch (e) {
       console.error("Ошибка обновления:", e);
-      alert(e.response?.data?.detail || "Ошибка при обновлении");
+      const errorMsg = e.response?.data?.detail || "Ошибка при обновлении";
+      alert(`❌ ${errorMsg}`);
+      throw e; // Пробрасываем ошибку дальше
     }
   };
 
@@ -196,13 +198,20 @@ function UsersTable() {
 
   const changeRole = async (u, newRole) => {
     if (newRole === u.role) return; // Роль не изменилась
-    if (!window.confirm(`Изменить роль пользователя ${u.email || u.full_name || u.id} на "${newRole}"?`)) return;
+    if (!window.confirm(`Изменить роль пользователя ${u.email || u.full_name || u.id} на "${newRole}"?`)) {
+      return;
+    }
     try {
-      await updateUser(u.id, { role: newRole });
+      const response = await api.patch(`/api/admin/users/${u.id}`, { role: newRole });
+      // Успешно обновлено - перезагружаем список
+      await loadUsers();
       alert(`✅ Роль изменена на "${newRole}"`);
     } catch (e) {
       console.error("Ошибка изменения роли:", e);
-      alert(e.response?.data?.detail || "Ошибка при изменении роли");
+      const errorMsg = e.response?.data?.detail || "Ошибка при изменении роли";
+      alert(`❌ ${errorMsg}`);
+      // Перезагружаем список, чтобы сбросить select
+      await loadUsers();
     }
   };
 
@@ -348,13 +357,13 @@ function UsersTable() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        {u.role !== "superadmin" && (
                         <select
                             className="admin-select-small"
                             value={u.role}
                             onChange={(e) => changeRole(u, e.target.value)}
+                            key={`role-${u.id}-${u.role}`} // Принудительное обновление при изменении роли
                           >
-                            {roles.filter(r => r !== "superadmin" || u.role === "superadmin").map((r) => (
+                            {roles.map((r) => (
                             <option key={r} value={r}>
                                 {r === "superadmin" ? "👑 Супер-админ" : 
                                  r === "admin" ? "👑 Админ" : 
@@ -362,7 +371,6 @@ function UsersTable() {
                             </option>
                           ))}
                         </select>
-                        )}
                         <button
                           className="admin-btn-icon"
                           onClick={() => toggleActive(u)}
@@ -1083,6 +1091,15 @@ export default function AdminPage({ onBack }) {
     else window.history.back();
   };
 
+  const handleLogout = () => {
+    if (window.confirm("Вы уверены, что хотите выйти из аккаунта?")) {
+      localStorage.clear();
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+      if (onBack) onBack();
+      else window.location.href = "/";
+    }
+  };
+
   const role = localStorage.getItem("role");
 
   return (
@@ -1091,9 +1108,14 @@ export default function AdminPage({ onBack }) {
         <h1 style={{ margin: 0, background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontWeight: 700 }}>
           👑 Панель администратора
         </h1>
-        <button className="admin-btn-secondary" onClick={back}>
-          ⬅️ Назад
-        </button>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button className="admin-btn-secondary" onClick={handleLogout} style={{ fontSize: 14, padding: "10px 16px" }}>
+            🚪 Выйти
+          </button>
+          <button className="admin-btn-secondary" onClick={back}>
+            ⬅️ Назад
+          </button>
+        </div>
           </div>
 
       <div className="admin-tabs">
@@ -1142,8 +1164,8 @@ export default function AdminPage({ onBack }) {
             <div className="admin-card">
               <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
                 ⛔ Доступ к управлению пользователями только для супер-администратора
-              </div>
-            </div>
+                      </div>
+                    </div>
           )
         )}
         {tab === "managers" && (

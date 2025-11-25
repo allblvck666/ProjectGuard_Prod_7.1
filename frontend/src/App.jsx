@@ -1581,11 +1581,36 @@ if (isTG && (!ready || loading)) {
     const currentRole = auth.role || auth.user?.role || role;
     const isAdmin = currentRole === "admin" || currentRole === "superadmin";
 
+    const handleLogout = () => {
+      if (window.confirm("Вы уверены, что хотите выйти из аккаунта?")) {
+        localStorage.clear();
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+        setAuth({ token: "", role: "", user: null });
+        setTokenValid(false);
+        setRoute("home");
+      }
+    };
+
     return (
       <div className="container">
         <div className="home-header">
-          <h1 className="home-greeting">Привет, {userName} 👋</h1>
-          <p className="home-subtitle">Выберите раздел для работы</p>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h1 className="home-greeting">Привет, {userName} 👋</h1>
+            <p className="home-subtitle">Выберите раздел для работы</p>
+          </div>
+          <button 
+            className="btn secondary" 
+            onClick={handleLogout}
+            style={{ 
+              fontSize: 14,
+              padding: "12px 20px",
+              height: "auto",
+              whiteSpace: "nowrap",
+              flexShrink: 0
+            }}
+          >
+            🚪 Выйти
+          </button>
         </div>
 
         <div className="home-grid">
