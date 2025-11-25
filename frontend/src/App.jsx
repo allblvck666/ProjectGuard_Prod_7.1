@@ -177,6 +177,633 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
   );
 }
 
+// ===== КОМПОНЕНТЫ ЭКРАНОВ =====
+
+// Компонент: Поставить защиту (только форма)
+function CreateProtectionPage({ 
+  form, setForm, 
+  managers, skus, selectedSkus, setSelectedSkus, 
+  perSkuMode, setPerSkuMode, onAreaChange,
+  errorFields, submit, onBack 
+}) {
+  const errorClass = (field) => errorFields.includes(field) ? "input error" : "input";
+
+  return (
+    <div className="container">
+      <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+          ← Назад
+        </button>
+        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+          🛡️ Поставить защиту
+        </h1>
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="row">
+          <select
+            className="select"
+            value={form.manager}
+            onChange={(e) => setForm({ ...form, manager: e.target.value })}
+          >
+            <option value="">Выберите менеджера…</option>
+            {Array.isArray(managers) &&
+              managers.map((m) => (
+                <option
+                  key={m.id}
+                  value={m.first_name || m.name || m.username}
+                >
+                  {m.first_name || m.name || m.username}
+                </option>
+              ))}
+          </select>
+
+          <input
+            className={errorClass("partner")}
+            placeholder="Партнёр (дилер)"
+            value={form.partner}
+            onChange={(e) => setForm({ ...form, partner: e.target.value })}
+          />
+          <input
+            className={errorClass("partner_city")}
+            placeholder="Город партнёра"
+            value={form.partner_city}
+            onChange={(e) =>
+              setForm({ ...form, partner_city: e.target.value })
+            }
+          />
+          <input
+            className={errorClass("client")}
+            placeholder="Клиент / организация"
+            value={form.client}
+            onChange={(e) => setForm({ ...form, client: e.target.value })}
+          />
+
+          <div className="mode-toggle">
+            <div
+              className={`tag ${!perSkuMode ? "active" : ""}`}
+              onClick={() => setPerSkuMode(false)}
+            >
+              Единый
+            </div>
+            <div
+              className={`tag ${perSkuMode ? "active" : ""}`}
+              onClick={() => setPerSkuMode(true)}
+            >
+              Индивидуально
+            </div>
+          </div>
+
+          <SkuSelector
+            skus={skus}
+            selected={selectedSkus}
+            setSelected={setSelectedSkus}
+            perSkuMode={perSkuMode}
+            onAreaChange={onAreaChange}
+          />
+
+          {!perSkuMode && (
+            <input
+              className="input"
+              placeholder="Единый метраж (м²)"
+              value={form.area_m2}
+              onChange={(e) => setForm({ ...form, area_m2: e.target.value })}
+            />
+          )}
+
+          <input
+            className={errorClass("last4")}
+            placeholder="Последние 4 цифры телефона"
+            value={form.last4}
+            onChange={(e) => setForm({ ...form, last4: e.target.value })}
+          />
+          <input
+            className={errorClass("object_city")}
+            placeholder="Город объекта"
+            value={form.object_city}
+            onChange={(e) =>
+              setForm({ ...form, object_city: e.target.value })
+            }
+          />
+          <input
+            className="input"
+            placeholder="Адрес объекта"
+            value={form.address}
+            onChange={(e) => setForm({ ...form, address: e.target.value })}
+          />
+          <input
+            className="input"
+            placeholder="Комментарий"
+            value={form.comment}
+            onChange={(e) => setForm({ ...form, comment: e.target.value })}
+          />
+
+          <button className="btn" onClick={submit}>
+            Добавить защиту
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Компонент: Активные защиты (с вкладками "Мои защиты" и "Все защиты")
+function ActiveProtectionsPage({
+  auth, items, managers, expanded, toggleExpand, getBgColor,
+  act, closeModal, setCloseModal, doClose, successModal, setSuccessModal, doSuccess,
+  deleteModal, setDeleteModal, doDelete, editModal, setEditModal,
+  editSelectedSkus, setEditSelectedSkus, editPerSkuMode, setEditPerSkuMode,
+  editAreaUnified, setEditAreaUnified, editComment, setEditComment,
+  submitEdit, skus, onAreaChange, openEditModal, load, onBack
+}) {
+  const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
+  const [search, setSearch] = useState("");
+  const [managerFilter, setManagerFilter] = useState("");
+
+  // Получаем имя менеджера из формы или из auth.user для фильтрации "Мои защиты"
+  // Менеджер определяется по полю manager в защите, которое соответствует менеджеру, закрепленному за пользователем
+  const currentUserManager = auth.user?.full_name || auth.user?.first_name || "";
+  
+  // Фильтруем защиты
+  let filteredItems = items.filter(it => it.status === "active");
+  
+  if (activeTab === "my") {
+    // Мои защиты - фильтруем по менеджеру из защиты
+    // Защиты, где manager совпадает с именем менеджера пользователя
+    filteredItems = filteredItems.filter(it => it.manager === currentUserManager);
+  }
+  
+  if (search) {
+    filteredItems = filteredItems.filter(it => 
+      (it.client || "").toLowerCase().includes(search.toLowerCase()) ||
+      (it.partner || "").toLowerCase().includes(search.toLowerCase()) ||
+      (it.sku || "").toLowerCase().includes(search.toLowerCase())
+    );
+  }
+  
+  if (managerFilter && activeTab === "all") {
+    filteredItems = filteredItems.filter(it => it.manager === managerFilter);
+  }
+
+  return (
+    <div className="container">
+      <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+          ← Назад
+        </button>
+        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+          📋 Активные защиты
+        </h1>
+        <button className="btn refresh" onClick={load}>
+          🔄 Обновить
+        </button>
+      </div>
+
+      {/* Вкладки */}
+      <div className="card" style={{ marginTop: 16, marginBottom: 16 }}>
+        <div className="mode-toggle" style={{ marginRight: "auto" }}>
+          <div
+            className={`tag ${activeTab === "my" ? "active" : ""}`}
+            onClick={() => setActiveTab("my")}
+          >
+            Мои защиты
+          </div>
+          <div
+            className={`tag ${activeTab === "all" ? "active" : ""}`}
+            onClick={() => setActiveTab("all")}
+          >
+            Все защиты
+          </div>
+        </div>
+      </div>
+
+      {/* Фильтры и поиск */}
+      <div className="toolbar" style={{ marginBottom: 16 }}>
+        <input
+          className="input search"
+          placeholder="Поиск по клиенту, партнёру, артикулу…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        {activeTab === "all" && (
+          <select
+            className="select"
+            value={managerFilter}
+            onChange={(e) => setManagerFilter(e.target.value)}
+          >
+            <option value="">Все менеджеры</option>
+            {Array.isArray(managers) &&
+              managers.map((m) => (
+                <option key={m.id}>{m.first_name || m.name || m.username}</option>
+              ))}
+          </select>
+        )}
+      </div>
+
+      {/* Список защит */}
+      <div className="list">
+        {filteredItems.length === 0 ? (
+          <div className="card">
+            <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+              {activeTab === "my" ? "У вас нет активных защит" : "Нет активных защит"}
+            </div>
+          </div>
+        ) : (
+          filteredItems.map((it) => {
+            return (
+              <div
+                key={it.id}
+                className="item"
+                style={{ background: getBgColor(it) }}
+              >
+                <div className="line" onClick={() => toggleExpand(it.id)}>
+                  <div>
+                    <b>{it.client || "—"}</b> — {it.sku || "—"}{" "}
+                    {it.area_m2 ? `(${it.area_m2} м²)` : ""}
+                    <div className="small">
+                      Осталось: {it.days_left} дн | Менеджер: {it.manager}
+                      {typeof it.extend_count === "number"
+                        ? ` | Продлений: ${it.extend_count}`
+                        : ""}
+                    </div>
+                    {it.warn2d && (
+                      <div
+                        className="small"
+                        style={{
+                          marginTop: 6,
+                          display: "inline-block",
+                          background: "#3a2a00",
+                          border: "1px solid #654e00",
+                          padding: "4px 8px",
+                          borderRadius: 8,
+                        }}
+                      >
+                        ⏰ {it.warn_text || "Через 2 дня истекает"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="small arrow">
+                    {expanded[it.id] ? "▲" : "▼"}
+                  </div>
+                </div>
+
+                {expanded[it.id] && (
+                  <div className="details">
+                    {it.partner && (
+                      <div className="small">
+                        🏢 {it.partner} — {it.partner_city}
+                      </div>
+                    )}
+                    {it.object_city && (
+                      <div className="small">📍 {it.object_city}</div>
+                    )}
+                    {it.address && (
+                      <div className="small">🚚 {it.address}</div>
+                    )}
+                    {it.comment && (
+                      <div className="small">💬 {it.comment}</div>
+                    )}
+                  </div>
+                )}
+
+                <div className="actions">
+                  <button
+                    className="btn secondary"
+                    onClick={() => act(it.id, "extend")}
+                  >
+                    ⏳ Продлить
+                  </button>
+                  <button
+                    className="btn success"
+                    onClick={() => act(it.id, "success")}
+                  >
+                    ✅ Успешно
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => act(it.id, "close")}
+                  >
+                    🔒 Закрыть
+                  </button>
+                  <button
+                    className="btn danger"
+                    onClick={() => act(it.id, "delete")}
+                  >
+                    🗑️ Удалить
+                  </button>
+                  <button
+                    className="btn secondary"
+                    onClick={() => openEditModal(it)}
+                    style={{
+                      background: "var(--bg-card)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    ✏️ Редактировать
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Модалки */}
+      {closeModal.open && (
+        <Modal
+          title="Закрыть защиту"
+          onClose={() => setCloseModal({ open: false, id: null, reason: "" })}
+          onOk={doClose}
+          okText="Закрыть"
+        >
+          <input
+            className="input"
+            placeholder="Причина закрытия"
+            value={closeModal.reason}
+            onChange={(e) =>
+              setCloseModal({ ...closeModal, reason: e.target.value })
+            }
+          />
+        </Modal>
+      )}
+
+      {successModal.open && (
+        <Modal
+          title="Отметить как успешную"
+          onClose={() => setSuccessModal({ open: false, id: null, doc: "" })}
+          onOk={doSuccess}
+          okText="Подтвердить"
+        >
+          <input
+            className="input"
+            placeholder="Документ 1С (необязательно)"
+            value={successModal.doc}
+            onChange={(e) =>
+              setSuccessModal({ ...successModal, doc: e.target.value })
+            }
+          />
+        </Modal>
+      )}
+
+      {deleteModal.open && (
+        <Modal
+          title="Удалить защиту"
+          onClose={() => setDeleteModal({ open: false, id: null, reason: "" })}
+          onOk={doDelete}
+          okText="Удалить"
+        >
+          <input
+            className="input"
+            placeholder="Причина удаления"
+            value={deleteModal.reason}
+            onChange={(e) =>
+              setDeleteModal({ ...deleteModal, reason: e.target.value })
+            }
+          />
+        </Modal>
+      )}
+
+      {editModal.open && (
+        <Modal
+          title="Редактировать защиту"
+          onClose={() => setEditModal({ open: false, id: null })}
+          onOk={submitEdit}
+          okText="💾 Сохранить"
+        >
+          <div className="mode-toggle" style={{ marginBottom: 10 }}>
+            <div
+              className={`tag ${!editPerSkuMode ? "active" : ""}`}
+              onClick={() => setEditPerSkuMode(false)}
+            >
+              Единый
+            </div>
+            <div
+              className={`tag ${editPerSkuMode ? "active" : ""}`}
+              onClick={() => setEditPerSkuMode(true)}
+            >
+              Индивидуально
+            </div>
+          </div>
+          <SkuSelector
+            skus={skus}
+            selected={editSelectedSkus}
+            setSelected={setEditSelectedSkus}
+            perSkuMode={editPerSkuMode}
+            onAreaChange={onAreaChange}
+          />
+          {!editPerSkuMode && (
+            <input
+              className="input"
+              placeholder="Единый метраж (м²)"
+              value={editAreaUnified}
+              onChange={(e) => setEditAreaUnified(e.target.value)}
+              style={{ marginTop: 10 }}
+            />
+          )}
+          <textarea
+            className="input"
+            placeholder="Комментарий"
+            value={editComment}
+            onChange={(e) => setEditComment(e.target.value)}
+            style={{ marginTop: 10, minHeight: 80 }}
+          />
+          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
+            💡 Можно добавлять или удалять артикулы, менять метраж
+            (индивидуально или общий). Минимум 50 м² суммарно.
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// Компонент: Архив защит (только закрытые защиты с поиском)
+function ArchivePage({
+  items, expanded, toggleExpand, search, setSearch,
+  managerFilter, setManagerFilter, managers, load, onBack
+}) {
+  // Фильтруем только закрытые защиты (не active)
+  let filteredItems = items.filter(it => it.status !== "active");
+  
+  if (search) {
+    filteredItems = filteredItems.filter(it => 
+      (it.client || "").toLowerCase().includes(search.toLowerCase()) ||
+      (it.partner || "").toLowerCase().includes(search.toLowerCase()) ||
+      (it.sku || "").toLowerCase().includes(search.toLowerCase())
+    );
+  }
+  
+  if (managerFilter) {
+    filteredItems = filteredItems.filter(it => it.manager === managerFilter);
+  }
+
+  return (
+    <div className="container">
+      <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+          ← Назад
+        </button>
+        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+          📦 Архив защит
+        </h1>
+        <button className="btn refresh" onClick={load}>
+          🔄 Обновить
+        </button>
+      </div>
+
+      {/* Поиск и фильтры */}
+      <div className="toolbar" style={{ marginTop: 16, marginBottom: 16 }}>
+        <input
+          className="input search"
+          placeholder="Поиск по клиенту, партнёру, артикулу…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          className="select"
+          value={managerFilter}
+          onChange={(e) => setManagerFilter(e.target.value)}
+        >
+          <option value="">Все менеджеры</option>
+          {Array.isArray(managers) &&
+            managers.map((m) => (
+              <option key={m.id}>{m.first_name || m.name || m.username}</option>
+            ))}
+        </select>
+      </div>
+
+      {/* Список защит */}
+      <div className="list">
+        {filteredItems.length === 0 ? (
+          <div className="card">
+            <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+              Нет закрытых защит
+            </div>
+          </div>
+        ) : (
+          filteredItems.map((it) => {
+            const statusText = 
+              it.status === "success" ? "✅ Успешна" :
+              it.status === "closed" ? "🔒 Закрыта" :
+              it.status === "deleted" ? "🗑️ Удалена" : it.status;
+            
+            return (
+              <div key={it.id} className="item">
+                <div className="line" onClick={() => toggleExpand(it.id)}>
+                  <div>
+                    <b>{it.client || "—"}</b> — {it.sku || "—"}{" "}
+                    {it.area_m2 ? `(${it.area_m2} м²)` : ""}
+                    <div className="small">
+                      {statusText} | Менеджер: {it.manager}
+                      {it.closed_at && ` | Закрыто: ${new Date(it.closed_at).toLocaleDateString()}`}
+                    </div>
+                    {it.close_reason && (
+                      <div className="small" style={{ marginTop: 4, opacity: 0.8 }}>
+                        Причина: {it.close_reason}
+                      </div>
+                    )}
+                  </div>
+                  <div className="small arrow">
+                    {expanded[it.id] ? "▲" : "▼"}
+                  </div>
+                </div>
+
+                {expanded[it.id] && (
+                  <div className="details">
+                    {it.partner && (
+                      <div className="small">
+                        🏢 {it.partner} — {it.partner_city}
+                      </div>
+                    )}
+                    {it.object_city && (
+                      <div className="small">📍 {it.object_city}</div>
+                    )}
+                    {it.address && (
+                      <div className="small">🚚 {it.address}</div>
+                    )}
+                    {it.comment && (
+                      <div className="small">💬 {it.comment}</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Компонент: Статистика
+function StatsPage({ stats, onBack }) {
+  return (
+    <div className="container">
+      <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+          ← Назад
+        </button>
+        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+          📊 Статистика
+        </h1>
+      </div>
+
+      <div className="grid" style={{ marginTop: 16 }}>
+        {stats.map((s) => (
+          <StatCard key={s.manager} s={s} />
+        ))}
+      </div>
+
+      {stats.length === 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+            Нет данных для отображения
+          </div>
+        </div>
+      )}
+
+      {/* Детальная таблица статистики */}
+      {stats.length > 0 && (
+        <div className="card" style={{ marginTop: 16 }}>
+          <h3 style={{ marginTop: 0, marginBottom: 16 }}>📋 Детальная статистика по менеджерам</h3>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ padding: "8px", textAlign: "left" }}>Менеджер</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Всего защит</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Активных</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Активных (м²)</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Успешных</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Успешных (м²)</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Закрытых</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>Закрытых (м²)</th>
+                  <th style={{ padding: "8px", textAlign: "right" }}>% Успеха</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stats.map((s) => (
+                  <tr key={s.manager} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "8px" }}><b>{s.manager || "—"}</b></td>
+                    <td style={{ padding: "8px", textAlign: "right" }}>{s.total || 0}</td>
+                    <td style={{ padding: "8px", textAlign: "right" }}>{s.active_cnt || 0}</td>
+                    <td style={{ padding: "8px", textAlign: "right" }}>{s.active_area || 0} м²</td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#4ade80" }}>{s.success_cnt || 0}</td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#4ade80" }}>{s.success_area || 0} м²</td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#f87171" }}>{s.closed_cnt || 0}</td>
+                    <td style={{ padding: "8px", textAlign: "right", color: "#f87171" }}>{s.closed_area || 0} м²</td>
+                    <td style={{ padding: "8px", textAlign: "right", fontWeight: "bold" }}>{s.rate || 0}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* === Основное приложение === */
 function App() {
   // =====================================
@@ -407,14 +1034,16 @@ function App() {
   const role = auth.role;
 
   useEffect(() => {
-    if (route === "admin" && role !== "admin" && role !== "superadmin") {
-      console.log("⛔ Доступ в админку запрещён — роль:", role);
-      setRoute("main");
+    const currentRole = auth.role || role;
+    if (route === "admin" && currentRole !== "admin" && currentRole !== "superadmin") {
+      console.log("⛔ Доступ в админку запрещён — роль:", currentRole);
+      setRoute("home");
     }
-  }, [route, role]);
+  }, [route, auth.role, role]);
 
   const goAdmin = () => {
-    if (role === "admin" || role === "superadmin") {
+    const currentRole = auth.role || role;
+    if (currentRole === "admin" || currentRole === "superadmin") {
       setRoute("admin");
     } else {
       alert("⛔ Нет прав доступа к админке");
@@ -546,27 +1175,35 @@ function App() {
   const [history, setHistory] = useState([]);
 
   const load = async () => {
-    let statusParam = statusFilter;
-    if (viewTab === "active") {
-      statusParam = "active";
+    // Загружаем данные в зависимости от текущего route
+    if (route === "stats") {
+      // Для статистики загружаем только stats
+      const s = await api.get("/api/stats");
+      setStats(s.data || []);
+    } else if (route === "archive") {
+      // Для архива загружаем только закрытые защиты
+      const list = await api.get("/api/protections", {
+        params: { manager: managerFilter, status: "", search },
+      });
+      let data = (list.data || []).filter((it) => it.status !== "active");
+      setItems(data);
+    } else if (route === "active") {
+      // Для активных защит загружаем только активные
+      const list = await api.get("/api/protections", {
+        params: { manager: managerFilter, status: "active", search },
+      });
+      setItems(list.data || []);
     } else {
-      statusParam = archiveFilter === "all" ? "" : archiveFilter;
+      // Для остальных экранов загружаем все
+      const [s, list] = await Promise.all([
+        api.get("/api/stats"),
+        api.get("/api/protections", {
+          params: { manager: managerFilter, status: statusFilter, search },
+        }),
+      ]);
+      setStats(s.data || []);
+      setItems(list.data || []);
     }
-
-    const [s, list] = await Promise.all([
-      api.get("/api/stats"),
-      api.get("/api/protections", {
-        params: { manager: managerFilter, status: statusParam, search },
-      }),
-    ]);
-
-    let data = list.data || [];
-    if (viewTab === "archive" && archiveFilter === "all") {
-      data = data.filter((it) => it.status !== "active");
-    }
-
-    setStats(s.data || []);
-    setItems(data);
   };
 
   const loadHistory = async () => {
@@ -575,8 +1212,10 @@ function App() {
   };
 
   useEffect(() => {
+    // Загружаем данные при смене route
     load();
 
+    // Загружаем справочники только один раз или при необходимости
     api.get("/api/skus").then((r) => {
       console.log("📦 skus raw:", r.data);
       const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
@@ -604,7 +1243,7 @@ function App() {
 
     if (showHistory) loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [managerFilter, statusFilter, search, showHistory, viewTab, archiveFilter]);
+  }, [route, managerFilter, statusFilter, search]); // Загружаем при смене route и фильтров
 
   const onAreaChange = (skuObj, value) =>
     setSelectedSkus((prev) =>
@@ -917,7 +1556,8 @@ if (isTG && (!ready || loading)) {
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
   if (route === "home") {
     const userName = auth.user?.full_name || auth.user?.first_name || "Пользователь";
-    const isAdmin = auth.role === "admin" || auth.role === "superadmin";
+    const currentRole = auth.role || auth.user?.role || role;
+    const isAdmin = currentRole === "admin" || currentRole === "superadmin";
 
     return (
       <div className="container">
@@ -969,497 +1609,110 @@ if (isTG && (!ready || loading)) {
     );
   }
 
-  // ==== ОСТАЛЬНЫЕ ЭКРАНЫ (create, active, archive, stats) ====
-  // Для экранов active, archive, create, stats - показываем существующий интерфейс с кнопкой "Назад"
-  // ==== Обычный экран CRM ====
+  // ==== ПОСТАВИТЬ ЗАЩИТУ ====
+  if (route === "create") {
+    return (
+      <CreateProtectionPage
+        form={form}
+        setForm={setForm}
+        managers={managers}
+        skus={skus}
+        selectedSkus={selectedSkus}
+        setSelectedSkus={setSelectedSkus}
+        perSkuMode={perSkuMode}
+        setPerSkuMode={setPerSkuMode}
+        onAreaChange={onAreaChange}
+        errorFields={errorFields}
+        submit={submit}
+        onBack={goHome}
+      />
+    );
+  }
+
+  // ==== АКТИВНЫЕ ЗАЩИТЫ ====
+  if (route === "active") {
+    return (
+      <ActiveProtectionsPage
+        auth={auth}
+        items={items}
+        managers={managers}
+        expanded={expanded}
+        toggleExpand={toggleExpand}
+        getBgColor={getBgColor}
+        act={act}
+        closeModal={closeModal}
+        setCloseModal={setCloseModal}
+        doClose={doClose}
+        successModal={successModal}
+        setSuccessModal={setSuccessModal}
+        doSuccess={doSuccess}
+        deleteModal={deleteModal}
+        setDeleteModal={setDeleteModal}
+        doDelete={doDelete}
+        editModal={editModal}
+        setEditModal={setEditModal}
+        editSelectedSkus={editSelectedSkus}
+        setEditSelectedSkus={setEditSelectedSkus}
+        editPerSkuMode={editPerSkuMode}
+        setEditPerSkuMode={setEditPerSkuMode}
+        editAreaUnified={editAreaUnified}
+        setEditAreaUnified={setEditAreaUnified}
+        editComment={editComment}
+        setEditComment={setEditComment}
+        submitEdit={submitEdit}
+        skus={skus}
+        onAreaChange={onAreaChange}
+        openEditModal={openEditModal}
+        load={load}
+        onBack={goHome}
+      />
+    );
+  }
+
+  // ==== АРХИВ ЗАЩИТ ====
+  if (route === "archive") {
+    return (
+      <ArchivePage
+        items={items}
+        expanded={expanded}
+        toggleExpand={toggleExpand}
+        search={search}
+        setSearch={setSearch}
+        managerFilter={managerFilter}
+        setManagerFilter={setManagerFilter}
+        managers={managers}
+        load={load}
+        onBack={goHome}
+      />
+    );
+  }
+
+  // ==== СТАТИСТИКА ====
+  if (route === "stats") {
+    return (
+      <StatsPage
+        stats={stats}
+        onBack={goHome}
+      />
+    );
+  }
+
+  // ==== FALLBACK (не должно быть достигнуто) ====
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
         <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
-        <h1
-          style={{
-            margin: 0,
-            color: "#4d6eeb",
-            fontWeight: 700,
-            letterSpacing: "0.5px",
-          }}
-        >
-          {route === "create" ? "🛡️ Поставить защиту" :
-           route === "active" ? "📋 Активные защиты" :
-           route === "archive" ? "📦 Архив защит" :
-           route === "stats" ? "📊 Статистика" :
-           "🔰 Aquafloor защиты"}
+        <h1 style={{ margin: 0, color: "#4d6eeb", fontWeight: 700 }}>
+          🔰 Aquafloor защиты
         </h1>
-
-        <button className="btn refresh" onClick={load}>
-          🔄 Обновить
-        </button>
-        <button
-          className="btn secondary"
-          onClick={() => setShowHistory((v) => !v)}
-          title="История действий"
-        >
-          🧾 История
-        </button>
       </div>
-
-      {showHistory && (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="small" style={{ marginBottom: 8 }}>
-            Последние события (до 500):
-          </div>
-          <div style={{ maxHeight: 260, overflowY: "auto" }}>
-            {history.length === 0 && <div className="small">Пусто…</div>}
-            {history.map((h) => (
-              <div
-                key={h.id}
-                className="small"
-                style={{
-                  padding: "6px 0",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <b>#{h.protection_id}</b> • {h.actor} → {h.action} •{" "}
-                {new Date(h.at).toLocaleString()} •{" "}
-                <span style={{ opacity: 0.9 }}>{JSON.stringify(h.payload)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="card" style={{ marginTop: 8, marginBottom: 8 }}>
-        <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <div className="mode-toggle" style={{ marginRight: "auto" }}>
-            <div
-              className={`tag ${viewTab === "active" ? "active" : ""}`}
-              onClick={() => setViewTab("active")}
-            >
-              Активные
-            </div>
-            <div
-              className={`tag ${viewTab === "archive" ? "active" : ""}`}
-              onClick={() => setViewTab("archive")}
-            >
-              Архив защит
-            </div>
-          </div>
-
-          {viewTab === "archive" && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span className="small" style={{ opacity: 0.85 }}>
-                Показать:
-              </span>
-              <select
-                className="select"
-                value={archiveFilter}
-                onChange={(e) => setArchiveFilter(e.target.value)}
-              >
-                <option value="all">Все (кроме активных)</option>
-                <option value="success">Успешные</option>
-                <option value="closed">Закрытые</option>
-                <option value="deleted">Удалённые</option>
-              </select>
-            </div>
-          )}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+          Неизвестный раздел. Вернитесь на главную страницу.
         </div>
       </div>
-
-      <div className="grid">
-        {stats.map((s) => (
-          <StatCard key={s.manager} s={s} />
-        ))}
-      </div>
-
-      <div className="card">
-        <div className="row">
-          <select
-            className="select"
-            value={form.manager}
-            onChange={(e) => setForm({ ...form, manager: e.target.value })}
-          >
-            <option value="">Выберите менеджера…</option>
-            {Array.isArray(managers) &&
-              managers.map((m) => (
-                <option
-                  key={m.id}
-                  value={m.first_name || m.name || m.username}
-                >
-                  {m.first_name || m.name || m.username}
-                </option>
-              ))}
-          </select>
-
-          <select
-            className="select"
-            value={managerFilter}
-            onChange={(e) => setManagerFilter(e.target.value)}
-          >
-            <option value="">Все менеджеры</option>
-            {Array.isArray(managers) &&
-              managers.map((m) => (
-                <option key={m.id}>
-                  {m.first_name || m.name || m.username}
-                </option>
-              ))}
-          </select>
-
-          <input
-            className={errorClass("partner")}
-            placeholder="Партнёр (дилер)"
-            value={form.partner}
-            onChange={(e) => setForm({ ...form, partner: e.target.value })}
-          />
-          <input
-            className={errorClass("partner_city")}
-            placeholder="Город партнёра"
-            value={form.partner_city}
-            onChange={(e) =>
-              setForm({ ...form, partner_city: e.target.value })
-            }
-          />
-          <input
-            className={errorClass("client")}
-            placeholder="Клиент / организация"
-            value={form.client}
-            onChange={(e) => setForm({ ...form, client: e.target.value })}
-          />
-
-          <div className="mode-toggle">
-            <div
-              className={`tag ${!perSkuMode ? "active" : ""}`}
-              onClick={() => setPerSkuMode(false)}
-            >
-              Единый
-            </div>
-            <div
-              className={`tag ${perSkuMode ? "active" : ""}`}
-              onClick={() => setPerSkuMode(true)}
-            >
-              Индивидуально
-            </div>
-          </div>
-
-          <SkuSelector
-            skus={skus}
-            selected={selectedSkus}
-            setSelected={setSelectedSkus}
-            perSkuMode={perSkuMode}
-            onAreaChange={onAreaChange}
-          />
-
-          {!perSkuMode && (
-            <input
-              className="input"
-              placeholder="Единый метраж (м²)"
-              value={form.area_m2}
-              onChange={(e) => setForm({ ...form, area_m2: e.target.value })}
-            />
-          )}
-
-          <input
-            className={errorClass("last4")}
-            placeholder="Последние 4 цифры телефона"
-            value={form.last4}
-            onChange={(e) => setForm({ ...form, last4: e.target.value })}
-          />
-          <input
-            className={errorClass("object_city")}
-            placeholder="Город объекта"
-            value={form.object_city}
-            onChange={(e) =>
-              setForm({ ...form, object_city: e.target.value })
-            }
-          />
-          <input
-            className="input"
-            placeholder="Адрес объекта"
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="Комментарий"
-            value={form.comment}
-            onChange={(e) => setForm({ ...form, comment: e.target.value })}
-          />
-
-          <button className="btn" onClick={submit}>
-            Добавить защиту
-          </button>
-        </div>
-      </div>
-
-      <div className="toolbar">
-        <input
-          className="input search"
-          placeholder="Поиск…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <select
-          className="select"
-          value={managerFilter}
-          onChange={(e) => setManagerFilter(e.target.value)}
-        >
-          <option value="">Все менеджеры</option>
-          {Array.isArray(managers) &&
-            managers.map((m) => (
-              <option key={m.id}>{m.first_name}</option>
-            ))}
-        </select>
-        <button className="btn secondary" onClick={exportXlsx}>
-          ⬇️ Экспорт
-        </button>
-      </div>
-
-      <div className="list">
-        {items.map((it) => {
-          const isArchive = it.status !== "active";
-          return (
-            <div
-              key={it.id}
-              className="item"
-              style={{ background: getBgColor(it) }}
-            >
-              <div className="line" onClick={() => toggleExpand(it.id)}>
-                <div>
-                  <b>{it.client || "—"}</b> — {it.sku || "—"}{" "}
-                  {it.area_m2 ? `(${it.area_m2} м²)` : ""}
-                  <div className="small">
-                    {it.status === "active" && "Активна"}
-                    {it.status === "success" && "Успешна"}
-                    {it.status === "closed" && "Закрыта"}
-                    {it.status === "deleted" && "Удалена"}
-                    {" | "}Осталось: {it.days_left} дн | Менеджер: {it.manager}
-                    {typeof it.extend_count === "number"
-                      ? ` | Продлений: ${it.extend_count}`
-                      : ""}
-                  </div>
-                  {it.warn2d && it.status === "active" && (
-                    <div
-                      className="small"
-                      style={{
-                        marginTop: 6,
-                        display: "inline-block",
-                        background: "#3a2a00",
-                        border: "1px solid #654e00",
-                        padding: "4px 8px",
-                        borderRadius: 8,
-                      }}
-                    >
-                      ⏰{" "}
-                      {it.warn_text ||
-                        "Через 2 дня истекает — напомни менеджеру"}
-                    </div>
-                  )}
-                </div>
-                <div className="small arrow">
-                  {expanded[it.id] ? "▲" : "▼"}
-                </div>
-              </div>
-
-              {expanded[it.id] && (
-                <div className="details">
-                  {it.partner && (
-                    <div className="small">
-                      🏢 {it.partner} — {it.partner_city}
-                    </div>
-                  )}
-                  {it.object_city && (
-                    <div className="small">📍 {it.object_city}</div>
-                  )}
-                  {it.address && (
-                    <div className="small">🚚 {it.address}</div>
-                  )}
-                  {it.comment && (
-                    <div className="small">💬 {it.comment}</div>
-                  )}
-                </div>
-              )}
-
-              {!isArchive && (
-                <div className="actions">
-                  <button
-                    className="btn secondary"
-                    onClick={() => act(it.id, "extend")}
-                  >
-                    Продлить
-                  </button>
-                  <button
-                    className="btn success"
-                    onClick={() => act(it.id, "success")}
-                  >
-                    ✅ Успешна
-                  </button>
-                  <button
-                    className="btn"
-                    onClick={() => act(it.id, "close")}
-                  >
-                    🚫 Закрыть
-                  </button>
-                  <button
-                    className="btn danger"
-                    onClick={() => act(it.id, "delete")}
-                  >
-                    🗑️ Удалить
-                  </button>
-                  <button
-                    className="btn secondary"
-                    onClick={() => openEditModal(it)}
-                    style={{
-                      background: "var(--bg-card)",
-                      border: "1px solid var(--border)",
-                    }}
-                  >
-                    ✏️ Редактировать
-                  </button>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {closeModal.open && (
-        <Modal
-          title="Закрыть защиту"
-          onClose={() =>
-            setCloseModal({ open: false, id: null, reason: "" })
-          }
-          onOk={doClose}
-          okText="Закрыть"
-          disabled={!closeModal.reason.trim()}
-        >
-          <input
-            className="input"
-            placeholder="Причина закрытия (обязательно)"
-            value={closeModal.reason}
-            onChange={(e) =>
-              setCloseModal((v) => ({
-                ...v,
-                reason: e.target.value,
-              }))
-            }
-          />
-        </Modal>
-      )}
-
-      {successModal.open && (
-        <Modal
-          title="Отметить как успешную"
-          onClose={() =>
-            setSuccessModal({ open: false, id: null, doc: "" })
-          }
-          onOk={doSuccess}
-          okText="Сохранить"
-          disabled={!successModal.doc.trim()}
-        >
-          <input
-            className="input"
-            placeholder="Номер документа из 1С (обязательно)"
-            value={successModal.doc}
-            onChange={(e) =>
-              setSuccessModal((v) => ({
-                ...v,
-                doc: e.target.value,
-              }))
-            }
-          />
-        </Modal>
-      )}
-
-      {deleteModal.open && (
-        <Modal
-          title="Удалить защиту"
-          onClose={() =>
-            setDeleteModal({ open: false, id: null, reason: "" })
-          }
-          onOk={doDelete}
-          okText="Удалить"
-          disabled={!deleteModal.reason.trim()}
-        >
-          <input
-            className="input"
-            placeholder="Причина удаления (обязательно)"
-            value={deleteModal.reason}
-            onChange={(e) =>
-              setDeleteModal((v) => ({
-                ...v,
-                reason: e.target.value,
-              }))
-            }
-          />
-          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
-            Будет выполнено мягкое удаление (в архив истории).
-          </div>
-        </Modal>
-      )}
-
-      {editModal?.open && (
-        <Modal
-          title="Редактировать защиту"
-          onClose={() => setEditModal({ open: false, id: null })}
-          onOk={submitEdit}
-          okText="💾 Сохранить"
-        >
-          <div className="mode-toggle" style={{ marginBottom: 10 }}>
-            <div
-              className={`tag ${!editPerSkuMode ? "active" : ""}`}
-              onClick={() => setEditPerSkuMode(false)}
-            >
-              Единый
-            </div>
-            <div
-              className={`tag ${editPerSkuMode ? "active" : ""}`}
-              onClick={() => setEditPerSkuMode(true)}
-            >
-              Индивидуально
-            </div>
-          </div>
-
-          <SkuSelector
-            skus={skus}
-            selected={editSelectedSkus}
-            setSelected={setEditSelectedSkus}
-            perSkuMode={editPerSkuMode}
-            onAreaChange={(sku, val) =>
-              setEditSelectedSkus((prev) =>
-                prev.map((s) =>
-                  s.sku === sku.sku && s.type === sku.type
-                    ? { ...s, area: val }
-                    : s
-                )
-              )
-            }
-          />
-
-          {!editPerSkuMode && (
-            <input
-              className="input"
-              placeholder="Единый метраж (м²)"
-              value={editAreaUnified}
-              onChange={(e) => setEditAreaUnified(e.target.value)}
-              style={{ marginTop: 10 }}
-            />
-          )}
-
-          <input
-            className="input"
-            placeholder="Комментарий"
-            value={editComment}
-            onChange={(e) => setEditComment(e.target.value)}
-            style={{ marginTop: 10 }}
-          />
-
-          <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
-            💡 Можно добавлять или удалять артикулы, менять метраж
-            (индивидуально или общий). Минимум 50 м² суммарно.
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

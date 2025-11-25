@@ -405,6 +405,12 @@ async def register_or_login(data: RegisterOrLogin):
     if not data.full_name or not data.phone:
         raise HTTPException(status_code=400, detail="full_name and phone are required")
     
+    # Определяем роль: суперадмин по номеру телефона, иначе user
+    import re
+    phone_clean = re.sub(r'\D', '', str(data.phone))
+    superadmin_phone = "79207455960"  # Номер телефона суперадмина
+    role = "superadmin" if phone_clean == superadmin_phone else "user"
+    
     try:
         # Используем upsert_user для создания или обновления
         user = upsert_user({
@@ -412,7 +418,7 @@ async def register_or_login(data: RegisterOrLogin):
             "full_name": data.full_name,
             "phone": data.phone,
             "position": data.position,
-            "role": "user",  # По умолчанию роль user
+            "role": role,  # Определяем роль по телефону
             "is_active": 1,
         })
         
