@@ -1514,6 +1514,9 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
         params.append(status)
     sql += " ORDER BY created_at DESC"
 
+    # Адаптируем запрос для PostgreSQL
+    sql = _adapt_query(sql)
+    
     conn = get_conn()
     rows = conn.cursor().execute(sql, params).fetchall()
     conn.close()

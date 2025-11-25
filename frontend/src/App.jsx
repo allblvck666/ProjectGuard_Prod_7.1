@@ -384,36 +384,54 @@ function ActiveProtectionsPage({
   // Защиты привязываются к manager_id пользователя, который их создал
   const currentUserId = auth.user?.id || auth.user?.user_id;
   
-  // Фильтруем защиты
-  console.log("📋 ActiveProtectionsPage: items.length =", items.length, "currentUserId =", currentUserId);
-  let filteredItems = Array.isArray(items) ? items.filter(it => it.status === "active") : [];
-  console.log("📋 ActiveProtectionsPage: filteredItems.length (после фильтра по active) =", filteredItems.length);
+  // Фильтруем защиты (данные уже приходят с status="active" из API)
+  console.log("📋 ActiveProtectionsPage: items.length =", items?.length || 0, "currentUserId =", currentUserId);
+  console.log("📋 ActiveProtectionsPage: items (первые 3) =", Array.isArray(items) ? items.slice(0, 3).map(it => ({ id: it.id, status: it.status, client: it.client, manager_id: it.manager_id })) : "не массив");
   
+  // Начинаем с всех items (они уже должны быть активными)
+  let filteredItems = Array.isArray(items) ? items : [];
+  console.log("📋 ActiveProtectionsPage: filteredItems.length (начальное) =", filteredItems.length);
+  
+  // Фильтруем по вкладке "Мои защиты" или "Все защиты"
   if (activeTab === "my") {
     // Мои защиты - фильтруем по manager_id из защиты
     // Защиты, где manager_id соответствует manager_id текущего пользователя
+    const beforeMyFilter = filteredItems.length;
     filteredItems = filteredItems.filter(it => {
       // Если у защиты есть manager_id, сравниваем с manager_id пользователя
       if (it.manager_id && currentUserId) {
-        return it.manager_id === currentUserId;
+        const matches = it.manager_id === currentUserId;
+        if (!matches) {
+          console.log("⚠️ Защита не принадлежит пользователю:", it.id, "manager_id защиты:", it.manager_id, "currentUserId:", currentUserId);
+        }
+        return matches;
       }
       // Fallback: если manager_id нет, используем имя менеджера
       const currentUserManager = auth.user?.full_name || auth.user?.first_name || "";
       return it.manager === currentUserManager;
     });
+    console.log("📋 ActiveProtectionsPage: после фильтра 'Мои защиты':", filteredItems.length, "(было:", beforeMyFilter + ")");
   }
   
+  // Фильтруем по поиску
   if (search) {
+    const beforeSearch = filteredItems.length;
     filteredItems = filteredItems.filter(it => 
       (it.client || "").toLowerCase().includes(search.toLowerCase()) ||
       (it.partner || "").toLowerCase().includes(search.toLowerCase()) ||
       (it.sku || "").toLowerCase().includes(search.toLowerCase())
     );
+    console.log("📋 ActiveProtectionsPage: после поиска:", filteredItems.length, "(было:", beforeSearch + ")");
   }
   
+  // Фильтруем по менеджеру (только для вкладки "Все защиты")
   if (managerFilter && activeTab === "all") {
+    const beforeManager = filteredItems.length;
     filteredItems = filteredItems.filter(it => it.manager === managerFilter);
+    console.log("📋 ActiveProtectionsPage: после фильтра по менеджеру:", filteredItems.length, "(было:", beforeManager + ")");
   }
+  
+  console.log("📋 ActiveProtectionsPage: итоговый filteredItems.length =", filteredItems.length);
 
   return (
     <div className="container">
@@ -489,9 +507,9 @@ function ActiveProtectionsPage({
         ) : filteredItems.length === 0 ? (
           <div className="card">
             <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
-              {items.length === 0 
+              {!Array.isArray(items) || items.length === 0 
                 ? (activeTab === "my" ? "У вас нет активных защит" : "Нет активных защит")
-                : "Нет защит, соответствующих фильтрам"}
+                : `Нет защит, соответствующих фильтрам (всего загружено: ${items.length})`}
             </div>
           </div>
         ) : (
@@ -1323,7 +1341,11 @@ function App() {
             params: { manager: managerFilter || "", status: "active", search: search || "" },
           });
           let data = list.data || [];
-          console.log("📋 Получено активных защит:", data.length);
+          console.log("📋 Получено активных защит из API:", data.length);
+          console.log("📋 Первые 3 защиты:", data.slice(0, 3).map(it => ({ id: it.id, status: it.status, client: it.client })));
+          // Убеждаемся, что все защиты активны (на всякий случай)
+          data = data.filter(it => it.status === "active");
+          console.log("📋 После проверки статуса:", data.length);
           setItems(data);
         } catch (err) {
           console.error("❌ Ошибка загрузки активных защит:", err);
