@@ -374,7 +374,7 @@ function ActiveProtectionsPage({
   deleteModal, setDeleteModal, doDelete, editModal, setEditModal,
   editSelectedSkus, setEditSelectedSkus, editPerSkuMode, setEditPerSkuMode,
   editAreaUnified, setEditAreaUnified, editComment, setEditComment,
-  submitEdit, skus, onAreaChange, openEditModal, load, onBack
+  submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack
 }) {
   const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
   const [search, setSearch] = useState("");
@@ -385,7 +385,9 @@ function ActiveProtectionsPage({
   const currentUserId = auth.user?.id || auth.user?.user_id;
   
   // Фильтруем защиты
-  let filteredItems = items.filter(it => it.status === "active");
+  console.log("📋 ActiveProtectionsPage: items.length =", items.length, "currentUserId =", currentUserId);
+  let filteredItems = Array.isArray(items) ? items.filter(it => it.status === "active") : [];
+  console.log("📋 ActiveProtectionsPage: filteredItems.length (после фильтра по active) =", filteredItems.length);
   
   if (activeTab === "my") {
     // Мои защиты - фильтруем по manager_id из защиты
@@ -422,8 +424,8 @@ function ActiveProtectionsPage({
         <h1 style={{ margin: 0, fontWeight: 700 }}>
           📋 Активные защиты
         </h1>
-        <button className="btn refresh" onClick={load}>
-          🔄 Обновить
+        <button className="btn refresh" onClick={load} disabled={loading}>
+          {loading ? "⏳ Загрузка..." : "🔄 Обновить"}
         </button>
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
@@ -478,10 +480,18 @@ function ActiveProtectionsPage({
 
       {/* Список защит */}
       <div className="list">
-        {filteredItems.length === 0 ? (
+        {loading ? (
           <div className="card">
             <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
-              {activeTab === "my" ? "У вас нет активных защит" : "Нет активных защит"}
+              ⏳ Загрузка активных защит...
+            </div>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="card">
+            <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+              {items.length === 0 
+                ? (activeTab === "my" ? "У вас нет активных защит" : "Нет активных защит")
+                : "Нет защит, соответствующих фильтрам"}
             </div>
           </div>
         ) : (
@@ -1307,10 +1317,19 @@ function App() {
         setItems(data);
       } else if (route === "active") {
         // Для активных защит загружаем только активные
-        const list = await api.get("/api/protections", {
-          params: { manager: managerFilter, status: "active", search },
-        });
-        setItems(list.data || []);
+        console.log("📋 Загрузка активных защит...", { managerFilter, search });
+        try {
+          const list = await api.get("/api/protections", {
+            params: { manager: managerFilter || "", status: "active", search: search || "" },
+          });
+          let data = list.data || [];
+          console.log("📋 Получено активных защит:", data.length);
+          setItems(data);
+        } catch (err) {
+          console.error("❌ Ошибка загрузки активных защит:", err);
+          console.error("❌ Детали ошибки:", err.response?.data || err.message);
+          setItems([]);
+        }
       } else {
         // Для остальных экранов загружаем все
         const [s, list] = await Promise.all([
@@ -1324,7 +1343,7 @@ function App() {
       }
     } catch (err) {
       console.error("❌ Ошибка загрузки данных:", err);
-      if (route === "archive") {
+      if (route === "archive" || route === "active") {
         setItems([]);
       }
     } finally {
@@ -1847,6 +1866,7 @@ if (isTG && (!ready || loading)) {
         onAreaChange={onAreaChange}
         openEditModal={openEditModal}
         load={load}
+        loading={loading}
         onBack={goHome}
       />
     );
