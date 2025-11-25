@@ -1401,9 +1401,12 @@ def update_protection(pid: int, payload: ProtectionUpdate):
 def list_protections(search: str = "", manager: str = "", status: str = ""):
     sql = "SELECT * FROM protections WHERE 1=1"
     params: list = []
-    # по умолчанию скрываем deleted
+    # по умолчанию скрываем deleted, но если status='archived' или status='deleted', показываем их
     if not status:
         sql += " AND status != 'deleted'"
+    elif status == "archived":
+        # В архиве показываем все неактивные, включая deleted
+        sql += " AND (status = 'archived' OR status = 'success' OR status = 'closed' OR status = 'deleted')"
     if search:
         s = f"%{search.lower()}%"
         sql += """ AND (

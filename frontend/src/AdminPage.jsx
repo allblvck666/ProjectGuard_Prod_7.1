@@ -122,27 +122,55 @@ function DashboardTab() {
   return (
     <div>
       <div className="admin-stat-grid">
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", cursor: "pointer" }}
+          onClick={() => {
+            const event = new CustomEvent("admin:switch-tab", { detail: "users" });
+            window.dispatchEvent(event);
+          }}
+        >
           <div className="admin-stat-icon">👥</div>
           <div className="admin-stat-value">{stats.totalUsers}</div>
           <div className="admin-stat-label">Всего пользователей</div>
           <div className="admin-stat-sublabel">{stats.activeUsers} активных</div>
         </div>
 
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", cursor: "pointer" }}
+          onClick={() => {
+            const event = new CustomEvent("admin:switch-tab", { detail: "managers" });
+            window.dispatchEvent(event);
+          }}
+        >
           <div className="admin-stat-icon">👔</div>
           <div className="admin-stat-value">{stats.totalManagers}</div>
           <div className="admin-stat-label">Менеджеров</div>
         </div>
 
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", cursor: "pointer" }}
+          onClick={() => {
+            const event = new CustomEvent("admin:switch-tab", { detail: "pending" });
+            window.dispatchEvent(event);
+          }}
+        >
           <div className="admin-stat-icon">🛡️</div>
           <div className="admin-stat-value">{stats.totalProtections}</div>
           <div className="admin-stat-label">Всего защит</div>
           <div className="admin-stat-sublabel">{stats.activeProtections} активных</div>
         </div>
 
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", cursor: "pointer" }}
+          onClick={() => {
+            const event = new CustomEvent("admin:switch-tab", { detail: "requests" });
+            window.dispatchEvent(event);
+          }}
+        >
           <div className="admin-stat-icon">⏰</div>
           <div className="admin-stat-value">{stats.pendingRequests}</div>
           <div className="admin-stat-label">Запросов на продление</div>
@@ -1184,6 +1212,15 @@ export default function AdminPage({ onBack }) {
   useEffect(() => {
     loadManagers();
     loadRequests();
+    
+    // Обработчик события для переключения вкладок из дашборда
+    const handleTabSwitch = (e) => {
+      setTab(e.detail);
+    };
+    window.addEventListener("admin:switch-tab", handleTabSwitch);
+    return () => {
+      window.removeEventListener("admin:switch-tab", handleTabSwitch);
+    };
   }, []);
 
   const back = () => {

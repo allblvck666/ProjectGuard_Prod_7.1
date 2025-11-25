@@ -9,7 +9,11 @@ BASE_DIR = Path(__file__).resolve().parent
 
 # Пути
 DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3"))
+DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
 SKUS_PATH = BASE_DIR / "skus.csv"
+
+# Определяем тип БД
+USE_POSTGRES = bool(DATABASE_URL)
 
 
 # === CSV загрузка ===
@@ -94,9 +98,38 @@ def load_skus():
 
 # === DB подключение ===
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Подключение к БД: PostgreSQL если DATABASE_URL есть, иначе SQLite"""
+    if USE_POSTGRES:
+        try:
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+            conn = psycopg2.connect(DATABASE_URL)
+            conn.cursor_factory = RealDictCursor
+            return conn
+        except ImportError:
+            print("⚠️ psycopg2 не установлен, используем SQLite")
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
+        except Exception as e:
+            print(f"⚠️ Ошибка подключения к PostgreSQL: {e}, используем SQLite")
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            return conn
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def _get_param_placeholder():
+    """Возвращает placeholder для параметров: ? для SQLite, %s для PostgreSQL"""
+    return "%s" if USE_POSTGRES else "?"
+
+def _adapt_query(query):
+    """Адаптирует SQL запрос для PostgreSQL (заменяет ? на %s)"""
+    if USE_POSTGRES:
+        return query.replace("?", "%s")
+    return query
 
 
 # === CRUD пользователи ===
@@ -123,20 +156,26 @@ def get_user_by_id(user_id: int):
 def get_user_by_tg_id(tg_id: int):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
+    query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
+    cur.execute(query, (tg_id,))
     row = cur.fetchone()
     conn.close()
-    return dict(row) if row else None
+    if row:
+        return dict(row) if USE_POSTGRES else dict(row)
+    return None
 
 
 def get_user_by_email(email: str):
     """Получить пользователя по email"""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE email = ?", (email,))
+    query = _adapt_query("SELECT * FROM users WHERE email = ?")
+    cur.execute(query, (email,))
     row = cur.fetchone()
     conn.close()
-    return dict(row) if row else None
+    if row:
+        return dict(row) if USE_POSTGRES else dict(row)
+    return None
 
 
 def create_user(data: dict):
