@@ -160,7 +160,9 @@ function UsersTable() {
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [roles] = useState(["superadmin", "admin", "manager", "user"]);
+  const role = localStorage.getItem("role");
+  const isSuperadmin = role === "superadmin";
+  const roles = isSuperadmin ? ["user", "manager", "admin", "superadmin"] : ["user", "manager", "admin"];
 
   const loadUsers = async () => {
     setLoading(true);
@@ -299,98 +301,135 @@ function UsersTable() {
       )}
         
         {!loading && filteredUsers.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table className="admin-table" style={{ width: "100%", minWidth: 1200 }}>
-            <thead>
-              <tr>
-                <th>ID</th>
-                  <th>Email / Telegram</th>
-                <th>Имя</th>
-                  <th>Телефон</th>
-                <th>Роль</th>
-                  <th>Статус</th>
-                  <th>Компания</th>
-                  <th>Город</th>
-                  <th>Последний вход</th>
-                <th>Действия</th>
-              </tr>
-            </thead>
-            <tbody>
-                {filteredUsers.map((u) => (
-                  <tr key={u.id} style={{ opacity: u.is_active === 0 ? 0.6 : 1 }}>
-                    <td>{u.id}</td>
-                    <td>
-                      <div style={{ fontSize: 13 }}>
-                        {u.email || "—"}
-                        {u.tg_id && <div style={{ opacity: 0.7, fontSize: 11 }}>TG: {u.tg_id}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {filteredUsers.map((u) => {
+                  const [expanded, setExpanded] = useState(false);
+                  return (
+                  <div key={u.id} className="admin-user-card" style={{ 
+                    opacity: u.is_active === 0 ? 0.6 : 1,
+                    background: "rgba(255, 255, 255, 0.04)",
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    borderRadius: "16px",
+                    padding: "20px",
+                    cursor: "pointer",
+                    transition: "all 0.3s ease"
+                  }} onClick={() => setExpandedUsers(prev => ({ ...prev, [u.id]: !prev[u.id] }))}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 200 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8, flexWrap: "wrap" }}>
+                          <b style={{ fontSize: 18, color: "#fff" }}>{u.full_name || "—"}</b>
+                          <span className="admin-badge" style={{
+                            background: u.role === "superadmin" ? "rgba(255, 193, 7, 0.2)" : 
+                                         u.role === "admin" ? "rgba(33, 150, 243, 0.2)" : 
+                                         u.role === "manager" ? "rgba(76, 175, 80, 0.2)" :
+                                         "rgba(158, 158, 158, 0.2)",
+                            color: u.role === "superadmin" ? "#ffc107" : 
+                                   u.role === "admin" ? "#2196f3" : 
+                                   u.role === "manager" ? "#4caf50" : "#9e9e9e",
+                          }}>
+                            {u.role === "superadmin" ? "👑 Супер-админ" : 
+                             u.role === "admin" ? "👑 Админ" : 
+                             u.role === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
+                          </span>
+                          <span className="admin-badge" style={{
+                            background: u.is_active === 1 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
+                            color: u.is_active === 1 ? "#22c55e" : "#ef4444",
+                          }}>
+                            {u.is_active === 1 ? "✅ Активен" : "❌ Заблокирован"}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 14, color: "rgba(255, 255, 255, 0.7)", marginBottom: 4 }}>
+                          {u.email || (u.tg_id ? `TG: ${u.tg_id}` : "—")}
+                        </div>
+                        {u.phone && (
+                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.6)" }}>
+                            📞 {u.phone}
+                          </div>
+                        )}
                       </div>
-                    </td>
-                    <td><b>{u.full_name || "—"}</b></td>
-                    <td>{u.phone || "—"}</td>
-                    <td>
-                      <span className="admin-badge" style={{
-                        background: u.role === "superadmin" ? "rgba(255, 193, 7, 0.2)" : 
-                                     u.role === "admin" ? "rgba(33, 150, 243, 0.2)" : 
-                                     u.role === "manager" ? "rgba(76, 175, 80, 0.2)" :
-                                     "rgba(158, 158, 158, 0.2)",
-                        color: u.role === "superadmin" ? "#ffc107" : 
-                               u.role === "admin" ? "#2196f3" : 
-                               u.role === "manager" ? "#4caf50" : "#9e9e9e",
-                      }}>
-                        {u.role === "superadmin" ? "👑 Супер-админ" : 
-                         u.role === "admin" ? "👑 Админ" : 
-                         u.role === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="admin-badge" style={{
-                        background: u.is_active === 1 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)",
-                        color: u.is_active === 1 ? "#22c55e" : "#ef4444",
-                      }}>
-                        {u.is_active === 1 ? "✅ Активен" : "❌ Заблокирован"}
-                      </span>
-                    </td>
-                    <td>{u.company || "—"}</td>
-                    <td>{u.city || "—"}</td>
-                    <td style={{ fontSize: 12, opacity: 0.8 }}>
-                      {u.last_login ? new Date(u.last_login).toLocaleString("ru-RU") : "—"}
-                    </td>
-                    <td>
-                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                        <select
-                            className="admin-select-small"
-                            value={u.role}
-                            onChange={(e) => changeRole(u, e.target.value)}
-                            key={`role-${u.id}-${u.role}`} // Принудительное обновление при изменении роли
+                      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <button
+                          className="admin-btn-secondary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedUsers(prev => ({ ...prev, [u.id]: !prev[u.id] }));
+                          }}
+                          style={{ fontSize: 20, padding: "8px 12px" }}
+                        >
+                          {expandedUsers[u.id] ? "▲" : "▼"}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {expandedUsers[u.id] && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12, marginBottom: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>ID</div>
+                            <div style={{ color: "#fff" }}>#{u.id}</div>
+                          </div>
+                          {u.company && (
+                            <div>
+                              <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Компания</div>
+                              <div style={{ color: "#fff" }}>{u.company}</div>
+                            </div>
+                          )}
+                          {u.city && (
+                            <div>
+                              <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Город</div>
+                              <div style={{ color: "#fff" }}>{u.city}</div>
+                            </div>
+                          )}
+                          {u.last_login && (
+                            <div>
+                              <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Последний вход</div>
+                              <div style={{ color: "#fff", fontSize: 13 }}>{new Date(u.last_login).toLocaleString("ru-RU")}</div>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingTop: 12, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+                          <select
+                              className="admin-select-small"
+                              value={u.role}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                changeRole(u, e.target.value);
+                              }}
+                              key={`role-${u.id}-${u.role}`}
+                              style={{ minWidth: 180 }}
+                            >
+                              {roles.map((r) => (
+                                <option key={r} value={r}>
+                                  {r === "superadmin" ? "👑 Супер-админ" : 
+                                   r === "admin" ? "👑 Админ" : 
+                                   r === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            className="admin-btn-secondary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleActive(u);
+                            }}
                           >
-                            {roles.map((r) => (
-                            <option key={r} value={r}>
-                                {r === "superadmin" ? "👑 Супер-админ" : 
-                                 r === "admin" ? "👑 Админ" : 
-                                 r === "manager" ? "👔 Менеджер" : "👤 Пользователь"}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          className="admin-btn-icon"
-                          onClick={() => toggleActive(u)}
-                          title={u.is_active === 1 ? "Заблокировать" : "Разблокировать"}
-                        >
-                          {u.is_active === 1 ? "🚫" : "✅"}
-                        </button>
-                        <button
-                          className="admin-btn-icon-danger"
-                          onClick={() => deleteUser(u)}
-                          title="Удалить"
-                        >
-                          🗑️
-                        </button>
+                            {u.is_active === 1 ? "🚫 Заблокировать" : "✅ Разблокировать"}
+                          </button>
+                          <button
+                            className="admin-btn-danger"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              deleteUser(u);
+                            }}
+                          >
+                            🗑️ Удалить
+                          </button>
+                        </div>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    )}
+                  </div>
+                );
+                })}
           </div>
         )}
       </div>
@@ -476,7 +515,7 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                   const isOpened = openedManagerId === m.id;
                   return (
                     <tr key={m.id}>
-                    <td>
+                    <td data-label="Имя">
                       {isEdit ? (
                           <input
                             className="admin-input"
@@ -492,23 +531,23 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                           <b>{m.name}</b>
                       )}
                     </td>
-                      <td style={{ textAlign: "center" }}>{m.total}</td>
-                      <td style={{ textAlign: "center" }}>
+                      <td data-label="Всего" style={{ textAlign: "center" }}>{m.total}</td>
+                      <td data-label="Активных" style={{ textAlign: "center" }}>
                         <span className="admin-badge" style={{ background: "rgba(61,220,151,0.2)", color: "#3ddc97" }}>
                           {m.active}
                         </span>
                       </td>
-                      <td style={{ textAlign: "center" }}>
+                      <td data-label="Успешных" style={{ textAlign: "center" }}>
                         <span className="admin-badge" style={{ background: "rgba(77,110,235,0.2)", color: "#6e8eff" }}>
                           {m.success}
                         </span>
                       </td>
-                      <td style={{ textAlign: "center" }}>
+                      <td data-label="Закрытых" style={{ textAlign: "center" }}>
                         <span className="admin-badge" style={{ background: "rgba(255,85,85,0.2)", color: "#ff5555" }}>
                           {m.closed}
                         </span>
                       </td>
-                    <td>
+                    <td data-label="Действия">
                       {isEdit ? (
                           <Row gap={6} wrap={false}>
                             <button className="admin-btn-success" onClick={saveEdit}>
@@ -893,17 +932,17 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extend
               <tbody>
                 {requests.map((r) => (
                   <tr key={r.history_id}>
-                    <td>#{r.protection_id}</td>
-                    <td>{r.manager}</td>
-                    <td>{r.partner}</td>
-                    <td style={{ fontSize: 12 }}>{r.sku}</td>
-                    <td style={{ fontSize: 12 }}>{new Date(r.requested_at).toLocaleString()}</td>
-                    <td style={{ textAlign: "center" }}>{r.days}</td>
-                    <td style={{ fontSize: 12 }}>{r.expires_at}</td>
-                    <td style={{ fontSize: 12, maxWidth: 240, whiteSpace: "pre-wrap" }}>
+                    <td data-label="ID">#{r.protection_id}</td>
+                    <td data-label="Менеджер">{r.manager}</td>
+                    <td data-label="Партнёр">{r.partner}</td>
+                    <td data-label="SKU" style={{ fontSize: 12 }}>{r.sku}</td>
+                    <td data-label="Запрошено" style={{ fontSize: 12 }}>{new Date(r.requested_at).toLocaleString()}</td>
+                    <td data-label="Дней" style={{ textAlign: "center" }}>{r.days}</td>
+                    <td data-label="Истекает" style={{ fontSize: 12 }}>{r.expires_at}</td>
+                    <td data-label="Причина" style={{ fontSize: 12, maxWidth: 240, whiteSpace: "pre-wrap" }}>
                       💬 {r.reason || "—"}
                     </td>
-                    <td>
+                    <td data-label="Действия">
                       <Row gap={6} wrap={false}>
                         <button
                           className="admin-btn-success"

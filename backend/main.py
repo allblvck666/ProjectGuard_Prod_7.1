@@ -121,7 +121,7 @@ SKUS = load_skus()
 # ====== ADMIN: approve / reject pending protections ======
 
 @app.post("/api/admin/pending/{pid}/approve")
-def approve_pending(pid: int, user=Depends(require_admin)):
+def approve_pending(pid: int, user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
     row = cur.execute(
@@ -142,7 +142,7 @@ def approve_pending(pid: int, user=Depends(require_admin)):
 
 
 @app.post("/api/admin/pending/{pid}/reject")
-def reject_pending(pid: int, payload: dict, user=Depends(require_admin)):
+def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
     reason = payload.get("reason", "").strip() or "Отклонено администратором"
     conn = get_conn()
     cur = conn.cursor()
@@ -763,8 +763,8 @@ def dev_login(payload: dict):
 
 # ===== Admin: Управление пользователями =====
 @app.get("/api/admin/users")
-def admin_list_users(admin_user=Depends(get_superadmin_user)):
-    """Список всех пользователей (только для superadmin)"""
+def admin_list_users(admin_user=Depends(require_admin)):
+    """Список всех пользователей (для admin и superadmin)"""
     users = get_all_users()
     return {
         "ok": True,
@@ -789,13 +789,21 @@ def admin_list_users(admin_user=Depends(get_superadmin_user)):
 
 
 @app.patch("/api/admin/users/{user_id}")
-def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_superadmin_user)):
-    """Обновить пользователя (только для superadmin)"""
+def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_admin_user)):
+    """Обновить пользователя (для admin и superadmin)"""
     # Нельзя изменять самого себя (защита от случайного понижения)
     if user_id == admin_user["id"]:
         # Разрешаем изменение только не-ролевых полей
         if data.role is not None or data.is_active is not None:
             raise HTTPException(status_code=400, detail="Cannot change your own role or status")
+    
+    # Только superadmin может создавать/назначать superadmin
+    if data.role == "superadmin" and admin_user["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="Only superadmin can assign superadmin role")
+    
+    # Проверка: только superadmin может назначать superadmin
+    if data.role == "superadmin" and admin_user["role"] != "superadmin":
+        raise HTTPException(status_code=403, detail="Only superadmin can assign superadmin role")
     
     # Проверка: нельзя понизить последнего superadmin
     if data.role and data.role != "superadmin":
@@ -847,7 +855,7 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_sup
 
 
 @app.delete("/api/admin/users/{user_id}")
-def admin_delete_user(user_id: int, admin_user=Depends(get_superadmin_user)):
+def admin_delete_user(user_id: int, admin_user=Depends(get_admin_user)):
     """Удалить пользователя (soft-delete: is_active=0)"""
     # Нельзя удалить самого себя
     if user_id == admin_user["id"]:
@@ -882,7 +890,7 @@ class ManagerUpdate(BaseModel):
     name: str
 
 @app.get("/api/admin/managers")
-def admin_list_managers(user=Depends(require_admin)):
+def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -977,7 +985,7 @@ async def telegram_login(request: Request):
 
 
 @app.post("/api/admin/managers")
-def admin_add_manager(data: ManagerCreate, user=Depends(require_admin)):
+def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
     name = (data.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Имя не может быть пустым")
@@ -993,7 +1001,7 @@ def admin_add_manager(data: ManagerCreate, user=Depends(require_admin)):
     return {"ok": True}
 
 @app.patch("/api/admin/managers/{mid}")
-def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(require_admin)):
+def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(get_admin_user)):
     new_name = (data.name or "").strip()
     if not new_name:
         raise HTTPException(status_code=400, detail="Имя не может быть пустым")
@@ -1015,7 +1023,7 @@ def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(require_adm
     return {"ok": True}
 
 @app.delete("/api/admin/managers/{mid}")
-def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, user=Depends(require_admin)):
+def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
     row = cur.execute("SELECT * FROM managers WHERE id=?", (mid,)).fetchone()
@@ -1514,6 +1522,55 @@ def request_extend(pid: int, data: dict = Body(...)):
         "extend_request",
         {"days": days, "reason": reason},
     )
+    
+    # Отправляем уведомление админам и суперадминам
+    admins = cur.execute(
+        "SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL"
+    ).fetchall()
+    
+    msg = (
+        f"📨 <b>Запрос на продление защиты</b>\n\n"
+        f"🆔 Защита: #{pid}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n"
+        f"📅 Запрошено продление на: {days} дней\n"
+        f"💬 Причина: {reason}\n\n"
+        f"Выберите действие:"
+    )
+    
+    kb = InlineKeyboardBuilder()
+    kb.button(text="✅ Продлить на 10 дней", callback_data=f"admin_extend:{pid}:10")
+    kb.button(text="✅ Продлить на 30 дней", callback_data=f"admin_extend:{pid}:30")
+    kb.button(text="🚫 Отклонить", callback_data=f"admin_reject_extend:{pid}")
+    kb.adjust(2, 1)
+    
+    # Отправляем уведомления асинхронно
+    async def send_admin_notifications():
+        for admin in admins:
+            if admin["tg_id"]:
+                try:
+                    await bot.send_message(
+                        int(admin["tg_id"]),
+                        msg,
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
+                    print(f"📩 Уведомление о запросе продления отправлено админу {admin['tg_id']}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка отправки уведомления админу {admin['tg_id']}: {e}")
+    
+    # Запускаем в фоне
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(send_admin_notifications())
+        else:
+            asyncio.run(send_admin_notifications())
+    except:
+        # Если loop не запущен, создаем новый
+        asyncio.create_task(send_admin_notifications())
+    
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -1589,7 +1646,7 @@ def delete_protection(pid: int, reason: Optional[str] = None):
 
 # --- админ: запросы на продление
 @app.get("/api/admin/extend-requests")
-def admin_extend_requests(user=Depends(require_admin)):
+def admin_extend_requests(user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
     rows = cur.execute(
@@ -1624,7 +1681,7 @@ def admin_extend_requests(user=Depends(require_admin)):
 
 
 @app.post("/api/admin/protections/{pid}/extend-any", response_model=ProtectionOut)
-def admin_extend_any(pid: int, days: int = 10, user=Depends(require_admin)):
+def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user)):
     # админ без лимита
     return extend(pid, days=days, actor="admin")
 
@@ -1672,7 +1729,7 @@ def stats():
     return out
 # ====== Новый эндпоинт: список защит по менеджеру ======
 @app.get("/api/admin/manager-protections")
-def admin_manager_protections(manager_id: int, user=Depends(require_admin)):
+def admin_manager_protections(manager_id: int, user=Depends(get_admin_user)):
     """
     Возвращает все защиты указанного менеджера.
     Пример: /api/admin/manager-protections?manager_id=3
@@ -1853,22 +1910,37 @@ async def check_expiring_protections():
                 ).fetchall()
 
                 msg = (
-                    f"⚠️ Защита #{pid} ({sku}) у менеджера {manager_name}\n"
-                    f"⏰ Истекает {expires_at[:10]} — осталось 2 дня!"
+                    f"⚠️ <b>Защита #{pid} истекает через 2 дня!</b>\n\n"
+                    f"📦 SKU: {sku}\n"
+                    f"👤 Менеджер: {manager_name}\n"
+                    f"⏰ Истекает: {expires_at[:10]}\n\n"
+                    f"Выберите действие:"
                 )
+
+                # Создаем инлайн кнопки
+                kb = InlineKeyboardBuilder()
+                kb.button(text="✅ Продлить на 10 дней", callback_data=f"extend:{pid}:10")
+                kb.button(text="✅ Продлить на 30 дней", callback_data=f"extend:{pid}:30")
+                kb.button(text="🔒 Закрыть защиту", callback_data=f"close_exp:{pid}")
+                kb.adjust(2, 1)
 
                 recipients: list[int] = []
                 if tg_id:
-                    recipients.append(tg_id)
+                    recipients.append(int(tg_id))
 
-                recipients.extend([a["tg_id"] for a in assistants if a["tg_id"]])
+                recipients.extend([int(a["tg_id"]) for a in assistants if a["tg_id"]])
 
                 for tid in recipients:
                     if not tid:
                         continue
                     try:
-                        await bot.send_message(tid, msg)
-                        print(f"📩 Напоминание отправлено {tid}")
+                        await bot.send_message(
+                            tid, 
+                            msg, 
+                            parse_mode="HTML",
+                            reply_markup=kb.as_markup()
+                        )
+                        print(f"📩 Напоминание с кнопками отправлено {tid}")
                     except Exception as e:
                         print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
 
@@ -2118,6 +2190,134 @@ async def reject_handler(callback: types.CallbackQuery):
             print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
 
     await callback.answer("Отклонено 🚫")
+
+
+# === Обработка продления защиты при истечении ===
+@dp.callback_query(F.data.startswith("extend:"))
+async def extend_expiring_handler(callback: types.CallbackQuery):
+    parts = callback.data.split(":")
+    pid = int(parts[1])
+    days = int(parts[2])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    
+    if row["status"] != "active":
+        await callback.answer("❌ Защита не активна", show_alert=True)
+        conn.close()
+        return
+    
+    from datetime import datetime, timedelta
+    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat()
+    cur.execute("UPDATE protections SET expires_at=? WHERE id=?", (new_exp, pid))
+    add_history(cur, pid, "manager", "extend", {"days": days, "source": "tg_expiring"})
+    conn.commit()
+    conn.close()
+    
+    await callback.answer(f"✅ Защита продлена на {days} дней")
+    await callback.message.edit_text(
+        f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Новая дата истечения: {new_exp[:10]}",
+        parse_mode="HTML"
+    )
+
+
+# === Обработка закрытия защиты при истечении ===
+@dp.callback_query(F.data.startswith("close_exp:"))
+async def close_expiring_handler(callback: types.CallbackQuery):
+    pid = int(callback.data.split(":")[1])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    
+    cur.execute(
+        "UPDATE protections SET status='archived', closed_at=? WHERE id=?",
+        (now_iso(), pid)
+    )
+    add_history(cur, pid, "manager", "close", {"reason": "Истек срок", "source": "tg_expiring"})
+    conn.commit()
+    conn.close()
+    
+    await callback.answer("🔒 Защита закрыта")
+    await callback.message.edit_text(
+        f"🔒 <b>Защита #{pid} закрыта</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"📅 Дата закрытия: {now_iso()[:10]}",
+        parse_mode="HTML"
+    )
+
+
+# === Обработка продления защиты админом ===
+@dp.callback_query(F.data.startswith("admin_extend:"))
+async def admin_extend_handler(callback: types.CallbackQuery):
+    parts = callback.data.split(":")
+    pid = int(parts[1])
+    days = int(parts[2])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    
+    from datetime import datetime, timedelta
+    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat()
+    cur.execute("UPDATE protections SET expires_at=? WHERE id=?", (new_exp, pid))
+    add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
+    conn.commit()
+    conn.close()
+    
+    await callback.answer(f"✅ Защита продлена на {days} дней")
+    await callback.message.edit_text(
+        f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Новая дата истечения: {new_exp[:10]}",
+        parse_mode="HTML"
+    )
+
+
+# === Обработка отклонения запроса на продление ===
+@dp.callback_query(F.data.startswith("admin_reject_extend:"))
+async def admin_reject_extend_handler(callback: types.CallbackQuery):
+    pid = int(callback.data.split(":")[1])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    
+    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request"})
+    conn.commit()
+    conn.close()
+    
+    await callback.answer("🚫 Запрос на продление отклонен")
+    await callback.message.edit_text(
+        f"🚫 <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
+        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}",
+        parse_mode="HTML"
+    )
+
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
