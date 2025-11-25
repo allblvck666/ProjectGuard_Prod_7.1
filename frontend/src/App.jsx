@@ -236,7 +236,8 @@ function CreateProtectionPage({
   form, setForm, 
   managers, skus, selectedSkus, setSelectedSkus, 
   perSkuMode, setPerSkuMode, onAreaChange,
-  errorFields, submit, onBack 
+  errorFields, submit, onBack,
+  extendRequestModal, setExtendRequestModal, submitExtendRequest
 }) {
   const errorClass = (field) => errorFields.includes(field) ? "input error" : "input";
 
@@ -374,7 +375,8 @@ function ActiveProtectionsPage({
   deleteModal, setDeleteModal, doDelete, editModal, setEditModal,
   editSelectedSkus, setEditSelectedSkus, editPerSkuMode, setEditPerSkuMode,
   editAreaUnified, setEditAreaUnified, editComment, setEditComment,
-  submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack
+  submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack,
+  extendRequestModal, setExtendRequestModal, submitExtendRequest
 }) {
   const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
   const [search, setSearch] = useState("");
@@ -1336,22 +1338,18 @@ function App() {
       } else if (route === "active") {
         // Для активных защит загружаем только активные
         console.log("📋 Загрузка активных защит...", { managerFilter, search });
-        try {
-          const list = await api.get("/api/protections", {
-            params: { manager: managerFilter || "", status: "active", search: search || "" },
-          });
-          let data = list.data || [];
-          console.log("📋 Получено активных защит из API:", data.length);
+        const list = await api.get("/api/protections", {
+          params: { manager: managerFilter || "", status: "active", search: search || "" },
+        });
+        let data = list.data || [];
+        console.log("📋 Получено активных защит из API:", data.length);
+        if (data.length > 0) {
           console.log("📋 Первые 3 защиты:", data.slice(0, 3).map(it => ({ id: it.id, status: it.status, client: it.client })));
-          // Убеждаемся, что все защиты активны (на всякий случай)
-          data = data.filter(it => it.status === "active");
-          console.log("📋 После проверки статуса:", data.length);
-          setItems(data);
-        } catch (err) {
-          console.error("❌ Ошибка загрузки активных защит:", err);
-          console.error("❌ Детали ошибки:", err.response?.data || err.message);
-          setItems([]);
         }
+        // Убеждаемся, что все защиты активны (на всякий случай)
+        data = data.filter(it => it.status === "active");
+        console.log("📋 После проверки статуса:", data.length);
+        setItems(data);
       } else {
         // Для остальных экранов загружаем все
         const [s, list] = await Promise.all([
@@ -1849,6 +1847,9 @@ if (isTG && (!ready || loading)) {
         errorFields={errorFields}
         submit={submit}
         onBack={goHome}
+        extendRequestModal={extendRequestModal}
+        setExtendRequestModal={setExtendRequestModal}
+        submitExtendRequest={submitExtendRequest}
       />
     );
   }
@@ -1890,6 +1891,9 @@ if (isTG && (!ready || loading)) {
         load={load}
         loading={loading}
         onBack={goHome}
+        extendRequestModal={extendRequestModal}
+        setExtendRequestModal={setExtendRequestModal}
+        submitExtendRequest={submitExtendRequest}
       />
     );
   }
