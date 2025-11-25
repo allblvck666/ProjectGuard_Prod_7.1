@@ -709,8 +709,8 @@ async def telegram_auth(request: Request):
         "token": token,
         "user": {
             "id": row["id"],
-            "email": row.get("email"),
-            "full_name": row.get("full_name", row.get("first_name", "")),
+            "email": row["email"] if "email" in row.keys() else None,
+            "full_name": row["full_name"] if "full_name" in row.keys() else (row["first_name"] if "first_name" in row.keys() else ""),
             "role": role,
         }
     }
@@ -1581,7 +1581,7 @@ def request_extend(pid: int, data: dict = Body(...)):
         f"📨 <b>Запрос на продление защиты</b>\n\n"
         f"🆔 Защита: #{pid}\n"
         f"👤 Менеджер: {row['manager']}\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n"
         f"📅 Запрошено продление на: {days} дней\n"
         f"💬 Причина: {reason}\n\n"
@@ -1706,7 +1706,8 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     is_admin = user_role in ("admin", "superadmin")
     
     # Проверяем права: автор или админ
-    protection_manager_id = row.get("manager_id")
+    # Проверяем наличие manager_id в строке (для совместимости с SQLite и PostgreSQL)
+    protection_manager_id = row["manager_id"] if "manager_id" in row.keys() else None
     is_author = current_user_id and protection_manager_id and current_user_id == protection_manager_id
     
     if not is_author and not is_admin:
@@ -1720,13 +1721,15 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     if is_admin and not is_author and protection_manager_id:
         # Получаем данные автора
         author_row = cur.execute("SELECT tg_id, full_name, first_name FROM users WHERE id=?", (protection_manager_id,)).fetchone()
-        if author_row and author_row.get("tg_id"):
+        if author_row and ("tg_id" in author_row.keys() and author_row["tg_id"]):
             reason_text = reason or "не указана"
+            sku_value = row["sku"] if "sku" in row.keys() else "—"
+            manager_value = row["manager"] if "manager" in row.keys() else "—"
             msg = (
                 f"⚠️ <b>Ваша защита была удалена администратором</b>\n\n"
                 f"🆔 Защита: #{pid}\n"
-                f"📦 SKU: {row.get('sku', '—')}\n"
-                f"👤 Менеджер: {row.get('manager', '—')}\n"
+                f"📦 SKU: {sku_value}\n"
+                f"👤 Менеджер: {manager_value}\n"
                 f"💬 Причина удаления: {reason_text}\n"
             )
             
@@ -2051,8 +2054,8 @@ async def check_expiring_protections():
                 import json
                 all_users = cur.execute("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''").fetchall()
                 for user_row in all_users:
-                    user_tg_id = user_row.get("tg_id")
-                    manager_ids_json = user_row.get("manager_ids", "[]")
+                    user_tg_id = user_row["tg_id"] if "tg_id" in user_row.keys() else None
+                    manager_ids_json = user_row["manager_ids"] if "manager_ids" in user_row.keys() else "[]"
                     if user_tg_id and manager_ids_json:
                         try:
                             user_manager_ids = json.loads(manager_ids_json)
@@ -2374,7 +2377,7 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
     await callback.answer(f"✅ Защита продлена на {days} дней")
     await callback.message.edit_text(
         f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"⏰ Новая дата истечения: {new_exp[:10]}",
         parse_mode="HTML"
@@ -2405,7 +2408,7 @@ async def close_expiring_handler(callback: types.CallbackQuery):
     await callback.answer("🔒 Защита закрыта")
     await callback.message.edit_text(
         f"🔒 <b>Защита #{pid} закрыта</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"📅 Дата закрытия: {now_iso()[:10]}",
         parse_mode="HTML"
@@ -2442,7 +2445,7 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     await callback.answer(f"✅ Защита продлена на {days} дней")
     await callback.message.edit_text(
         f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"⏰ Новая дата истечения: {new_exp[:10]}",
         parse_mode="HTML"
@@ -2478,7 +2481,7 @@ async def admin_extend_custom_handler(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
         f"📅 <b>Выберите количество дней для продления защиты #{pid}</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n\n"
         f"Или выберите из предложенных вариантов:",
@@ -2508,7 +2511,7 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
     await callback.answer()
     await callback.message.edit_text(
         f"🚫 <b>Отклонение запроса на продление защиты #{pid}</b>\n\n"
-        f"📦 SKU: {row.get('sku', '—')}\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n\n"
         f"💬 <b>Причина отклонения:</b> (укажите в ответе на это сообщение)",
