@@ -14,23 +14,70 @@ import { API_BASE } from "./api";
 
 /* === Карточка статистики === */
 function StatCard({ s }) {
+  const [expanded, setExpanded] = useState(false);
+  
   return (
-    <div className="card stat-card">
-      <h3>{s.manager}</h3>
-      <div className="stat">Всего: {s.total}</div>
+    <div className="card stat-card" style={{ cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0 }}>{s.manager || "—"}</h3>
+        <div className="small arrow" style={{ fontSize: 18 }}>
+          {expanded ? "▲" : "▼"}
+        </div>
+      </div>
+      
+      <div className="stat">Всего: {s.total || 0}</div>
       <div className="stat">
-        Активных: {s.active}{" "}
+        Активных: {s.active_cnt || s.active || 0}{" "}
         <span className="text-muted">({s.active_area || 0} м²)</span>
       </div>
       <div className="stat">
-        Успешных: {s.success}{" "}
+        Успешных: {s.success_cnt || s.success || 0}{" "}
         <span className="text-muted">({s.success_area || 0} м²)</span>
       </div>
       <div className="stat">
-        Закрытых: {s.closed}{" "}
+        Закрытых: {s.closed_cnt || s.closed || 0}{" "}
         <span className="text-muted">({s.closed_area || 0} м²)</span>
       </div>
-      <div className="kpi">📈 {s.success_rate}% успеха</div>
+      <div className="kpi">📈 {s.rate || s.success_rate || 0}% успеха</div>
+      
+      {expanded && (
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, fontSize: 14 }}>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Всего защит</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{s.total || 0}</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Активных</div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#3ddc97" }}>{s.active_cnt || s.active || 0}</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Активных (м²)</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{s.active_area || 0} м²</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Успешных</div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#4ade80" }}>{s.success_cnt || s.success || 0}</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Успешных (м²)</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{s.success_area || 0} м²</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Закрытых</div>
+              <div style={{ fontWeight: 700, fontSize: 18, color: "#f87171" }}>{s.closed_cnt || s.closed || 0}</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Закрытых (м²)</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{s.closed_area || 0} м²</div>
+            </div>
+            <div>
+              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>% Успеха</div>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{s.rate || s.success_rate || 0}%</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -852,45 +899,6 @@ function StatsPage({ stats, onBack }) {
           </div>
         </div>
       )}
-
-      {/* Детальная таблица статистики */}
-      {stats.length > 0 && (
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3 style={{ marginTop: 0, marginBottom: 16 }}>📋 Детальная статистика по менеджерам</h3>
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                  <th style={{ padding: "8px", textAlign: "left" }}>Менеджер</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Всего защит</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Активных</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Активных (м²)</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Успешных</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Успешных (м²)</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Закрытых</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>Закрытых (м²)</th>
-                  <th style={{ padding: "8px", textAlign: "right" }}>% Успеха</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.map((s) => (
-                  <tr key={s.manager} style={{ borderBottom: "1px solid var(--border)" }}>
-                    <td style={{ padding: "8px" }}><b>{s.manager || "—"}</b></td>
-                    <td style={{ padding: "8px", textAlign: "right" }}>{s.total || 0}</td>
-                    <td style={{ padding: "8px", textAlign: "right" }}>{s.active_cnt || 0}</td>
-                    <td style={{ padding: "8px", textAlign: "right" }}>{s.active_area || 0} м²</td>
-                    <td style={{ padding: "8px", textAlign: "right", color: "#4ade80" }}>{s.success_cnt || 0}</td>
-                    <td style={{ padding: "8px", textAlign: "right", color: "#4ade80" }}>{s.success_area || 0} м²</td>
-                    <td style={{ padding: "8px", textAlign: "right", color: "#f87171" }}>{s.closed_cnt || 0}</td>
-                    <td style={{ padding: "8px", textAlign: "right", color: "#f87171" }}>{s.closed_area || 0} м²</td>
-                    <td style={{ padding: "8px", textAlign: "right", fontWeight: "bold" }}>{s.rate || 0}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1278,11 +1286,18 @@ function App() {
       setStats(s.data || []);
     } else if (route === "archive") {
       // Для архива загружаем только закрытые защиты
-      const list = await api.get("/api/protections", {
-        params: { manager: managerFilter, status: "", search },
-      });
-      let data = (list.data || []).filter((it) => it.status !== "active");
-      setItems(data);
+      try {
+        const list = await api.get("/api/protections", {
+          params: { manager: managerFilter, status: "archived", search },
+        });
+        let data = list.data || [];
+        // Фильтруем только неактивные защиты (success, closed, deleted)
+        data = data.filter((it) => it.status !== "active" && it.status !== "pending");
+        setItems(data);
+      } catch (err) {
+        console.error("Ошибка загрузки архива:", err);
+        setItems([]);
+      }
     } else if (route === "active") {
       // Для активных защит загружаем только активные
       const list = await api.get("/api/protections", {
