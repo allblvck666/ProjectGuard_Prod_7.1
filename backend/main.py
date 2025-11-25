@@ -2633,12 +2633,23 @@ async def cmd_start_with_webapp(message: types.Message):
 
 
 # === Запуск Telegram-бота в фоне ===
+_bot_running = False
+
 async def start_tg_bot():
+    global _bot_running
+    if _bot_running:
+        print("⚠️ Telegram-бот уже запущен, пропускаем повторный запуск")
+        return
+    
+    _bot_running = True
     print("🤖 Telegram-бот запущен (inline кнопки активны)")
     try:
-        await dp.start_polling(bot)
+        # Останавливаем предыдущие обновления перед запуском polling
+        await bot.delete_webhook(drop_pending_updates=True)
+        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
     except Exception as e:
         print(f"Ошибка запуска Telegram-бота: {e}")
+        _bot_running = False
 
 
 # === Подключаем users API ===

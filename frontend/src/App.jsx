@@ -736,7 +736,7 @@ function ActiveProtectionsPage({
 // Компонент: Архив защит (только закрытые защиты с поиском)
 function ArchivePage({
   items, expanded, toggleExpand, search, setSearch,
-  managerFilter, setManagerFilter, managers, load, onBack
+  managerFilter, setManagerFilter, managers, load, loading, onBack
 }) {
   // Фильтруем только закрытые защиты (не active)
   let filteredItems = items.filter(it => it.status !== "active");
@@ -762,8 +762,8 @@ function ArchivePage({
         <h1 style={{ margin: 0, fontWeight: 700 }}>
           📦 Архив защит
         </h1>
-        <button className="btn refresh" onClick={load}>
-          🔄 Обновить
+        <button className="btn refresh" onClick={load} disabled={loading}>
+          {loading ? "⏳ Загрузка..." : "🔄 Обновить"}
         </button>
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
@@ -798,10 +798,16 @@ function ArchivePage({
 
       {/* Список защит */}
       <div className="list">
-        {filteredItems.length === 0 ? (
+        {loading ? (
           <div className="card">
             <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
-              Нет закрытых защит
+              ⏳ Загрузка архива...
+            </div>
+          </div>
+        ) : filteredItems.length === 0 ? (
+          <div className="card">
+            <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
+              {items.length === 0 ? "Нет закрытых защит в архиве" : "Нет защит, соответствующих фильтрам"}
             </div>
           </div>
         ) : (
@@ -1167,6 +1173,7 @@ function App() {
   // ===== Основное состояние приложения =====
   const [stats, setStats] = useState([]);
   const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [managers, setManagers] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [managerFilter, setManagerFilter] = useState("");
@@ -1279,41 +1286,49 @@ function App() {
   const [extendRequestModal, setExtendRequestModal] = useState({ open: false, id: null, reason: "", days: 10, message: "" });
 
   const load = async () => {
-    // Загружаем данные в зависимости от текущего route
-    if (route === "stats") {
-      // Для статистики загружаем только stats
-      const s = await api.get("/api/stats");
-      setStats(s.data || []);
-    } else if (route === "archive") {
-      // Для архива загружаем только закрытые защиты
-      try {
+    setLoading(true);
+    try {
+      // Загружаем данные в зависимости от текущего route
+      if (route === "stats") {
+        // Для статистики загружаем только stats
+        const s = await api.get("/api/stats");
+        setStats(s.data || []);
+      } else if (route === "archive") {
+        // Для архива загружаем только закрытые защиты
+        console.log("📦 Загрузка архива...", { managerFilter, search });
         const list = await api.get("/api/protections", {
-          params: { manager: managerFilter, status: "archived", search },
+          params: { manager: managerFilter || "", status: "archived", search: search || "" },
         });
         let data = list.data || [];
+        console.log("📦 Получено защит из API:", data.length);
         // Фильтруем только неактивные защиты (success, closed, deleted)
         data = data.filter((it) => it.status !== "active" && it.status !== "pending");
+        console.log("📦 После фильтрации:", data.length);
         setItems(data);
-      } catch (err) {
-        console.error("Ошибка загрузки архива:", err);
+      } else if (route === "active") {
+        // Для активных защит загружаем только активные
+        const list = await api.get("/api/protections", {
+          params: { manager: managerFilter, status: "active", search },
+        });
+        setItems(list.data || []);
+      } else {
+        // Для остальных экранов загружаем все
+        const [s, list] = await Promise.all([
+          api.get("/api/stats"),
+          api.get("/api/protections", {
+            params: { manager: managerFilter, status: statusFilter, search },
+          }),
+        ]);
+        setStats(s.data || []);
+        setItems(list.data || []);
+      }
+    } catch (err) {
+      console.error("❌ Ошибка загрузки данных:", err);
+      if (route === "archive") {
         setItems([]);
       }
-    } else if (route === "active") {
-      // Для активных защит загружаем только активные
-      const list = await api.get("/api/protections", {
-        params: { manager: managerFilter, status: "active", search },
-      });
-      setItems(list.data || []);
-    } else {
-      // Для остальных экранов загружаем все
-      const [s, list] = await Promise.all([
-        api.get("/api/stats"),
-        api.get("/api/protections", {
-          params: { manager: managerFilter, status: statusFilter, search },
-        }),
-      ]);
-      setStats(s.data || []);
-      setItems(list.data || []);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1585,9 +1600,10 @@ function App() {
   // 🔂 ОСНОВНОЙ РЕНДЕР
   // ==============================
 
-// 🛡️ Telegram WebApp: безопасный старт
-  const [ready, setReady] = useState(!isTG);
-  const [loading, setLoading] = useState(true);
+  // 🛡️ Telegram WebApp: безопасный старт
+    const [ready, setReady] = useState(!isTG);
+    const [initialLoading, setInitialLoading] = useState(true);
+    // Используем общий loading для загрузки данных
 
   useEffect(() => {
     if (!isTG) {
@@ -1849,6 +1865,7 @@ if (isTG && (!ready || loading)) {
         setManagerFilter={setManagerFilter}
         managers={managers}
         load={load}
+        loading={loading}
         onBack={goHome}
       />
     );
