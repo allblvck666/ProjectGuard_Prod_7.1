@@ -205,7 +205,7 @@ function CreateProtectionPage({
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
       <button 
-        className="back-button-fixed" 
+        className="fixed-back-button" 
         onClick={onBack}
         aria-label="Назад"
       >
@@ -381,7 +381,7 @@ function ActiveProtectionsPage({
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
       <button 
-        className="back-button-fixed" 
+        className="fixed-back-button" 
         onClick={onBack}
         aria-label="Назад"
       >
@@ -684,7 +684,7 @@ function ArchivePage({
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
       <button 
-        className="back-button-fixed" 
+        className="fixed-back-button" 
         onClick={onBack}
         aria-label="Назад"
       >
@@ -789,7 +789,7 @@ function StatsPage({ stats, onBack }) {
       </div>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
       <button 
-        className="back-button-fixed" 
+        className="fixed-back-button" 
         onClick={onBack}
         aria-label="Назад"
       >

@@ -60,7 +60,7 @@ from backend.db import (
     get_user_by_id,
     get_conn, init_db, now_iso, add_days, load_skus,
     get_user_by_email, create_user, update_user, get_all_users,
-    get_user_by_tg_id, upsert_user
+    get_user_by_tg_id, upsert_user, _adapt_query
 )
 from backend.users import router as users_router, init_users_table
 from backend.auth import (
@@ -273,6 +273,8 @@ def row_to_out(row) -> ProtectionOut:
     days_left = (expires - datetime.utcnow()).days
     warn2d = row["status"] == "active" and days_left <= 2
     warn_text = "⏰ Через 2 дня истекает — напомни менеджеру." if warn2d else None
+    # Проверяем наличие manager_id в строке (для совместимости с SQLite и PostgreSQL)
+    manager_id = row["manager_id"] if "manager_id" in row.keys() else None
     return ProtectionOut(
         id=row["id"],
         manager=row["manager"],
@@ -293,7 +295,7 @@ def row_to_out(row) -> ProtectionOut:
         warn2d=warn2d,
         warn_text=warn_text,
         extend_count=row["extend_count"] if "extend_count" in row.keys() else 0,
-        manager_id=row.get("manager_id"),  # ID пользователя, создавшего защиту
+        manager_id=manager_id,  # ID пользователя, создавшего защиту
     )
 
 def normalize_sku(raw: str) -> str:
@@ -1301,13 +1303,14 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     manager_id = current_user_id  # Сохраняем ID пользователя, который создал защиту
 
     # 🆕 Вставляем новую защиту с manager_id
-    cur.execute("""
+    insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
             extend_count, auto_closed, manager_id
         ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
-    """, (
+    """)
+    cur.execute(insert_sql, (
         (payload.manager or "").strip(),
         (payload.client or "").strip(),
         (payload.partner or "").strip(),
