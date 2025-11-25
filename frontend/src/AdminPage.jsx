@@ -156,7 +156,9 @@ function DashboardTab() {
 function UsersTable() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [editUser, setEditUser] = useState(null);
+  const [expandedUsers, setExpandedUsers] = useState({});
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -166,12 +168,17 @@ function UsersTable() {
 
   const loadUsers = async () => {
     setLoading(true);
+    setError(null);
     try {
       const r = await api.get("/api/admin/users");
-      setUsers(r.data?.users || []);
+      // API может вернуть массив напрямую или объект с users
+      const usersData = Array.isArray(r.data) ? r.data : (r.data?.users || []);
+      setUsers(usersData);
     } catch (e) {
       console.error("Ошибка загрузки пользователей:", e);
-      alert(e.response?.data?.detail || "Не удалось загрузить пользователей");
+      const errorMsg = e.response?.data?.detail || "Не удалось загрузить пользователей";
+      setError(errorMsg);
+      alert(`❌ ${errorMsg}`);
     } finally {
       setLoading(false);
     }
@@ -283,36 +290,45 @@ function UsersTable() {
         </div>
       </div>
 
-      <div className="admin-card">
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>
+      <div className="admin-card" style={{ width: "100%", boxSizing: "border-box" }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: 20, fontWeight: 700 }}>
           👥 Управление пользователями ({filteredUsers.length})
         </h3>
         
       {loading && (
           <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-          Загрузка…
+          ⏳ Загрузка…
+        </div>
+      )}
+      
+      {error && (
+        <div style={{ 
+          textAlign: "center", 
+          padding: 20, 
+          color: "#ef4444",
+          background: "rgba(239, 68, 68, 0.1)",
+          borderRadius: "12px",
+          marginBottom: 16,
+          border: "1px solid rgba(239, 68, 68, 0.3)"
+        }}>
+          ❌ {error}
         </div>
       )}
         
-        {!loading && filteredUsers.length === 0 && (
+        {!loading && !error && filteredUsers.length === 0 && (
           <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-            Пользователей не найдено.
+            📭 Пользователей не найдено.
         </div>
       )}
         
         {!loading && filteredUsers.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {filteredUsers.map((u) => {
-                  const [expanded, setExpanded] = useState(false);
-                  return (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", boxSizing: "border-box" }}>
+                {filteredUsers.map((u) => (
                   <div key={u.id} className="admin-user-card" style={{ 
                     opacity: u.is_active === 0 ? 0.6 : 1,
-                    background: "rgba(255, 255, 255, 0.04)",
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    borderRadius: "16px",
-                    padding: "20px",
                     cursor: "pointer",
-                    transition: "all 0.3s ease"
+                    width: "100%",
+                    boxSizing: "border-box"
                   }} onClick={() => setExpandedUsers(prev => ({ ...prev, [u.id]: !prev[u.id] }))}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
                       <div style={{ flex: 1, minWidth: 200 }}>
@@ -428,8 +444,7 @@ function UsersTable() {
                       </div>
                     )}
                   </div>
-                );
-                })}
+                ))}
           </div>
         )}
       </div>
@@ -497,8 +512,8 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
         )}
         
         {!loadingManagers && filteredManagers.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table className="admin-table" style={{ width: "100%", minWidth: 800 }}>
+          <div style={{ width: "100%", overflowX: "auto", boxSizing: "border-box" }}>
+            <table className="admin-table" style={{ width: "100%", minWidth: "100%" }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: "left" }}>Имя</th>
@@ -1199,10 +1214,10 @@ export default function AdminPage({ onBack }) {
       <div style={{ marginTop: 24 }}>
         {tab === "dashboard" && <DashboardTab />}
         {tab === "users" && (
-          role === "superadmin" ? <UsersTable /> : (
+          (role === "superadmin" || role === "admin") ? <UsersTable /> : (
             <div className="admin-card">
               <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-                ⛔ Доступ к управлению пользователями только для супер-администратора
+                ⛔ Доступ к управлению пользователями только для администратора
                       </div>
                     </div>
           )
