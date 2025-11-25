@@ -407,6 +407,8 @@ function UsersTable() {
                           <select
                               className="admin-select-small"
                               value={u.role}
+                              onClick={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
                               onChange={(e) => {
                                 e.stopPropagation();
                                 changeRole(u, e.target.value);
@@ -512,163 +514,207 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
         )}
         
         {!loadingManagers && filteredManagers.length > 0 && (
-          <div style={{ width: "100%", overflowX: "auto", boxSizing: "border-box" }}>
-            <table className="admin-table" style={{ width: "100%", minWidth: "100%" }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left" }}>Имя</th>
-                  <th>Всего</th>
-                  <th>Активных</th>
-                  <th>Успешных</th>
-                  <th>Закрытых</th>
-                  <th style={{ width: 300 }}>Действия</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredManagers.map((m) => {
-                  const isEdit = edit?.id === m.id;
-                  const isOpened = openedManagerId === m.id;
-                  return (
-                    <tr key={m.id}>
-                    <td data-label="Имя">
-                      {isEdit ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", boxSizing: "border-box" }}>
+            {filteredManagers.map((m) => {
+              const isEdit = edit?.id === m.id;
+              const isOpened = openedManagerId === m.id;
+              return (
+                <div key={m.id} className="admin-user-card" style={{ width: "100%", boxSizing: "border-box" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                        {isEdit ? (
                           <input
                             className="admin-input"
                             value={edit.name}
-                          onChange={(e) =>
+                            onChange={(e) =>
                               setEdit((v) => ({
                                 ...v,
                                 name: e.target.value,
                               }))
                             }
+                            style={{ maxWidth: 300 }}
+                            onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          <b>{m.name}</b>
-                      )}
-                    </td>
-                      <td data-label="Всего" style={{ textAlign: "center" }}>{m.total}</td>
-                      <td data-label="Активных" style={{ textAlign: "center" }}>
-                        <span className="admin-badge" style={{ background: "rgba(61,220,151,0.2)", color: "#3ddc97" }}>
-                          {m.active}
-                        </span>
-                      </td>
-                      <td data-label="Успешных" style={{ textAlign: "center" }}>
-                        <span className="admin-badge" style={{ background: "rgba(77,110,235,0.2)", color: "#6e8eff" }}>
-                          {m.success}
-                        </span>
-                      </td>
-                      <td data-label="Закрытых" style={{ textAlign: "center" }}>
-                        <span className="admin-badge" style={{ background: "rgba(255,85,85,0.2)", color: "#ff5555" }}>
-                          {m.closed}
-                        </span>
-                      </td>
-                    <td data-label="Действия">
+                          <b style={{ fontSize: 20, color: "#fff" }}>{m.name}</b>
+                        )}
+                      </div>
+                      
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 16, marginTop: 16 }}>
+                        <div style={{ 
+                          background: "rgba(255, 255, 255, 0.05)", 
+                          padding: "12px", 
+                          borderRadius: "12px",
+                          textAlign: "center"
+                        }}>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{m.total}</div>
+                          <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                        </div>
+                        <div style={{ 
+                          background: "rgba(61, 220, 151, 0.15)", 
+                          padding: "12px", 
+                          borderRadius: "12px",
+                          textAlign: "center",
+                          border: "1px solid rgba(61, 220, 151, 0.3)"
+                        }}>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97", marginBottom: 4 }}>{m.active}</div>
+                          <div style={{ fontSize: 12, color: "rgba(61, 220, 151, 0.8)" }}>Активных</div>
+                        </div>
+                        <div style={{ 
+                          background: "rgba(77, 110, 235, 0.15)", 
+                          padding: "12px", 
+                          borderRadius: "12px",
+                          textAlign: "center",
+                          border: "1px solid rgba(77, 110, 235, 0.3)"
+                        }}>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: "#6e8eff", marginBottom: 4 }}>{m.success}</div>
+                          <div style={{ fontSize: 12, color: "rgba(77, 110, 235, 0.8)" }}>Успешных</div>
+                        </div>
+                        <div style={{ 
+                          background: "rgba(255, 85, 85, 0.15)", 
+                          padding: "12px", 
+                          borderRadius: "12px",
+                          textAlign: "center",
+                          border: "1px solid rgba(255, 85, 85, 0.3)"
+                        }}>
+                          <div style={{ fontSize: 24, fontWeight: 700, color: "#ff5555", marginBottom: 4 }}>{m.closed}</div>
+                          <div style={{ fontSize: 12, color: "rgba(255, 85, 85, 0.8)" }}>Закрытых</div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", minWidth: 200 }}>
                       {isEdit ? (
-                          <Row gap={6} wrap={false}>
-                            <button className="admin-btn-success" onClick={saveEdit}>
-                              💾 Сохранить
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
+                          <button className="admin-btn-success" onClick={saveEdit} style={{ flex: 1 }}>
+                            💾 Сохранить
                           </button>
-                            <button className="admin-btn-secondary" onClick={cancelEdit}>
-                              Отмена
+                          <button className="admin-btn-secondary" onClick={cancelEdit} style={{ flex: 1 }}>
+                            Отмена
                           </button>
-                          </Row>
-                        ) : (
-                          <Row gap={6} wrap={false}>
-                            <button className="admin-btn-secondary" onClick={() => startEdit(m)}>
-                              ✏️ Переименовать
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+                          <button className="admin-btn-secondary" onClick={() => startEdit(m)} style={{ width: "100%" }}>
+                            ✏️ Переименовать
                           </button>
                           <button
-                              className="admin-btn-secondary"
-                              onClick={() => {
-                                const newOpened = isOpened ? null : m.id;
-                                setOpenedManagerId(newOpened);
-                                if (!isOpened) {
-                                  loadManagerProtections(m.id);
-                                }
-                              }}
-                            >
-                              {isOpened ? "🔽 Скрыть" : "📂 Защиты"}
+                            className="admin-btn-secondary"
+                            onClick={() => {
+                              const newOpened = isOpened ? null : m.id;
+                              setOpenedManagerId(newOpened);
+                              if (!isOpened) {
+                                loadManagerProtections(m.id);
+                              }
+                            }}
+                            style={{ width: "100%" }}
+                          >
+                            {isOpened ? "🔽 Скрыть защиты" : "📂 Показать защиты"}
                           </button>
-                            <button className="admin-btn-danger" onClick={() => askRemove(m)}>
-                              🗑️ Удалить
-                            </button>
-                          </Row>
+                          <button className="admin-btn-danger" onClick={() => askRemove(m)} style={{ width: "100%" }}>
+                            🗑️ Удалить
+                          </button>
+                        </div>
                       )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-        {openedManagerId && (
-          <div style={{ marginTop: 24 }}>
-            <h3 style={{ marginBottom: 12, color: "#fff" }}>
-              🧾 Защиты менеджера:{" "}
-              <span style={{ color: "#6b8aff" }}>
-                {managers.find((m) => m.id === openedManagerId)?.name || `ID ${openedManagerId}`}
-              </span>
-              {!loadingProtections && openedProtections.length > 0 && (
-                <span className="admin-badge" style={{ marginLeft: 8 }}>
-                  {openedProtections.length} шт.
-                </span>
-              )}
-            </h3>
-
-            {loadingProtections && (
-              <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
-                Загрузка защит...
-              </div>
-            )}
-
-            {!loadingProtections && openedProtections.length === 0 && (
-              <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
-                У этого менеджера пока нет защит.
-              </div>
-            )}
-
-            {!loadingProtections && openedProtections.length > 0 && (
-              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))" }}>
-                {openedProtections.map((p) => (
-                  <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-                      <b style={{ color: "#fff" }}>#{p.id}</b>
-                      <span className="admin-badge" style={{
-                        background: p.status === "active" ? "rgba(61,220,151,0.2)" :
-                                    p.status === "success" ? "rgba(77,110,235,0.25)" :
-                                    "rgba(255,85,85,0.25)",
-                        color: p.status === "active" ? "#3ddc97" :
-                               p.status === "success" ? "#6e8eff" : "#ff5555",
-                      }}>
-                        {p.status.toUpperCase()}
-                      </span>
-                    </div>
-
-                    <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)" }}>
-                      <div><span style={{ opacity: 0.6 }}>Партнёр:</span> <b>{p.partner || "—"}</b></div>
-                      <div><span style={{ opacity: 0.6 }}>Клиент:</span> <b>{p.client || "—"}</b></div>
-                      <div><span style={{ opacity: 0.6 }}>SKU:</span> {p.sku || "—"}</div>
-                      <div><span style={{ opacity: 0.6 }}>Площадь:</span> {p.area_m2 ? `${p.area_m2} м²` : "—"}</div>
-                      <div><span style={{ opacity: 0.6 }}>Истекает:</span> {p.expires_at}</div>
-                      {p.comment && <div><span style={{ opacity: 0.6 }}>Комментарий:</span> <i>{p.comment}</i></div>}
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-                      {p.status === "active" && (
-                        <button className="admin-btn-secondary" onClick={() => adminCloseProtection(p)}>
-                          🚫 Закрыть
-                        </button>
-                      )}
-                      <button className="admin-btn-danger" onClick={() => adminDeleteProtection(p)}>
-                        🗑️ Удалить
-                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                  
+                  {isOpened && openedManagerId === m.id && (
+                    <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
+                      <h4 style={{ marginBottom: 16, color: "#fff", fontSize: 16, fontWeight: 600 }}>
+                        🧾 Защиты менеджера:{" "}
+                        <span style={{ color: "#6b8aff" }}>{m.name}</span>
+                        {!loadingProtections && openedProtections.length > 0 && (
+                          <span className="admin-badge" style={{ marginLeft: 8 }}>
+                            {openedProtections.length} шт.
+                          </span>
+                        )}
+                      </h4>
+                      
+                      {loadingProtections && (
+                        <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
+                          ⏳ Загрузка защит...
+                        </div>
+                      )}
+                      
+                      {!loadingProtections && openedProtections.length === 0 && (
+                        <div style={{ textAlign: "center", padding: 20, color: "rgba(255,255,255,0.6)" }}>
+                          📭 У этого менеджера пока нет защит.
+                        </div>
+                      )}
+                      
+                      {!loadingProtections && openedProtections.length > 0 && (
+                        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
+                          {openedProtections.map((p) => (
+                            <div key={p.id} className="admin-protection-card" style={{ 
+                              background: "rgba(255, 255, 255, 0.05)",
+                              padding: "16px",
+                              borderRadius: "12px",
+                              border: "1px solid rgba(255, 255, 255, 0.1)"
+                            }}>
+                              <div style={{ marginBottom: 8 }}>
+                                <strong style={{ color: "#fff" }}>#{p.id}</strong>
+                                <span className="admin-badge" style={{ 
+                                  marginLeft: 8,
+                                  background: p.status === "active" ? "rgba(61, 220, 151, 0.2)" : "rgba(255, 85, 85, 0.2)",
+                                  color: p.status === "active" ? "#3ddc97" : "#ff5555"
+                                }}>
+                                  {p.status === "active" ? "✅ Активна" : "❌ Закрыта"}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
+                                📍 {p.address || p.partner || "—"}
+                              </div>
+                              {p.client && (
+                                <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
+                                  👤 {p.client}
+                                </div>
+                              )}
+                              {p.area_m2 && (
+                                <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
+                                  📐 {p.area_m2} м²
+                                </div>
+                              )}
+                              {p.expires_at && (
+                                <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
+                                  ⏰ {p.expires_at}
+                                </div>
+                              )}
+                              <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                                {p.status === "active" && (
+                                  <button 
+                                    className="admin-btn-secondary" 
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const reason = prompt("Причина закрытия:", "Закрыто администратором");
+                                      if (reason) adminCloseProtection(p, reason);
+                                    }}
+                                    style={{ fontSize: 12, padding: "6px 12px" }}
+                                  >
+                                    🔒 Закрыть
+                                  </button>
+                                )}
+                                <button 
+                                  className="admin-btn-danger" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    adminDeleteProtection(p);
+                                  }}
+                                  style={{ fontSize: 12, padding: "6px 12px" }}
+                                >
+                                  🗑️ Удалить
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
