@@ -206,6 +206,9 @@ class ProtectionOut(BaseModel):
     warn_text: Optional[str] = None
     extend_count: Optional[int] = 0
     manager_id: Optional[int] = None  # ID пользователя, создавшего защиту
+    close_reason: Optional[str] = None  # Причина закрытия из истории
+    success_doc: Optional[str] = None  # Документ 1С из истории
+    delete_reason: Optional[str] = None  # Причина удаления из истории
 
 class ProtectionUpdate(BaseModel):
     sku: Optional[str] = ""
@@ -268,13 +271,14 @@ def _safe_migrate():
 
 
 
-def row_to_out(row) -> ProtectionOut:
+def row_to_out(row, history_data: dict = None) -> ProtectionOut:
     expires = datetime.fromisoformat(row["expires_at"].replace("Z", ""))
     days_left = (expires - datetime.utcnow()).days
     warn2d = row["status"] == "active" and days_left <= 2
     warn_text = "⏰ Через 2 дня истекает — напомни менеджеру." if warn2d else None
     # Проверяем наличие manager_id в строке (для совместимости с SQLite и PostgreSQL)
     manager_id = row["manager_id"] if "manager_id" in row.keys() else None
+    history_data = history_data or {}
     return ProtectionOut(
         id=row["id"],
         manager=row["manager"],
@@ -296,6 +300,9 @@ def row_to_out(row) -> ProtectionOut:
         warn_text=warn_text,
         extend_count=row["extend_count"] if "extend_count" in row.keys() else 0,
         manager_id=manager_id,  # ID пользователя, создавшего защиту
+        close_reason=history_data.get("close_reason"),
+        success_doc=history_data.get("success_doc"),
+        delete_reason=history_data.get("delete_reason"),
     )
 
 def normalize_sku(raw: str) -> str:
@@ -1509,18 +1516,44 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     if manager:
         sql += " AND manager = ?"
         params.append(manager)
-    if status:
+    # Для archived не добавляем дополнительное условие status = 'archived',
+    # так как мы уже отфильтровали выше все неактивные статусы
+    if status and status != "archived":
         sql += " AND status = ?"
         params.append(status)
     sql += " ORDER BY created_at DESC"
 
     # Адаптируем запрос для PostgreSQL
     sql = _adapt_query(sql)
-    
+
     conn = get_conn()
     rows = conn.cursor().execute(sql, params).fetchall()
+    
+    # Получаем историю для всех защит, чтобы извлечь комментарии
+    protection_ids = [r["id"] for r in rows]
+    history_map = {}
+    if protection_ids:
+        placeholders = ",".join(["?"] * len(protection_ids))
+        history_sql = _adapt_query(f"SELECT * FROM history WHERE protection_id IN ({placeholders}) AND action IN ('close', 'success', 'delete') ORDER BY at DESC")
+        history_rows = conn.cursor().execute(history_sql, protection_ids).fetchall()
+        for h in history_rows:
+            pid = h["protection_id"]
+            if pid not in history_map:
+                payload = json.loads(h["payload"] or "{}")
+                action = h["action"]
+                if action == "close" and "reason" in payload:
+                    history_map[pid] = {"close_reason": payload["reason"]}
+                elif action == "success" and "doc_1c" in payload:
+                    if pid not in history_map:
+                        history_map[pid] = {}
+                    history_map[pid]["success_doc"] = payload["doc_1c"]
+                elif action == "delete" and "reason" in payload:
+                    if pid not in history_map:
+                        history_map[pid] = {}
+                    history_map[pid]["delete_reason"] = payload["reason"]
+    
     conn.close()
-    return [row_to_out(r) for r in rows]
+    return [row_to_out(r, history_map.get(r["id"], {})) for r in rows]
 
 # --- история
 @app.get("/api/history")

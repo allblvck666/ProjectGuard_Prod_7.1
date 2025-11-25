@@ -755,7 +755,15 @@ function ActiveProtectionsPage({
             onChange={(e) =>
               setExtendRequestModal({ ...extendRequestModal, reason: e.target.value })
             }
-            style={{ minHeight: 100, width: "100%", resize: "vertical" }}
+            style={{ 
+              minHeight: 80, 
+              maxHeight: 150,
+              width: "100%", 
+              resize: "vertical",
+              fontSize: "16px", // Предотвращаем зум на iOS
+              padding: "12px",
+              boxSizing: "border-box"
+            }}
           />
         </Modal>
       )}
@@ -889,6 +897,21 @@ function ArchivePage({
                     )}
                     {it.comment && (
                       <div className="small">💬 {it.comment}</div>
+                    )}
+                    {it.close_reason && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(239, 68, 68, 0.1)", borderRadius: 8, border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                        🔒 <b>Причина закрытия:</b> {it.close_reason}
+                      </div>
+                    )}
+                    {it.success_doc && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(34, 197, 94, 0.1)", borderRadius: 8, border: "1px solid rgba(34, 197, 94, 0.2)" }}>
+                        ✅ <b>Документ 1С:</b> {it.success_doc}
+                      </div>
+                    )}
+                    {it.delete_reason && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(156, 163, 175, 0.1)", borderRadius: 8, border: "1px solid rgba(156, 163, 175, 0.2)" }}>
+                        🗑️ <b>Причина удаления:</b> {it.delete_reason}
+                      </div>
                     )}
                   </div>
                 )}
@@ -1324,14 +1347,15 @@ function App() {
         const s = await api.get("/api/stats");
         setStats(s.data || []);
       } else if (route === "archive") {
-        // Для архива загружаем только закрытые защиты
+        // Для архива загружаем все неактивные защиты (success, closed, deleted)
         console.log("📦 Загрузка архива...", { managerFilter, search });
         const list = await api.get("/api/protections", {
           params: { manager: managerFilter || "", status: "archived", search: search || "" },
         });
         let data = list.data || [];
         console.log("📦 Получено защит из API:", data.length);
-        // Фильтруем только неактивные защиты (success, closed, deleted)
+        // Бэкенд уже возвращает только неактивные защиты (success, closed, deleted, archived)
+        // Дополнительная фильтрация не нужна, но на всякий случай оставляем
         data = data.filter((it) => it.status !== "active" && it.status !== "pending");
         console.log("📦 После фильтрации:", data.length);
         setItems(data);
