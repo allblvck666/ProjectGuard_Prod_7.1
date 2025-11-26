@@ -1677,7 +1677,7 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
     return row_to_out(row)
 
 @app.post("/api/protections/{pid}/request-extend")
-def request_extend(pid: int, data: dict = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
+def request_extend(pid: int, data: dict = Body(...), background_tasks: BackgroundTasks = None):
     days = data.get("days", 5)
     reason = (data.get("reason") or "").strip()
     conn = get_conn()
@@ -1735,6 +1735,9 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
     async def send_admin_notifications():
         sent_count = 0
         print(f"🔍 Начинаю отправку уведомлений админам. Всего админов: {len(admins)}")
+        print(f"🔍 BOT_TOKEN exists: {bool(BOT_TOKEN)}, bot instance: {bot is not None}")
+        print(f"🔍 Bot token length: {len(BOT_TOKEN) if BOT_TOKEN else 0}")
+        
         for admin in admins:
             tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
             if not tg_id:
@@ -1746,8 +1749,8 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 if isinstance(tg_id, int):
                     tg_id_int = tg_id
                 elif isinstance(tg_id, str):
-                    # Убираем префикс "tg-" если есть
-                    clean_id = tg_id.replace("tg-", "").replace("dev-", "")
+                    # Убираем префикс "tg-" или "dev-" если есть
+                    clean_id = tg_id.replace("tg-", "").replace("dev-", "").strip()
                     if clean_id.isdigit():
                         tg_id_int = int(clean_id)
                     elif tg_id.isdigit():
@@ -1757,8 +1760,14 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
                     continue
                 
-                print(f"📤 Отправляю уведомление админу {tg_id_int}...")
-                await bot.send_message(
+                print(f"📤 Отправляю уведомление админу {tg_id_int} (исходный tg_id: {tg_id})...")
+                
+                # Проверяем, что бот инициализирован
+                if bot is None:
+                    print(f"❌ Бот не инициализирован!")
+                    continue
+                
+                result = await bot.send_message(
                     tg_id_int,
                     msg,
                     parse_mode="HTML",
@@ -1766,9 +1775,10 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 )
                 sent_count += 1
                 admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name})")
+                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
                 traceback.print_exc()
         
@@ -1779,7 +1789,16 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
             print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
     
     # Запускаем в фоне через BackgroundTasks
+    # FastAPI автоматически инжектит BackgroundTasks
+    if background_tasks is None:
+        from fastapi import BackgroundTasks as BT
+        background_tasks = BT()
+    
+    # Добавляем задачу в фоновые задачи
+    # BackgroundTasks в FastAPI правильно обрабатывает async функции
     background_tasks.add_task(send_admin_notifications)
+    
+    print(f"📋 Задача отправки уведомлений добавлена в BackgroundTasks (async функция)")
     
     conn.commit()
     conn.close()

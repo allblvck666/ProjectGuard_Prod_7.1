@@ -25,7 +25,7 @@ async def start(message: types.Message):
 
     await message.answer(
         "Привет 👋\n\nЭто Aquafloor ProjectGuard — система защиты проектов.\n"
-        "Нажми кнопку ниже, чтобы войти в систему:",
+        "Нажми кнопку ниже, чтобы войти в:",
         reply_markup=keyboard
     )
 
