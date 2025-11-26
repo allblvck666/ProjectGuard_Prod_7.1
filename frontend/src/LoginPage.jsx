@@ -3,17 +3,9 @@ import { useState, useEffect } from "react";
 import { registerOrLogin } from "./api";
 import TelegramLoginButton from "./TelegramLoginButton";
 
-// Генерируем уникальный идентификатор устройства для браузера
-function getDeviceId() {
-  if (typeof window === "undefined") return null;
-  
-  let deviceId = localStorage.getItem("device_id");
-  if (!deviceId) {
-    // Генерируем уникальный ID на основе timestamp и случайного числа
-    deviceId = `dev-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
-    localStorage.setItem("device_id", deviceId);
-  }
-  return deviceId;
+// Функция для нормализации номера телефона (убираем все нецифровые символы)
+function normalizePhone(phone) {
+  return phone.replace(/\D/g, "");
 }
 
 export default function LoginPage({ onLogin }) {
@@ -96,17 +88,16 @@ export default function LoginPage({ onLogin }) {
         tg_id = String(tg.initDataUnsafe.user.id);
       }
     } else {
-      // Для браузера - создаем уникальный tg_id на основе устройства
-      // Это гарантирует, что каждый браузер/устройство будет иметь свой уникальный аккаунт
-      // Даже если два разных пользователя введут один и тот же номер телефона,
-      // они будут иметь разные аккаунты на разных устройствах
-      const deviceId = getDeviceId();
-      if (!deviceId) {
-        setErr("Не удалось определить идентификатор устройства");
+      // Для браузера - создаем tg_id на основе номера телефона
+      // Один и тот же номер телефона на разных устройствах = один и тот же аккаунт
+      const phoneDigits = normalizePhone(phone);
+      if (!phoneDigits) {
+        setErr("Введите корректный номер телефона");
         return;
       }
-      // Используем deviceId как tg_id - это уникальный идентификатор для каждого браузера/устройства
-      tg_id = deviceId;
+      // Используем нормализованный номер телефона как tg_id
+      // Это гарантирует, что один номер = один аккаунт на всех устройствах
+      tg_id = `dev-${phoneDigits}`;
     }
 
     if (!tg_id) {

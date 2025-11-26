@@ -510,6 +510,26 @@
     }
   }
 
+/* Кнопка "Добавить защиту" должна быть больше на всех устройствах */
+.container .btn:not(.secondary):not(.danger):not(.success):not(.warning):not(.refresh):not(.small) {
+  padding: 18px 32px;
+  font-size: 18px;
+  font-weight: 700;
+  min-height: 60px;
+  letter-spacing: 0.5px;
+}
+
+@media (max-width: 768px) {
+  /* Кнопка "Добавить защиту" должна быть еще больше на мобильной версии */
+  .container .btn:not(.secondary):not(.danger):not(.success):not(.warning):not(.refresh):not(.small) {
+    padding: 20px 32px;
+    font-size: 19px;
+    font-weight: 700;
+    min-height: 64px;
+    letter-spacing: 0.6px;
+  }
+}
+
 /* ============================================
  🏠 ГЛАВНАЯ СТРАНИЦА (HOME DASHBOARD)
 ============================================ */
