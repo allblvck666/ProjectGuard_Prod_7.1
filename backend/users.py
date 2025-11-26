@@ -1,9 +1,12 @@
 import sqlite3
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
+from jose import jwt
+from os import getenv
 
-from backend.db import get_conn, now_iso
+from backend.db import get_conn, now_iso, USE_POSTGRES, _adapt_query, _get_param_placeholder
+from backend.auth import require_admin
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -25,21 +28,41 @@ class LinkAssistant(BaseModel):
 def init_users_table():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tg_id INTEGER UNIQUE,
-            tg_username TEXT,
-            first_name TEXT,
-            role TEXT,
-            manager_id INTEGER,
-            group_tag TEXT,
-            region TEXT,
-            created_at TEXT
+    
+    if USE_POSTGRES:
+        # PostgreSQL синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users(
+                id SERIAL PRIMARY KEY,
+                tg_id INTEGER UNIQUE,
+                tg_username TEXT,
+                first_name TEXT,
+                role TEXT,
+                manager_id INTEGER,
+                group_tag TEXT,
+                region TEXT,
+                created_at TEXT
+            )
+            """
         )
-        """
-    )
+    else:
+        # SQLite синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_id INTEGER UNIQUE,
+                tg_username TEXT,
+                first_name TEXT,
+                role TEXT,
+                manager_id INTEGER,
+                group_tag TEXT,
+                region TEXT,
+                created_at TEXT
+            )
+            """
+        )
     conn.commit()
     conn.close()
 
@@ -50,10 +73,28 @@ def init_users_table():
 def add_user(data: UserCreate):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT OR REPLACE INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)",
-        (data.tg_id, data.tg_username, data.first_name, data.role, now_iso()),
-    )
+    
+    placeholder = _get_param_placeholder()
+    
+    if USE_POSTGRES:
+        # PostgreSQL использует ON CONFLICT
+        query = f"""
+            INSERT INTO users (tg_id, tg_username, first_name, role, created_at) 
+            VALUES ({placeholder},{placeholder},{placeholder},{placeholder},{placeholder})
+            ON CONFLICT (tg_id) DO UPDATE SET
+                tg_username = EXCLUDED.tg_username,
+                first_name = EXCLUDED.first_name,
+                role = EXCLUDED.role,
+                created_at = EXCLUDED.created_at
+        """
+    else:
+        # SQLite использует INSERT OR REPLACE
+        query = f"""
+            INSERT OR REPLACE INTO users (tg_id, tg_username, first_name, role, created_at) 
+            VALUES ({placeholder},{placeholder},{placeholder},{placeholder},{placeholder})
+        """
+    
+    cur.execute(query, (data.tg_id, data.tg_username, data.first_name, data.role, now_iso()))
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -64,9 +105,18 @@ def add_user(data: UserCreate):
 def list_users():
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
+    query = "SELECT * FROM users ORDER BY id DESC"
+    cur.execute(query)
+    rows = cur.fetchall()
     conn.close()
-    return {"ok": True, "users": [dict(r) for r in rows]}
+    
+    # Преобразуем Row в dict
+    if USE_POSTGRES:
+        users = [dict(row) for row in rows]
+    else:
+        users = [dict(row) for row in rows]
+    
+    return {"ok": True, "users": users}
 
 
 # === Привязать помощника к менеджеру ===
@@ -74,15 +124,21 @@ def list_users():
 def link_assistant(data: LinkAssistant):
     conn = get_conn()
     cur = conn.cursor()
+    placeholder = _get_param_placeholder()
+    
     # Проверяем, что оба пользователя есть
-    mgr = cur.execute("SELECT * FROM users WHERE id=?", (data.manager_id,)).fetchone()
-    asst = cur.execute("SELECT * FROM users WHERE id=?", (data.assistant_id,)).fetchone()
+    query = _adapt_query("SELECT * FROM users WHERE id=?")
+    cur.execute(query, (data.manager_id,))
+    mgr = cur.fetchone()
+    cur.execute(query, (data.assistant_id,))
+    asst = cur.fetchone()
 
     if not mgr or not asst:
         conn.close()
         raise HTTPException(status_code=404, detail="Manager or Assistant not found")
 
-    cur.execute("UPDATE users SET manager_id=? WHERE id=?", (data.manager_id, data.assistant_id))
+    query = _adapt_query(f"UPDATE users SET manager_id={placeholder} WHERE id={placeholder}")
+    cur.execute(query, (data.manager_id, data.assistant_id))
     conn.commit()
     conn.close()
     return {"ok": True, "msg": "Assistant linked to manager"}
@@ -93,33 +149,42 @@ def link_assistant(data: LinkAssistant):
 def get_assistants(manager_id: int):
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute("SELECT * FROM users WHERE manager_id=?", (manager_id,)).fetchall()
+    query = _adapt_query("SELECT * FROM users WHERE manager_id=?")
+    cur.execute(query, (manager_id,))
+    rows = cur.fetchall()
     conn.close()
     return {"ok": True, "assistants": [dict(r) for r in rows]}
-from fastapi import Depends
-from backend.auth import require_admin  # ⚠️ если функция require_admin в main.py — оставь так
+
 
 # === Обновить пользователя (роль, группа, менеджер, регион) ===
 @router.patch("/{user_id}")
 def update_user(user_id: int, data: dict, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
+    placeholder = _get_param_placeholder()
 
-    exists = cur.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+    query = _adapt_query("SELECT id FROM users WHERE id=?")
+    cur.execute(query, (user_id,))
+    exists = cur.fetchone()
     if not exists:
+        conn.close()
         raise HTTPException(status_code=404, detail="Пользователь не найден")
 
-    cur.execute(
-        """
-        UPDATE users
-        SET role = COALESCE(:role, role),
-            group_tag = COALESCE(:group_tag, group_tag),
-            manager_id = COALESCE(:manager_id, manager_id),
-            region = COALESCE(:region, region)
-        WHERE id = :user_id
-        """,
-        {**data, "user_id": user_id},
-    )
+    # Строим UPDATE запрос динамически
+    updates = []
+    values = []
+    for key in ["role", "group_tag", "manager_id", "region"]:
+        if key in data and data[key] is not None:
+            updates.append(f"{key} = {placeholder}")
+            values.append(data[key])
+    
+    if not updates:
+        conn.close()
+        return {"ok": True, "message": "✅ Нет изменений для обновления"}
+    
+    values.append(user_id)
+    query = f"UPDATE users SET {', '.join(updates)} WHERE id = {placeholder}"
+    cur.execute(query, values)
     conn.commit()
     conn.close()
     return {"ok": True, "message": "✅ Пользователь обновлён"}
@@ -130,7 +195,9 @@ def update_user(user_id: int, data: dict, user=Depends(require_admin)):
 def delete_user(user_id: int, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("DELETE FROM users WHERE id=?", (user_id,))
+    placeholder = _get_param_placeholder()
+    query = _adapt_query(f"DELETE FROM users WHERE id={placeholder}")
+    cur.execute(query, (user_id,))
     conn.commit()
     conn.close()
     return {"ok": True, "message": "🗑 Пользователь удалён"}
@@ -141,13 +208,14 @@ def delete_user(user_id: int, user=Depends(require_admin)):
 def list_users_admin(user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute("SELECT * FROM users ORDER BY id DESC").fetchall()
+    query = "SELECT * FROM users ORDER BY id DESC"
+    cur.execute(query)
+    rows = cur.fetchall()
     conn.close()
     return {"ok": True, "users": [dict(r) for r in rows]}
 
-# === Telegram WebApp Авторизация ===
-from os import getenv
 
+# === Telegram WebApp Авторизация ===
 SECRET_KEY = getenv("JWT_SECRET") or getenv("SECRET_KEY") or "dev_secret"
 ALGORITHM = "HS256"
 
@@ -167,10 +235,23 @@ def auth_telegram(user: dict):
     # 1️⃣ Создаём или обновляем пользователя в БД
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT OR IGNORE INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)",
-        (tg_id, username, first_name, "manager", now_iso()),
-    )
+    placeholder = _get_param_placeholder()
+    
+    if USE_POSTGRES:
+        # PostgreSQL использует ON CONFLICT DO NOTHING
+        query = f"""
+            INSERT INTO users (tg_id, tg_username, first_name, role, created_at) 
+            VALUES ({placeholder},{placeholder},{placeholder},{placeholder},{placeholder})
+            ON CONFLICT (tg_id) DO NOTHING
+        """
+    else:
+        # SQLite использует INSERT OR IGNORE
+        query = f"""
+            INSERT OR IGNORE INTO users (tg_id, tg_username, first_name, role, created_at) 
+            VALUES ({placeholder},{placeholder},{placeholder},{placeholder},{placeholder})
+        """
+    
+    cur.execute(query, (tg_id, username, first_name, "manager", now_iso()))
     conn.commit()
     conn.close()
 
