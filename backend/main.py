@@ -222,15 +222,26 @@ class ProtectionUpdate(BaseModel):
 async def on_startup():
     # Запускаем инициализацию в фоне, чтобы не блокировать старт приложения
     async def init_background():
-        try:
-            # 1. База и миграции
-            init_db()
-            init_users_table()
-            _safe_migrate()
-            print("✅ База данных инициализирована")
-        except Exception as e:
-            print(f"⚠️ Ошибка инициализации БД: {e}")
+        # Выполняем синхронные операции в отдельном потоке
+        def init_sync():
+            try:
+                # 1. База и миграции (синхронные операции)
+                init_db()
+                init_users_table()
+                _safe_migrate()
+                print("✅ База данных инициализирована")
+            except Exception as e:
+                print(f"⚠️ Ошибка инициализации БД: {e}")
         
+        # Используем to_thread для выполнения синхронных операций
+        try:
+            await asyncio.to_thread(init_sync)
+        except AttributeError:
+            # Fallback для старых версий Python
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, init_sync)
+        
+        # Запускаем async задачи
         try:
             # 2. Telegram бот
             asyncio.create_task(start_tg_bot())
