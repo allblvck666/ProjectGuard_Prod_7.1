@@ -7,6 +7,14 @@ from datetime import datetime, timedelta
 # Базовая директория
 BASE_DIR = Path(__file__).resolve().parent
 
+# Загрузка переменных окружения из .env файла (для локальной разработки)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except ImportError:
+    # python-dotenv не установлен, используем только системные переменные окружения
+    pass
+
 # Пути
 DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3"))
 DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
