@@ -138,13 +138,17 @@ def get_user_by_id(user_id: int):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+        query = _adapt_query("SELECT * FROM users WHERE id = ?")
+        cur.execute(query, (user_id,))
         row = cur.fetchone()
         if row:
             # Преобразуем Row в dict
-            columns = [description[0] for description in cur.description]
-            user_dict = dict(zip(columns, row))
-            return user_dict
+            if USE_POSTGRES:
+                return dict(row)
+            else:
+                columns = [description[0] for description in cur.description]
+                user_dict = dict(zip(columns, row))
+                return user_dict
         return None
     except Exception as e:
         print(f"⚠️ Error in get_user_by_id({user_id}): {e}")
@@ -200,14 +204,15 @@ def create_user(data: dict):
     first_name = data.get("first_name", "")
     
     try:
-        cur.execute(
-            """
+        query = _adapt_query("""
             INSERT INTO users (
                 email, password_hash, full_name, phone, company, city,
                 role, is_active, created_at,
                 tg_id, tg_username, first_name
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+        """)
+        cur.execute(
+            query,
             (
                 email, password_hash, full_name, phone, company, city,
                 role, is_active, created_at,
@@ -215,12 +220,22 @@ def create_user(data: dict):
             )
         )
         conn.commit()
-        user_id = cur.lastrowid
+        if USE_POSTGRES:
+            # PostgreSQL возвращает ID через RETURNING или cur.fetchone()
+            cur.execute(_adapt_query("SELECT id FROM users WHERE email = ? ORDER BY id DESC LIMIT 1"), (email,))
+            row = cur.fetchone()
+            user_id = row["id"] if row else None
+        else:
+            user_id = cur.lastrowid
         conn.close()
-        return get_user_by_id(user_id)
-    except sqlite3.IntegrityError as e:
+        return get_user_by_id(user_id) if user_id else None
+    except Exception as e:
         conn.close()
-        raise ValueError(f"User with email {email} already exists") from e
+        # Обработка ошибок для PostgreSQL и SQLite
+        error_str = str(e).lower()
+        if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
+            raise ValueError(f"User with email {email} already exists") from e
+        raise
 
 
 def update_user(user_id: int, data: dict):
@@ -233,14 +248,16 @@ def update_user(user_id: int, data: dict):
     updates = []
     values = []
     
+    placeholder = _get_param_placeholder()
+    
     for field in allowed_fields:
         if field in data:
-            updates.append(f"{field} = ?")
+            updates.append(f"{field} = {placeholder}")
             values.append(data[field])
     
     # Всегда обновляем updated_at
     if updates:
-        updates.append("updated_at = ?")
+        updates.append(f"updated_at = {placeholder}")
         values.append(now_iso())
     
     if not updates:
@@ -248,7 +265,7 @@ def update_user(user_id: int, data: dict):
         return get_user_by_id(user_id)
     
     values.append(user_id)
-    query = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+    query = f"UPDATE users SET {', '.join(updates)} WHERE id = {placeholder}"
     
     cur.execute(query, values)
     conn.commit()
@@ -260,7 +277,8 @@ def get_all_users():
     """Получить всех пользователей (для админки)"""
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users ORDER BY created_at DESC")
+    query = _adapt_query("SELECT * FROM users ORDER BY created_at DESC")
+    cur.execute(query)
     rows = cur.fetchall()
     conn.close()
     return [dict(row) for row in rows]
@@ -281,7 +299,8 @@ def upsert_user(data: dict):
         raise ValueError("tg_id is required")
     
     # Проверяем, существует ли пользователь
-    cur.execute("SELECT * FROM users WHERE tg_id = ?", (tg_id,))
+    query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
+    cur.execute(query, (tg_id,))
     existing = cur.fetchone()
     
     now = now_iso()
@@ -295,19 +314,20 @@ def upsert_user(data: dict):
         update_fields = []
         update_values = []
         
+        placeholder = _get_param_placeholder()
         allowed_update_fields = ["full_name", "phone", "position", "company", "city", "tg_username", "first_name", "is_active"]
         for field in allowed_update_fields:
             if field in data:
-                update_fields.append(f"{field} = ?")
+                update_fields.append(f"{field} = {placeholder}")
                 update_values.append(data[field])
         
         # Всегда обновляем updated_at
-        update_fields.append("updated_at = ?")
+        update_fields.append(f"updated_at = {placeholder}")
         update_values.append(now)
         
         # Если is_active был 0, можно снова сделать 1
         if "is_active" not in data and user_dict.get("is_active", 1) == 0:
-            update_fields.append("is_active = ?")
+            update_fields.append(f"is_active = {placeholder}")
             update_values.append(1)
         
         # Проверяем роль по телефону - если телефон соответствует суперадмину, обновляем роль
@@ -316,7 +336,7 @@ def upsert_user(data: dict):
             phone_clean = re.sub(r'\D', '', str(data["phone"]))
             if phone_clean == "79207455960":
                 # Всегда обновляем роль на superadmin, если телефон соответствует
-                update_fields.append("role = ?")
+                update_fields.append(f"role = {placeholder}")
                 update_values.append("superadmin")
             elif "role" not in data:
                 # Если роль не указана в data, но телефон не суперадмин - оставляем текущую роль
@@ -324,7 +344,8 @@ def upsert_user(data: dict):
         
         if update_fields:
             update_values.append(user_id)
-            query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+            placeholder = _get_param_placeholder()
+            query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = {placeholder}"
             cur.execute(query, update_values)
             conn.commit()
         
@@ -350,27 +371,38 @@ def upsert_user(data: dict):
                 role = "superadmin"
         
         try:
-            cur.execute(
-                """
+            query = _adapt_query("""
                 INSERT INTO users (
                     tg_id, tg_username, first_name, full_name, phone, position,
                     company, role, is_active, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            """)
+            cur.execute(
+                query,
                 (
                     tg_id, tg_username, first_name, full_name, phone, position,
                     company, role, is_active, now, now
                 )
             )
             conn.commit()
-            user_id = cur.lastrowid
+            if USE_POSTGRES:
+                # PostgreSQL возвращает ID через RETURNING или cur.fetchone()
+                cur.execute(_adapt_query("SELECT id FROM users WHERE tg_id = ? ORDER BY id DESC LIMIT 1"), (tg_id,))
+                row = cur.fetchone()
+                user_id = row["id"] if row else None
+            else:
+                user_id = cur.lastrowid
             conn.close()
-            return get_user_by_id(user_id)
-        except sqlite3.IntegrityError as e:
+            return get_user_by_id(user_id) if user_id else None
+        except Exception as e:
             conn.close()
-            # Если все же произошла ошибка UNIQUE (например, параллельный запрос)
-            # Пытаемся получить существующего пользователя
-            return get_user_by_tg_id(int(tg_id) if tg_id.isdigit() else None) or get_user_by_tg_id(tg_id)
+            # Обработка ошибок для PostgreSQL и SQLite
+            error_str = str(e).lower()
+            if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
+                # Если все же произошла ошибка UNIQUE (например, параллельный запрос)
+                # Пытаемся получить существующего пользователя
+                return get_user_by_tg_id(int(tg_id) if tg_id.isdigit() else None) or get_user_by_tg_id(tg_id)
+            raise
 
 
 # === Инициализация таблиц ===
@@ -379,67 +411,135 @@ def init_db():
     cur = conn.cursor()
 
     # === Protections ===
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS protections (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            manager TEXT NOT NULL,
-            client TEXT,
-            partner TEXT,
-            partner_city TEXT,
-            sku TEXT,
-            area_m2 REAL,
-            last4 TEXT,
-            object_city TEXT,
-            address TEXT,
-            comment TEXT,
-            status TEXT NOT NULL DEFAULT 'active',
-            created_at TEXT NOT NULL,
-            expires_at TEXT NOT NULL,
-            closed_at TEXT,
-            -- новые поля, которые использует main.py
-            extend_count INTEGER DEFAULT 0,
-            auto_closed INTEGER DEFAULT 0,
-            updated_at TEXT,
-            approved_by_admin INTEGER DEFAULT 0,
-            admin_comment TEXT,
-            manager_id INTEGER,
-            reminder_2days_sent INTEGER DEFAULT 0,
-            close_reason TEXT
+    if USE_POSTGRES:
+        # PostgreSQL синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS protections (
+                id SERIAL PRIMARY KEY,
+                manager TEXT NOT NULL,
+                client TEXT,
+                partner TEXT,
+                partner_city TEXT,
+                sku TEXT,
+                area_m2 REAL,
+                last4 TEXT,
+                object_city TEXT,
+                address TEXT,
+                comment TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                closed_at TEXT,
+                extend_count INTEGER DEFAULT 0,
+                auto_closed INTEGER DEFAULT 0,
+                updated_at TEXT,
+                approved_by_admin INTEGER DEFAULT 0,
+                admin_comment TEXT,
+                manager_id INTEGER,
+                reminder_2days_sent INTEGER DEFAULT 0,
+                close_reason TEXT
+            )
+            """
         )
-        """
-    )
+    else:
+        # SQLite синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS protections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                manager TEXT NOT NULL,
+                client TEXT,
+                partner TEXT,
+                partner_city TEXT,
+                sku TEXT,
+                area_m2 REAL,
+                last4 TEXT,
+                object_city TEXT,
+                address TEXT,
+                comment TEXT,
+                status TEXT NOT NULL DEFAULT 'active',
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                closed_at TEXT,
+                extend_count INTEGER DEFAULT 0,
+                auto_closed INTEGER DEFAULT 0,
+                updated_at TEXT,
+                approved_by_admin INTEGER DEFAULT 0,
+                admin_comment TEXT,
+                manager_id INTEGER,
+                reminder_2days_sent INTEGER DEFAULT 0,
+                close_reason TEXT
+            )
+            """
+        )
 
     # === Users ===
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tg_id TEXT UNIQUE,
-            tg_username TEXT,
-            first_name TEXT,
-            role TEXT DEFAULT 'user',
-            group_tag TEXT,
-            manager_id INTEGER,
-            region TEXT,
-            created_at TEXT NOT NULL,
-            -- Новые поля для email-регистрации
-            email TEXT UNIQUE,
-            password_hash TEXT,
-            full_name TEXT,
-            phone TEXT,
-            position TEXT,
-            company TEXT,
-            city TEXT,
-            is_active INTEGER DEFAULT 1,
-            last_login TEXT,
-            updated_at TEXT,
-            extra TEXT,
-            receive_extend_notifications INTEGER DEFAULT 0,
-            manager_ids TEXT DEFAULT '[]'
+    if USE_POSTGRES:
+        # PostgreSQL синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                tg_id TEXT UNIQUE,
+                tg_username TEXT,
+                first_name TEXT,
+                role TEXT DEFAULT 'user',
+                group_tag TEXT,
+                manager_id INTEGER,
+                region TEXT,
+                created_at TEXT NOT NULL,
+                email TEXT,
+                password_hash TEXT,
+                full_name TEXT,
+                phone TEXT,
+                position TEXT,
+                company TEXT,
+                city TEXT,
+                is_active INTEGER DEFAULT 1,
+                last_login TEXT,
+                updated_at TEXT,
+                extra TEXT,
+                receive_extend_notifications INTEGER DEFAULT 0,
+                manager_ids TEXT DEFAULT '[]'
+            )
+            """
         )
-        """
-    )
+        # Создаем уникальный индекс для email, если его нет
+        try:
+            cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users(email) WHERE email IS NOT NULL")
+        except:
+            pass
+    else:
+        # SQLite синтаксис
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tg_id TEXT UNIQUE,
+                tg_username TEXT,
+                first_name TEXT,
+                role TEXT DEFAULT 'user',
+                group_tag TEXT,
+                manager_id INTEGER,
+                region TEXT,
+                created_at TEXT NOT NULL,
+                email TEXT UNIQUE,
+                password_hash TEXT,
+                full_name TEXT,
+                phone TEXT,
+                position TEXT,
+                company TEXT,
+                city TEXT,
+                is_active INTEGER DEFAULT 1,
+                last_login TEXT,
+                updated_at TEXT,
+                extra TEXT,
+                receive_extend_notifications INTEGER DEFAULT 0,
+                manager_ids TEXT DEFAULT '[]'
+            )
+            """
+        )
 
     # === Миграция: добавляем новые колонки, если их нет ===
     # Для PostgreSQL используем другой подход
@@ -450,7 +550,7 @@ def init_db():
             FROM information_schema.columns 
             WHERE table_name = 'users'
         """)
-        existing_columns = {row[0] for row in cur.fetchall()}
+        existing_columns = {row["column_name"] if isinstance(row, dict) else row[0] for row in cur.fetchall()}
     else:
         # SQLite
         cur.execute("PRAGMA table_info(users)")
@@ -495,8 +595,18 @@ def init_db():
     # Миграция: изменяем tg_id с INTEGER на TEXT, если нужно
     # SQLite не поддерживает ALTER COLUMN напрямую, но можно проверить тип
     try:
-        cur.execute("SELECT typeof(tg_id) FROM users LIMIT 1")
-        result = cur.fetchone()
+        if USE_POSTGRES:
+            # PostgreSQL - проверяем тип колонки
+            cur.execute("""
+                SELECT data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'users' AND column_name = 'tg_id'
+            """)
+            result = cur.fetchone()
+        else:
+            # SQLite
+            cur.execute("SELECT typeof(tg_id) FROM users LIMIT 1")
+            result = cur.fetchone()
         # Если таблица пустая или tg_id уже TEXT - ничего не делаем
         # Если есть данные с INTEGER - нужно будет пересоздать таблицу (но это сложно)
         # Для простоты оставляем как есть, но в новых записях будем использовать TEXT
@@ -504,45 +614,86 @@ def init_db():
         pass
 
     # === Managers ===
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS managers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            telegrams TEXT DEFAULT '[]',
-            created_at TEXT
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS managers (
+                id SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL,
+                telegrams TEXT DEFAULT '[]',
+                created_at TEXT
+            )
+            """
         )
-        """
-    )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS managers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                telegrams TEXT DEFAULT '[]',
+                created_at TEXT
+            )
+            """
+        )
 
     # === History (для add_history и /api/history) ===
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            protection_id INTEGER NOT NULL,
-            at TEXT NOT NULL,
-            actor TEXT NOT NULL,
-            action TEXT NOT NULL,
-            payload TEXT,
-            FOREIGN KEY (protection_id) REFERENCES protections (id)
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS history (
+                id SERIAL PRIMARY KEY,
+                protection_id INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                payload TEXT,
+                FOREIGN KEY (protection_id) REFERENCES protections (id)
+            )
+            """
         )
-        """
-    )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                protection_id INTEGER NOT NULL,
+                at TEXT NOT NULL,
+                actor TEXT NOT NULL,
+                action TEXT NOT NULL,
+                payload TEXT,
+                FOREIGN KEY (protection_id) REFERENCES protections (id)
+            )
+            """
+        )
 
     # === Telegram notifications (tg_notifications) ===
-    cur.execute(
-        """
-        CREATE TABLE IF NOT EXISTS tg_notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            protection_id INTEGER NOT NULL,
-            chat_id INTEGER NOT NULL,
-            message_id INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY (protection_id) REFERENCES protections (id)
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tg_notifications (
+                id SERIAL PRIMARY KEY,
+                protection_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (protection_id) REFERENCES protections (id)
+            )
+            """
         )
-        """
-    )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tg_notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                protection_id INTEGER NOT NULL,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (protection_id) REFERENCES protections (id)
+            )
+            """
+        )
 
     conn.commit()
     conn.close()
