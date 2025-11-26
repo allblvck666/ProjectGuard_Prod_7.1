@@ -254,7 +254,16 @@ def _safe_migrate():
             cur2.execute(sql)
             conn2.commit()
         except sqlite3.OperationalError as e:
-            if "duplicate column" not in str(e):
+            # SQLite ошибка
+            if "duplicate column" not in str(e).lower():
+                print("⚠️", e)
+        except Exception as e:
+            # PostgreSQL и другие ошибки
+            error_str = str(e).lower()
+            if "duplicate column" in error_str or "already exists" in error_str:
+                # Колонка уже существует - это нормально, игнорируем
+                pass
+            else:
                 print("⚠️", e)
         finally:
             conn2.close()
