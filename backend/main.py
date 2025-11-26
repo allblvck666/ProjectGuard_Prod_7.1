@@ -91,7 +91,19 @@ def fmt_iso(dt: datetime) -> str:
         return None
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
-app = FastAPI(title="ProjectGuard Mini API", version="2.2")
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    print("🚀 Приложение запускается, инициализация в фоне...")
+    # Запускаем инициализацию в фоне, не ждем завершения
+    asyncio.create_task(_init_background())
+    yield
+    # Shutdown (если нужно)
+    pass
+
+app = FastAPI(title="ProjectGuard Mini API", version="2.2", lifespan=lifespan)
 SKUS = load_skus()
 # === CORS настройки ===
 from fastapi.middleware.cors import CORSMiddleware
@@ -218,59 +230,62 @@ class ProtectionUpdate(BaseModel):
     manager: Optional[str] = None  # кто редактировал, можно не присылать
 
 
-@app.on_event("startup")
-async def on_startup():
-    # Запускаем инициализацию в фоне, чтобы не блокировать старт приложения
-    async def init_background():
-        # Выполняем синхронные операции в отдельном потоке
-        def init_sync():
-            try:
-                # 1. База и миграции (синхронные операции)
-                init_db()
-                init_users_table()
-                _safe_migrate()
-                print("✅ База данных инициализирована")
-            except Exception as e:
-                print(f"⚠️ Ошибка инициализации БД: {e}")
-        
-        # Используем to_thread для выполнения синхронных операций
-        try:
-            await asyncio.to_thread(init_sync)
-        except AttributeError:
-            # Fallback для старых версий Python
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, init_sync)
-        
-        # Запускаем async задачи
-        try:
-            # 2. Telegram бот
-            asyncio.create_task(start_tg_bot())
-        except Exception as e:
-            print(f"⚠️ Ошибка запуска Telegram бота: {e}")
-        
-        try:
-            # 3. Проверка истекающих защит
-            asyncio.create_task(check_expiring_protections())
-        except Exception as e:
-            print(f"⚠️ Ошибка запуска проверки защит: {e}")
-        
-        try:
-            # 4. Авто-закрытие защит за бездействие
-            asyncio.create_task(auto_close_expired_protections())
-        except Exception as e:
-            print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
-        
-        try:
-            # 5. Keep-alive механизм для предотвращения засыпания Render
-            asyncio.create_task(keep_alive_worker())
-        except Exception as e:
-            print(f"⚠️ Ошибка запуска keep-alive: {e}")
-        
-        print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
+# Флаг для отслеживания инициализации
+_initialized = False
+
+async def _init_background():
+    """Инициализация в фоне после запуска приложения"""
+    global _initialized
+    if _initialized:
+        return
+    _initialized = True
     
-    # Запускаем инициализацию в фоне, не ждем завершения
-    asyncio.create_task(init_background())
-    print("🚀 Приложение запускается, инициализация в фоне...")
+    # Выполняем синхронные операции в отдельном потоке
+    def init_sync():
+        try:
+            # 1. База и миграции (синхронные операции)
+            init_db()
+            init_users_table()
+            _safe_migrate()
+            print("✅ База данных инициализирована")
+        except Exception as e:
+            print(f"⚠️ Ошибка инициализации БД: {e}")
+    
+    # Используем to_thread для выполнения синхронных операций
+    try:
+        await asyncio.to_thread(init_sync)
+    except AttributeError:
+        # Fallback для старых версий Python
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, init_sync)
+    
+    # Запускаем async задачи
+    try:
+        # 2. Telegram бот
+        asyncio.create_task(start_tg_bot())
+    except Exception as e:
+        print(f"⚠️ Ошибка запуска Telegram бота: {e}")
+    
+    try:
+        # 3. Проверка истекающих защит
+        asyncio.create_task(check_expiring_protections())
+    except Exception as e:
+        print(f"⚠️ Ошибка запуска проверки защит: {e}")
+    
+    try:
+        # 4. Авто-закрытие защит за бездействие
+        asyncio.create_task(auto_close_expired_protections())
+    except Exception as e:
+        print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
+    
+    try:
+        # 5. Keep-alive механизм для предотвращения засыпания Render
+        asyncio.create_task(keep_alive_worker())
+    except Exception as e:
+        print(f"⚠️ Ошибка запуска keep-alive: {e}")
+    
+    print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
+
 
     
 
