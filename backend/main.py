@@ -983,27 +983,52 @@ class ManagerUpdate(BaseModel):
 @app.get("/api/admin/managers")
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
-    conn.row_factory = sqlite3.Row
+    if not USE_POSTGRES:
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-    rows = cur.execute("""
-        SELECT
-            m.id, m.name, m.telegrams,
-            IFNULL(t.total,0) AS total,
-            IFNULL(t.active,0) AS active,
-            IFNULL(t.success,0) AS success,
-            IFNULL(t.closed,0) AS closed
-        FROM managers m
-        LEFT JOIN (
-            SELECT manager,
-                   COUNT(*) AS total,
-                   SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
-                   SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
-                   SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
-            FROM protections
-            GROUP BY manager
-        ) t ON t.manager = m.name
-        ORDER BY m.name COLLATE NOCASE
-    """).fetchall()
+    
+    if USE_POSTGRES:
+        query = """
+            SELECT
+                m.id, m.name, m.telegrams,
+                COALESCE(t.total,0) AS total,
+                COALESCE(t.active,0) AS active,
+                COALESCE(t.success,0) AS success,
+                COALESCE(t.closed,0) AS closed
+            FROM managers m
+            LEFT JOIN (
+                SELECT manager,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
+                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
+                       SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+                FROM protections
+                GROUP BY manager
+            ) t ON t.manager = m.name
+            ORDER BY LOWER(m.name)
+        """
+    else:
+        query = """
+            SELECT
+                m.id, m.name, m.telegrams,
+                IFNULL(t.total,0) AS total,
+                IFNULL(t.active,0) AS active,
+                IFNULL(t.success,0) AS success,
+                IFNULL(t.closed,0) AS closed
+            FROM managers m
+            LEFT JOIN (
+                SELECT manager,
+                       COUNT(*) AS total,
+                       SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
+                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
+                       SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+                FROM protections
+                GROUP BY manager
+            ) t ON t.manager = m.name
+            ORDER BY m.name COLLATE NOCASE
+        """
+    cur.execute(query)
+    rows = cur.fetchall()
 
     managers = []
     import json
@@ -1187,9 +1212,12 @@ def create_user(user: dict):
 def public_managers():
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute("""
-        SELECT id, name FROM managers ORDER BY name COLLATE NOCASE
-    """).fetchall()
+    if USE_POSTGRES:
+        query = "SELECT id, name FROM managers ORDER BY LOWER(name)"
+    else:
+        query = "SELECT id, name FROM managers ORDER BY name COLLATE NOCASE"
+    cur.execute(query)
+    rows = cur.fetchall()
     conn.close()
     return [{"id": r["id"], "name": r["name"]} for r in rows]
 
@@ -1581,7 +1609,9 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     sql = _adapt_query(sql)
 
     conn = get_conn()
-    rows = conn.cursor().execute(sql, params).fetchall()
+    cur = conn.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall()
     
     # Получаем историю для всех защит, чтобы извлечь комментарии
     protection_ids = [r["id"] for r in rows]
@@ -1589,7 +1619,9 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     if protection_ids:
         placeholders = ",".join(["?"] * len(protection_ids))
         history_sql = _adapt_query(f"SELECT * FROM history WHERE protection_id IN ({placeholders}) AND action IN ('close', 'success', 'delete') ORDER BY at DESC")
-        history_rows = conn.cursor().execute(history_sql, protection_ids).fetchall()
+        history_cur = conn.cursor()
+        history_cur.execute(history_sql, protection_ids)
+        history_rows = history_cur.fetchall()
         for h in history_rows:
             pid = h["protection_id"]
             payload = json.loads(h["payload"] or "{}")
@@ -1948,16 +1980,16 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
 def admin_extend_requests(user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute(
-        """
+    query = """
         SELECT h.id as hid, h.protection_id, h.at, h.payload,
                p.manager, p.partner, p.sku, p.expires_at
         FROM history h
         JOIN protections p ON p.id = h.protection_id
         WHERE h.action='extend_request'
         ORDER BY h.at DESC
-        """
-    ).fetchall()
+    """
+    cur.execute(query)
+    rows = cur.fetchall()
     out = []  # 🟢 вот этой строки не хватало
     for r in rows:
         payload = json.loads(r["payload"] or "{}")
@@ -1989,22 +2021,38 @@ def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user)):
 def stats():
     conn = get_conn()
     cur = conn.cursor()
-    rows = cur.execute(
+    if USE_POSTGRES:
+        query = """
+            SELECT 
+                manager,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_cnt,
+                SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_cnt,
+                SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_cnt,
+                ROUND(CAST(SUM(CASE WHEN status='active' THEN area_m2 ELSE 0 END) AS NUMERIC), 1) AS active_area,
+                ROUND(CAST(SUM(CASE WHEN status='success' THEN area_m2 ELSE 0 END) AS NUMERIC), 1) AS success_area,
+                ROUND(CAST(SUM(CASE WHEN status='closed' THEN area_m2 ELSE 0 END) AS NUMERIC), 1) AS closed_area
+            FROM protections
+            WHERE status != 'deleted'
+            GROUP BY manager
         """
-        SELECT 
-            manager,
-            COUNT(*) AS total,
-            SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_cnt,
-            SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_cnt,
-            SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_cnt,
-            ROUND(SUM(CASE WHEN status='active' THEN area_m2 ELSE 0 END), 1) AS active_area,
-            ROUND(SUM(CASE WHEN status='success' THEN area_m2 ELSE 0 END), 1) AS success_area,
-            ROUND(SUM(CASE WHEN status='closed' THEN area_m2 ELSE 0 END), 1) AS closed_area
-        FROM protections
-        WHERE status != 'deleted'
-        GROUP BY manager
+    else:
+        query = """
+            SELECT 
+                manager,
+                COUNT(*) AS total,
+                SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_cnt,
+                SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_cnt,
+                SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_cnt,
+                ROUND(SUM(CASE WHEN status='active' THEN area_m2 ELSE 0 END), 1) AS active_area,
+                ROUND(SUM(CASE WHEN status='success' THEN area_m2 ELSE 0 END), 1) AS success_area,
+                ROUND(SUM(CASE WHEN status='closed' THEN area_m2 ELSE 0 END), 1) AS closed_area
+            FROM protections
+            WHERE status != 'deleted'
+            GROUP BY manager
         """
-    ).fetchall()
+    cur.execute(query)
+    rows = cur.fetchall()
     conn.close()
 
     out = []
@@ -2228,11 +2276,12 @@ async def check_expiring_protections():
                 
                 # Ищем пользователей, привязанных через manager_id
                 if manager_id:
-                    recipients_query = """
+                    recipients_query = _adapt_query("""
                         SELECT tg_id FROM users 
                         WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
-                    """
-                    recipients_rows = cur.execute(recipients_query, (manager_id,)).fetchall()
+                    """)
+                    cur.execute(recipients_query, (manager_id,))
+                    recipients_rows = cur.fetchall()
                     for row in recipients_rows:
                         if row["tg_id"]:
                             try:
@@ -2242,7 +2291,9 @@ async def check_expiring_protections():
                 
                 # Ищем пользователей, привязанных через manager_ids (JSON массив)
                 import json
-                all_users = cur.execute("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''").fetchall()
+                query = _adapt_query("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''")
+                cur.execute(query)
+                all_users = cur.fetchall()
                 for user_row in all_users:
                     user_tg_id = user_row["tg_id"] if "tg_id" in user_row.keys() else None
                     manager_ids_json = user_row["manager_ids"] if "manager_ids" in user_row.keys() else "[]"
