@@ -4,7 +4,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import asyncio
 
 # === Настройки ===
-TOKEN = "8256079955:AAGrghwannJh_tub3Av460PRKLV0nGR_cc8"
+TOKEN = "8256079955:AAHBYYbpeMPsRkysuQ8wiy3G4awiwq9VlR4"
 WEBAPP_URL = "https://projectguard-frontend-prod-7-1.onrender.com"
 
 bot = Bot(token=TOKEN)
