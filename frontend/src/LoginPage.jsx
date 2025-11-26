@@ -48,10 +48,37 @@ export default function LoginPage({ onLogin }) {
 
   const handleTelegramAutoLogin = async (tgUser) => {
     try {
+      // В Telegram WebApp тоже используем номер телефона как основной идентификатор
+      // Если есть номер телефона в Telegram - используем его
+      const tg = window.Telegram?.WebApp;
+      let phone = "";
+      if (tg?.initDataUnsafe?.user?.phone_number) {
+        phone = tg.initDataUnsafe.user.phone_number;
+      }
+      
+      // Если нет телефона в Telegram - не делаем авто-логин, показываем форму
+      if (!phone) {
+        setTelegramLoading(false);
+        setErr("Введите номер телефона для входа");
+        return;
+      }
+      
+      // Нормализуем номер телефона
+      const phoneDigits = normalizePhone(phone);
+      if (!phoneDigits) {
+        setTelegramLoading(false);
+        setErr("Введите корректный номер телефона");
+        return;
+      }
+      
+      // Используем номер телефона как tg_id для единообразия
+      // Это гарантирует, что один номер = один аккаунт на всех устройствах
+      const tg_id = `tg-${phoneDigits}`;
+      
       const data = await registerOrLogin({
-        tg_id: String(tgUser.id),
+        tg_id: tg_id,
         full_name: `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() || "Пользователь",
-        phone: "", // Телефон нужно будет ввести вручную
+        phone: phone,
         position: "",
       });
 
@@ -80,23 +107,21 @@ export default function LoginPage({ onLogin }) {
       return;
     }
 
-    // Получаем tg_id
+    // Нормализуем номер телефона
+    const phoneDigits = normalizePhone(phone);
+    if (!phoneDigits) {
+      setErr("Введите корректный номер телефона");
+      return;
+    }
+    
+    // Получаем tg_id - ВСЕГДА на основе номера телефона для единообразия
+    // Один и тот же номер телефона на разных устройствах = один и тот же аккаунт
     let tg_id = "";
     if (isTG) {
-      const tg = window.Telegram?.WebApp;
-      if (tg?.initDataUnsafe?.user) {
-        tg_id = String(tg.initDataUnsafe.user.id);
-      }
+      // В Telegram тоже используем номер телефона как основной идентификатор
+      tg_id = `tg-${phoneDigits}`;
     } else {
-      // Для браузера - создаем tg_id на основе номера телефона
-      // Один и тот же номер телефона на разных устройствах = один и тот же аккаунт
-      const phoneDigits = normalizePhone(phone);
-      if (!phoneDigits) {
-        setErr("Введите корректный номер телефона");
-        return;
-      }
-      // Используем нормализованный номер телефона как tg_id
-      // Это гарантирует, что один номер = один аккаунт на всех устройствах
+      // Для браузера - используем префикс dev-
       tg_id = `dev-${phoneDigits}`;
     }
 

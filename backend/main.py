@@ -1734,26 +1734,47 @@ def request_extend(pid: int, data: dict = Body(...)):
     # Отправляем уведомления асинхронно
     async def send_admin_notifications():
         sent_count = 0
+        print(f"🔍 Начинаю отправку уведомлений админам. Всего админов: {len(admins)}")
         for admin in admins:
             tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-            if tg_id:
-                try:
-                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                    if tg_id_int:
-                        await bot.send_message(
-                            tg_id_int,
-                            msg,
-                            parse_mode="HTML",
-                            reply_markup=kb.as_markup()
-                        )
-                        sent_count += 1
-                        admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                        print(f"📩 Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name})")
-                except Exception as e:
-                    print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
+            if not tg_id:
+                print(f"⚠️ У админа {admin.get('full_name', admin.get('first_name', 'Unknown'))} нет tg_id")
+                continue
+            try:
+                # Пробуем разные форматы tg_id
+                tg_id_int = None
+                if isinstance(tg_id, int):
+                    tg_id_int = tg_id
+                elif isinstance(tg_id, str):
+                    # Убираем префикс "tg-" если есть
+                    clean_id = tg_id.replace("tg-", "").replace("dev-", "")
+                    if clean_id.isdigit():
+                        tg_id_int = int(clean_id)
+                    elif tg_id.isdigit():
+                        tg_id_int = int(tg_id)
+                
+                if not tg_id_int:
+                    print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
+                    continue
+                
+                print(f"📤 Отправляю уведомление админу {tg_id_int}...")
+                await bot.send_message(
+                    tg_id_int,
+                    msg,
+                    parse_mode="HTML",
+                    reply_markup=kb.as_markup()
+                )
+                sent_count += 1
+                admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name})")
+            except Exception as e:
+                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                import traceback
+                traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
+            print(f"🔍 Список админов: {[(a.get('full_name', a.get('first_name', 'Unknown')), a.get('tg_id')) for a in admins]}")
         else:
             print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
     
@@ -2242,16 +2263,22 @@ async def check_expiring_protections():
                     if not tid:
                         continue
                     try:
+                        tg_id_int = int(tid) if isinstance(tid, (int, str)) and str(tid).isdigit() else None
+                        if not tg_id_int:
+                            print(f"⚠️ Некорректный tg_id для напоминания: {tid} (тип: {type(tid)})")
+                            continue
                         await bot.send_message(
-                            tid, 
+                            tg_id_int, 
                             msg, 
                             parse_mode="HTML",
                             reply_markup=kb.as_markup()
                         )
                         sent_count += 1
-                        print(f"📩 Напоминание за 2 дня отправлено менеджеру {tid} (защита #{pid})")
+                        print(f"📩 Напоминание за 2 дня отправлено менеджеру {tg_id_int} (защита #{pid})")
                     except Exception as e:
                         print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 # Отмечаем, что напоминание отправлено
                 if sent_count > 0:
@@ -2328,7 +2355,18 @@ async def auto_close_expired_protections():
                 # Отправляем уведомление менеджеру
                 if tg_id:
                     try:
-                        tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                        # Пробуем разные форматы tg_id
+                        tg_id_int = None
+                        if isinstance(tg_id, int):
+                            tg_id_int = tg_id
+                        elif isinstance(tg_id, str):
+                            # Убираем префикс "tg-" или "dev-" если есть
+                            clean_id = tg_id.replace("tg-", "").replace("dev-", "")
+                            if clean_id.isdigit():
+                                tg_id_int = int(clean_id)
+                            elif tg_id.isdigit():
+                                tg_id_int = int(tg_id)
+                        
                         if tg_id_int:
                             msg = (
                                 f"🔒 <b>Защита #{pid} автоматически закрыта</b>\n\n"
@@ -2344,8 +2382,12 @@ async def auto_close_expired_protections():
                                 parse_mode="HTML"
                             )
                             print(f"📩 Уведомление об авто-закрытии отправлено менеджеру {tg_id_int} (защита #{pid})")
+                        else:
+                            print(f"⚠️ Некорректный формат tg_id менеджера: {tg_id} (тип: {type(tg_id)})")
                     except Exception as e:
                         print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 # Отправляем уведомление админам/суперадминам
                 try:
@@ -2368,17 +2410,34 @@ async def auto_close_expired_protections():
                     
                     for admin in admins:
                         admin_tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                        if admin_tg_id:
-                            try:
-                                admin_tg_id_int = int(admin_tg_id) if str(admin_tg_id).isdigit() else None
-                                if admin_tg_id_int:
-                                    await bot.send_message(
-                                        admin_tg_id_int,
-                                        admin_msg,
-                                        parse_mode="HTML"
-                                    )
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
+                        if not admin_tg_id:
+                            continue
+                        try:
+                            # Пробуем разные форматы tg_id
+                            admin_tg_id_int = None
+                            if isinstance(admin_tg_id, int):
+                                admin_tg_id_int = admin_tg_id
+                            elif isinstance(admin_tg_id, str):
+                                # Убираем префикс "tg-" если есть
+                                clean_id = admin_tg_id.replace("tg-", "").replace("dev-", "")
+                                if clean_id.isdigit():
+                                    admin_tg_id_int = int(clean_id)
+                                elif admin_tg_id.isdigit():
+                                    admin_tg_id_int = int(admin_tg_id)
+                            
+                            if admin_tg_id_int:
+                                await bot.send_message(
+                                    admin_tg_id_int,
+                                    admin_msg,
+                                    parse_mode="HTML"
+                                )
+                                print(f"📩 Уведомление об авто-закрытии отправлено админу {admin_tg_id_int}")
+                            else:
+                                print(f"⚠️ Некорректный формат tg_id админа: {admin_tg_id} (тип: {type(admin_tg_id)})")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 except Exception as e:
                     print(f"⚠️ Ошибка при отправке уведомлений админам: {e}")
                 

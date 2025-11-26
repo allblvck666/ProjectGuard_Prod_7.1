@@ -42,15 +42,15 @@
     body {
       background: #000000;
       background-image: url('/aquafloor-bg.png');
-      background-size: cover;
-      background-position: center;
+      background-size: contain;
+      background-position: right bottom;
       background-repeat: no-repeat;
       background-attachment: fixed;
       position: relative;
       min-height: 100vh;
     }
     
-    /* Затемнение для лучшей читаемости контента */
+    /* Затемнение для лучшей читаемости контента - только сверху и слева */
     body::after {
       content: '';
       position: fixed;
@@ -58,7 +58,13 @@
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0, 0, 0, 0.35);
+      background: linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.5) 0%,
+        rgba(0, 0, 0, 0.3) 50%,
+        rgba(0, 0, 0, 0.1) 80%,
+        transparent 100%
+      );
       z-index: 0;
       pointer-events: none;
     }
@@ -73,16 +79,14 @@
     }
     
     /* Для Telegram WebApp используем немного меньшее затемнение */
-    body:has(.telegram-webapp)::after,
-    html:has([data-telegram-webapp]) body::after {
-      background: rgba(0, 0, 0, 0.25);
-    }
-  }
-  
-  /* Альтернативный способ для Telegram WebApp через data-атрибут */
-  @media (max-width: 768px) {
     body[data-telegram-webapp="true"]::after {
-      background: rgba(0, 0, 0, 0.25);
+      background: linear-gradient(
+        to right,
+        rgba(0, 0, 0, 0.4) 0%,
+        rgba(0, 0, 0, 0.2) 50%,
+        rgba(0, 0, 0, 0.05) 80%,
+        transparent 100%
+      );
     }
   }
   
