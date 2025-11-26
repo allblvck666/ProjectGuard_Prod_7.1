@@ -1112,56 +1112,122 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extend
         )}
         
         {!loadingReq && requests.length > 0 && (
-          <div style={{ overflowX: "auto" }}>
-            <table className="admin-table" style={{ width: "100%", minWidth: 1000 }}>
-              <thead>
-                <tr>
-                  <th>ID защиты</th>
-                  <th>Менеджер</th>
-                  <th>Партнёр</th>
-                  <th>SKU</th>
-                  <th>Запрошено</th>
-                  <th>Дней</th>
-                  <th>Истекает</th>
-                  <th>Причина продления</th>
-                  <th>Действие</th>
-                </tr>
-              </thead>
-              <tbody>
-                {requests.map((r) => (
-                  <tr key={r.history_id}>
-                    <td data-label="ID">#{r.protection_id}</td>
-                    <td data-label="Менеджер">{r.manager}</td>
-                    <td data-label="Партнёр">{r.partner}</td>
-                    <td data-label="SKU" style={{ fontSize: 12 }}>{r.sku}</td>
-                    <td data-label="Запрошено" style={{ fontSize: 12 }}>{new Date(r.requested_at).toLocaleString()}</td>
-                    <td data-label="Дней" style={{ textAlign: "center" }}>{r.days}</td>
-                    <td data-label="Истекает" style={{ fontSize: 12 }}>{r.expires_at}</td>
-                    <td data-label="Причина" style={{ fontSize: 12, maxWidth: 240, whiteSpace: "pre-wrap" }}>
-                      💬 {r.reason || "—"}
-                    </td>
-                    <td data-label="Действия">
-                      <Row gap={6} wrap={false}>
-                        <button
-                          className="admin-btn-success"
-                          onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
-                          disabled={extendBusy === r.protection_id}
-                        >
-                          ✅ Продлить
-                        </button>
-                        <button
-                          className="admin-btn-secondary"
-                          onClick={() => doAdminExtend(r.protection_id, 10)}
-                          disabled={extendBusy === r.protection_id}
-                        >
-                          ➕ 10 дн
-                        </button>
-                      </Row>
-                    </td>
+          <div>
+            {/* Десктопная версия - таблица */}
+            <div className="admin-table-desktop" style={{ overflowX: "auto" }}>
+              <table className="admin-table" style={{ width: "100%", minWidth: 1000 }}>
+                <thead>
+                  <tr>
+                    <th>ID защиты</th>
+                    <th>Менеджер</th>
+                    <th>Партнёр</th>
+                    <th>SKU</th>
+                    <th>Запрошено</th>
+                    <th>Дней</th>
+                    <th>Истекает</th>
+                    <th>Причина продления</th>
+                    <th>Действие</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {requests.map((r) => (
+                    <tr key={r.history_id}>
+                      <td data-label="ID">#{r.protection_id}</td>
+                      <td data-label="Менеджер">{r.manager}</td>
+                      <td data-label="Партнёр">{r.partner}</td>
+                      <td data-label="SKU" style={{ fontSize: 12 }}>{r.sku}</td>
+                      <td data-label="Запрошено" style={{ fontSize: 12 }}>{new Date(r.requested_at).toLocaleString()}</td>
+                      <td data-label="Дней" style={{ textAlign: "center" }}>{r.days}</td>
+                      <td data-label="Истекает" style={{ fontSize: 12 }}>{r.expires_at}</td>
+                      <td data-label="Причина" style={{ fontSize: 12, maxWidth: 240, whiteSpace: "pre-wrap" }}>
+                        💬 {r.reason || "—"}
+                      </td>
+                      <td data-label="Действия">
+                        <Row gap={6} wrap={false}>
+                          <button
+                            className="admin-btn-success"
+                            onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
+                            disabled={extendBusy === r.protection_id}
+                          >
+                            ✅ Продлить
+                          </button>
+                          <button
+                            className="admin-btn-secondary"
+                            onClick={() => doAdminExtend(r.protection_id, 10)}
+                            disabled={extendBusy === r.protection_id}
+                          >
+                            ➕ 10 дн
+                          </button>
+                        </Row>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            
+            {/* Мобильная версия - карточки */}
+            <div className="admin-requests-mobile">
+              {requests.map((r) => (
+                <div key={r.history_id} className="admin-request-card">
+                  <div className="admin-request-card-header">
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+                        Защита #{r.protection_id}
+                      </div>
+                      <div style={{ fontSize: 14, opacity: 0.8 }}>
+                        👤 {r.manager} | 🏢 {r.partner}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="admin-request-card-body">
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>SKU</div>
+                      <div style={{ fontSize: 14 }}>{r.sku || "—"}</div>
+                    </div>
+                    
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Запрошено</div>
+                      <div style={{ fontSize: 14 }}>{new Date(r.requested_at).toLocaleString()}</div>
+                    </div>
+                    
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Дней / Истекает</div>
+                      <div style={{ fontSize: 14 }}>
+                        {r.days} дн. | {r.expires_at}
+                      </div>
+                    </div>
+                    
+                    {r.reason && (
+                      <div style={{ marginBottom: 12, padding: 12, background: "rgba(255, 255, 255, 0.05)", borderRadius: 8 }}>
+                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>💬 Причина продления</div>
+                        <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{r.reason}</div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="admin-request-card-actions">
+                    <button
+                      className="admin-btn-success"
+                      onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
+                      disabled={extendBusy === r.protection_id}
+                      style={{ flex: 1 }}
+                    >
+                      ✅ Продлить на {r.days || 10} дн.
+                    </button>
+                    <button
+                      className="admin-btn-secondary"
+                      onClick={() => doAdminExtend(r.protection_id, 10)}
+                      disabled={extendBusy === r.protection_id}
+                      style={{ flex: 1 }}
+                    >
+                      ➕ +10 дн
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>

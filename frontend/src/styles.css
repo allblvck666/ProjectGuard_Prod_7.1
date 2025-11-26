@@ -1421,4 +1421,65 @@
     max-width: 100%;
     box-sizing: border-box;
   }
+  
+  /* Скрываем таблицу на мобильных, показываем карточки */
+  .admin-table-desktop {
+    display: none;
+  }
+  
+  .admin-requests-mobile {
+    display: block;
+  }
+  
+  /* Стили для карточек запросов на продление */
+  .admin-request-card {
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s, box-shadow 0.2s;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  
+  .admin-request-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  
+  .admin-request-card-header {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .admin-request-card-body {
+    margin-bottom: 16px;
+  }
+  
+  .admin-request-card-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  
+  .admin-request-card-actions button {
+    min-height: 44px;
+    font-size: 14px;
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+/* На десктопе показываем таблицу, скрываем карточки */
+@media (min-width: 769px) {
+  .admin-table-desktop {
+    display: block;
+  }
+  
+  .admin-requests-mobile {
+    display: none;
+  }
 }

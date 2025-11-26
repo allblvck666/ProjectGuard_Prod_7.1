@@ -231,7 +231,10 @@ def on_startup():
     # 3. Проверка истекающих защит
     asyncio.get_event_loop().create_task(check_expiring_protections())
 
-    print("🚀 Startup: база и бот запущены, проверка защит активна")
+    # 4. Keep-alive механизм для предотвращения засыпания Render
+    asyncio.get_event_loop().create_task(keep_alive_worker())
+
+    print("🚀 Startup: база и бот запущены, проверка защит активна, keep-alive включен")
 
     
 
@@ -321,7 +324,39 @@ def get_skus():
 
 @app.get("/api/ping")
 def ping():
-    return {"ok": True, "time": now_iso()}
+    """Keep-alive endpoint для предотвращения засыпания Render"""
+    return {"ok": True, "timestamp": now_iso(), "status": "alive"}
+
+@app.get("/")
+def root():
+    """Корневой endpoint для keep-alive"""
+    return {"ok": True, "service": "ProjectGuard API", "timestamp": now_iso()}
+
+# Keep-alive worker для внутреннего пинга
+async def keep_alive_worker():
+    """Внутренний механизм keep-alive: пингует сам себя каждые 5 минут"""
+    import aiohttp
+    
+    # Ждем 30 секунд после старта, чтобы сервер полностью запустился
+    await asyncio.sleep(30)
+    
+    # Получаем URL сервиса из переменных окружения или используем дефолтный
+    service_url = os.environ.get("RENDER_SERVICE_URL") or "https://projectguard-prod-7-1.onrender.com"
+    
+    while True:
+        try:
+            # Пингуем корневой endpoint
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{service_url}/api/ping", timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status == 200:
+                        print(f"✅ Keep-alive ping успешен: {now_iso()}")
+                    else:
+                        print(f"⚠️ Keep-alive ping вернул статус {resp.status}")
+        except Exception as e:
+            print(f"⚠️ Keep-alive ping ошибка: {e}")
+        
+        # Ждем 5 минут (300 секунд) перед следующим пингом
+        await asyncio.sleep(300)
 
 
 # --- Проверка Telegram-данных ---
