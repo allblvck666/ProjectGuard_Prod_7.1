@@ -1988,6 +1988,81 @@ if (isTG && (!ready || loading)) {
     );
   }
 
+  // ==== НАСТРОЙКИ ====
+  if (route === "settings") {
+    return (
+      <div className="container" style={{ position: "relative", minHeight: "100vh" }}>
+        <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
+          <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+            ← Назад
+          </button>
+          <h1 style={{ margin: 0, fontWeight: 700 }}>
+            ⚙️ Настройки
+          </h1>
+        </div>
+        {/* Фиксированная кнопка "назад" на мобильной версии */}
+        <button 
+          className="fixed-back-button" 
+          onClick={goHome}
+          aria-label="Назад"
+        >
+          ←
+        </button>
+        
+        {/* Размытый контент с сообщением о разработке */}
+        <div style={{ 
+          marginTop: 16,
+          filter: "blur(8px)",
+          pointerEvents: "none",
+          userSelect: "none",
+          opacity: 0.5
+        }}>
+          <div className="card">
+            <h2>Мой профиль</h2>
+            <div className="row">
+              <input className="input" placeholder="Имя" value={auth.user?.full_name || ""} disabled />
+              <input className="input" placeholder="Телефон" value={auth.user?.phone || ""} disabled />
+              <input className="input" placeholder="Должность" value={auth.user?.position || ""} disabled />
+            </div>
+          </div>
+        </div>
+        
+        {/* Сообщение о разработке */}
+        <div style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 1000,
+          background: "linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%)",
+          border: "2px solid rgba(102, 126, 234, 0.5)",
+          borderRadius: 24,
+          padding: "32px 24px",
+          textAlign: "center",
+          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.5)",
+          maxWidth: "90%",
+          width: "400px",
+          backdropFilter: "blur(10px)"
+        }}>
+          <div style={{ fontSize: 64, marginBottom: 16 }}>🚧</div>
+          <h2 style={{ margin: "0 0 12px 0", color: "#fff", fontWeight: 700 }}>
+            Раздел в разработке
+          </h2>
+          <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.7)", fontSize: 16 }}>
+            Данный раздел находится в разработке
+          </p>
+          <button 
+            className="btn" 
+            onClick={goHome}
+            style={{ marginTop: 24, width: "100%" }}
+          >
+            Вернуться на главную
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ==== FALLBACK (не должно быть достигнуто) ====
   return (
     <div className="container">

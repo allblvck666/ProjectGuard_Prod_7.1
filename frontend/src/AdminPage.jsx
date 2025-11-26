@@ -1410,8 +1410,14 @@ export default function AdminPage({ onBack }) {
   }, []);
 
   const back = () => {
-    if (onBack) onBack();
-    else window.history.back();
+    // Если мы не на дашборде - возвращаемся на дашборд
+    if (tab !== "dashboard") {
+      setTab("dashboard");
+    } else {
+      // Если на дашборде - возвращаемся на главную
+      if (onBack) onBack();
+      else window.history.back();
+    }
   };
 
   const handleLogout = () => {
@@ -1444,9 +1450,16 @@ export default function AdminPage({ onBack }) {
           <button className="admin-btn-secondary" onClick={handleLogout} style={{ fontSize: 14, padding: "10px 16px" }}>
             🚪 Выйти
           </button>
-          <button className="admin-btn-secondary" onClick={back} style={{ display: "none" }}>
-            ⬅️ Назад
-          </button>
+          {tab !== "dashboard" && (
+            <button className="admin-btn-secondary" onClick={back}>
+              ⬅️ Назад
+            </button>
+          )}
+          {tab === "dashboard" && (
+            <button className="admin-btn-secondary" onClick={back}>
+              🏠 На главную
+            </button>
+          )}
         </div>
       </div>
 

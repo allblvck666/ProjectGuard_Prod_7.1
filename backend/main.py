@@ -1677,7 +1677,7 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
     return row_to_out(row)
 
 @app.post("/api/protections/{pid}/request-extend")
-def request_extend(pid: int, data: dict = Body(...)):
+def request_extend(pid: int, data: dict = Body(...), background_tasks: BackgroundTasks = BackgroundTasks()):
     days = data.get("days", 5)
     reason = (data.get("reason") or "").strip()
     conn = get_conn()
@@ -1778,20 +1778,8 @@ def request_extend(pid: int, data: dict = Body(...)):
         else:
             print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
     
-    # Запускаем в фоне
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(send_admin_notifications())
-        else:
-            asyncio.run(send_admin_notifications())
-    except Exception as e:
-        print(f"⚠️ Ошибка при запуске отправки уведомлений: {e}")
-        # Если loop не запущен, создаем новый
-        try:
-            asyncio.create_task(send_admin_notifications())
-        except:
-            pass
+    # Запускаем в фоне через BackgroundTasks
+    background_tasks.add_task(send_admin_notifications)
     
     conn.commit()
     conn.close()
