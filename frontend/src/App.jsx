@@ -123,6 +123,9 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
   const removeSku = (sku) =>
     setSelected(selected.filter((s) => !(s.sku === sku.sku && s.type === sku.type)));
 
+  const maxSkus = 3;
+  const canAddMore = selected.length < maxSkus;
+
   return (
     <div style={{ width: "100%", position: "relative" }}>
       <div className="selected-skus">
@@ -144,8 +147,22 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
             )}
           </div>
         ))}
+        {!canAddMore && (
+          <div style={{ 
+            padding: "8px 12px", 
+            background: "rgba(255, 193, 7, 0.1)", 
+            borderRadius: "8px",
+            fontSize: "13px",
+            color: "rgba(255, 193, 7, 0.9)",
+            marginTop: "8px"
+          }}>
+            ⚠️ Максимум 3 артикула. Удалите один, чтобы добавить другой.
+          </div>
+        )}
       </div>
 
+      {canAddMore && (
+        <>
       <input
         className="input"
         placeholder="Введите артикул..."
@@ -165,9 +182,11 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
             </div>
           ))}
         </div>
+          )}
+        </>
       )}
 
-      {chooseType && (
+      {chooseType && canAddMore && (
         <div className="choose-type">
           <div style={{ marginBottom: 6 }}>
             Выберите тип для артикула <b>{chooseType[0].sku}</b>:
@@ -852,6 +871,7 @@ function ArchivePage({
           filteredItems.map((it) => {
             const statusText = 
               it.status === "success" ? "✅ Успешна" :
+              it.status === "closed" && it.close_reason && it.close_reason.includes("бездействие") ? "⏰ Закрыта (автоматически)" :
               it.status === "closed" ? "🔒 Закрыта" :
               it.status === "deleted" ? "🗑️ Удалена" : it.status;
             
@@ -899,8 +919,16 @@ function ArchivePage({
                       <div className="small">💬 {it.comment}</div>
                     )}
                     {it.close_reason && (
-                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(239, 68, 68, 0.1)", borderRadius: 8, border: "1px solid rgba(239, 68, 68, 0.2)" }}>
-                        🔒 <b>Причина закрытия:</b> {it.close_reason}
+                      <div className="small" style={{ 
+                        marginTop: 8, 
+                        padding: 8, 
+                        background: it.close_reason.includes("бездействие") 
+                          ? "rgba(255, 193, 7, 0.1)" 
+                          : "rgba(239, 68, 68, 0.1)", 
+                        borderRadius: 8, 
+                        border: `1px solid ${it.close_reason.includes("бездействие") ? "rgba(255, 193, 7, 0.2)" : "rgba(239, 68, 68, 0.2)"}`
+                      }}>
+                        {it.close_reason.includes("бездействие") ? "⏰" : "🔒"} <b>Причина закрытия:</b> {it.close_reason}
                       </div>
                     )}
                     {it.success_doc && (
@@ -1376,13 +1404,13 @@ function App() {
         setItems(data);
       } else {
         // Для остальных экранов загружаем все
-        const [s, list] = await Promise.all([
+    const [s, list] = await Promise.all([
           api.get("/api/stats"),
           api.get("/api/protections", {
             params: { manager: managerFilter, status: statusFilter, search },
-          }),
-        ]);
-        setStats(s.data || []);
+      }),
+    ]);
+    setStats(s.data || []);
         setItems(list.data || []);
       }
     } catch (err) {
@@ -1569,9 +1597,9 @@ function App() {
           open: true,
           id,
           reason: "",
-          days,
+            days,
           message: det?.msg || "Лимит продлений. Введите причину продления:"
-        });
+          });
       } else {
         alert("Не удалось продлить.");
       }
@@ -1663,8 +1691,8 @@ function App() {
   // 🔂 ОСНОВНОЙ РЕНДЕР
   // ==============================
 
-  // 🛡️ Telegram WebApp: безопасный старт
-    const [ready, setReady] = useState(!isTG);
+// 🛡️ Telegram WebApp: безопасный старт
+  const [ready, setReady] = useState(!isTG);
     const [initialLoading, setInitialLoading] = useState(true);
     // Используем общий loading для загрузки данных
 
@@ -1678,19 +1706,19 @@ function App() {
     try {
       const tg = window.Telegram?.WebApp;
       if (tg) {
-        tg.ready();
+      tg.ready();
         tg.expand();
         // Настраиваем цвета Telegram WebApp
         tg.setHeaderColor('#0d1320');
         tg.setBackgroundColor('#0d1320');
-        setReady(true);
+      setReady(true);
       }
     } catch (e) {
       console.warn("Telegram WebApp init error:", e);
     } finally {
       setLoading(false);
     }
-  }, [isTG]);
+    }, [isTG]);
 
 // Пока WebApp инициализируется — показываем загрузку
 if (isTG && (!ready || loading)) {
@@ -1790,17 +1818,17 @@ if (isTG && (!ready || loading)) {
       }
     };
 
-    return (
-      <div className="container">
+  return (
+    <div className="container">
         <div className="home-header">
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 className="home-greeting">Привет, {userName} 👋</h1>
             <p className="home-subtitle">Выберите раздел для работы</p>
           </div>
-          <button 
+        <button
             className="btn secondary" 
             onClick={handleLogout}
-            style={{ 
+          style={{
               fontSize: 14,
               padding: "12px 20px",
               height: "auto",
@@ -1809,7 +1837,7 @@ if (isTG && (!ready || loading)) {
             }}
           >
             🚪 Выйти
-          </button>
+        </button>
         </div>
 
         <div className="home-grid">
@@ -1817,7 +1845,7 @@ if (isTG && (!ready || loading)) {
             <div className="home-card-icon">🛡️</div>
             <h3 className="home-card-title">Поставить защиту</h3>
             <p className="home-card-subtitle">Создать новую защиту для объекта</p>
-          </div>
+      </div>
 
           <div className="home-card" onClick={goActive}>
             <div className="home-card-icon">📋</div>
@@ -1829,7 +1857,7 @@ if (isTG && (!ready || loading)) {
             <div className="home-card-icon">📦</div>
             <h3 className="home-card-title">Архив</h3>
             <p className="home-card-subtitle">История закрытых и успешных защит</p>
-          </div>
+              </div>
 
           <div className="home-card" onClick={goStats}>
             <div className="home-card-icon">📊</div>
@@ -1849,8 +1877,8 @@ if (isTG && (!ready || loading)) {
             <div className="home-card-icon">⚙️</div>
             <h3 className="home-card-title">Настройки</h3>
             <p className="home-card-subtitle">Профиль и параметры приложения</p>
-          </div>
         </div>
+      </div>
       </div>
     );
   }
@@ -1862,12 +1890,12 @@ if (isTG && (!ready || loading)) {
         form={form}
         setForm={setForm}
         managers={managers}
-        skus={skus}
+            skus={skus}
         selectedSkus={selectedSkus}
         setSelectedSkus={setSelectedSkus}
-        perSkuMode={perSkuMode}
+            perSkuMode={perSkuMode}
         setPerSkuMode={setPerSkuMode}
-        onAreaChange={onAreaChange}
+            onAreaChange={onAreaChange}
         errorFields={errorFields}
         submit={submit}
         onBack={goHome}
@@ -1924,7 +1952,7 @@ if (isTG && (!ready || loading)) {
 
   // ==== АРХИВ ЗАЩИТ ====
   if (route === "archive") {
-    return (
+          return (
       <ArchivePage
         items={items}
         expanded={expanded}
@@ -1961,12 +1989,12 @@ if (isTG && (!ready || loading)) {
         <h1 style={{ margin: 0, fontWeight: 700 }}>
           🔰 Aquafloor защиты
         </h1>
-      </div>
+            </div>
       <div className="card" style={{ marginTop: 16 }}>
         <div className="small" style={{ textAlign: "center", opacity: 0.7 }}>
           Неизвестный раздел. Вернитесь на главную страницу.
-        </div>
-      </div>
+            </div>
+          </div>
     </div>
   );
 }

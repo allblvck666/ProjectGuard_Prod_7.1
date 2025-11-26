@@ -403,7 +403,9 @@ def init_db():
             updated_at TEXT,
             approved_by_admin INTEGER DEFAULT 0,
             admin_comment TEXT,
-            manager_id INTEGER
+            manager_id INTEGER,
+            reminder_2days_sent INTEGER DEFAULT 0,
+            close_reason TEXT
         )
         """
     )

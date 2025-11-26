@@ -231,10 +231,13 @@ def on_startup():
     # 3. Проверка истекающих защит
     asyncio.get_event_loop().create_task(check_expiring_protections())
 
-    # 4. Keep-alive механизм для предотвращения засыпания Render
+    # 4. Авто-закрытие защит за бездействие
+    asyncio.get_event_loop().create_task(auto_close_expired_protections())
+
+    # 5. Keep-alive механизм для предотвращения засыпания Render
     asyncio.get_event_loop().create_task(keep_alive_worker())
 
-    print("🚀 Startup: база и бот запущены, проверка защит активна, keep-alive включен")
+    print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
 
     
 
@@ -260,6 +263,8 @@ def _safe_migrate():
     exec_safe("ALTER TABLE protections ADD COLUMN extend_count INTEGER DEFAULT 0")
     exec_safe("ALTER TABLE protections ADD COLUMN auto_closed INTEGER DEFAULT 0")
     exec_safe("ALTER TABLE protections ADD COLUMN updated_at TEXT")
+    exec_safe("ALTER TABLE protections ADD COLUMN reminder_2days_sent INTEGER DEFAULT 0")
+    exec_safe("ALTER TABLE protections ADD COLUMN close_reason TEXT")
 
     # === Users ===
     exec_safe("ALTER TABLE users ADD COLUMN group_tag TEXT")
@@ -1573,19 +1578,24 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
         history_rows = conn.cursor().execute(history_sql, protection_ids).fetchall()
         for h in history_rows:
             pid = h["protection_id"]
+            payload = json.loads(h["payload"] or "{}")
+            action = h["action"]
             if pid not in history_map:
-                payload = json.loads(h["payload"] or "{}")
-                action = h["action"]
-                if action == "close" and "reason" in payload:
-                    history_map[pid] = {"close_reason": payload["reason"]}
-                elif action == "success" and "doc_1c" in payload:
-                    if pid not in history_map:
-                        history_map[pid] = {}
-                    history_map[pid]["success_doc"] = payload["doc_1c"]
-                elif action == "delete" and "reason" in payload:
-                    if pid not in history_map:
-                        history_map[pid] = {}
-                    history_map[pid]["delete_reason"] = payload["reason"]
+                history_map[pid] = {}
+            if action == "close" and "reason" in payload:
+                history_map[pid]["close_reason"] = payload["reason"]
+            elif action == "success" and "doc_1c" in payload:
+                history_map[pid]["success_doc"] = payload["doc_1c"]
+            elif action == "delete" and "reason" in payload:
+                history_map[pid]["delete_reason"] = payload["reason"]
+        
+        # Также проверяем поле close_reason напрямую из таблицы protections
+        for r in rows:
+            if "close_reason" in r.keys() and r["close_reason"]:
+                pid = r["id"]
+                if pid not in history_map:
+                    history_map[pid] = {}
+                history_map[pid]["close_reason"] = r["close_reason"]
     
     conn.close()
     return [row_to_out(r, history_map.get(r["id"], {})) for r in rows]
@@ -1699,12 +1709,16 @@ def request_extend(pid: int, data: dict = Body(...)):
         """
     ).fetchall()
     
+    # Получаем extend_count для информативности
+    extend_count = row["extend_count"] if "extend_count" in row.keys() else 0
+    extend_count_text = f" (уже продлевалась {extend_count} раз)" if extend_count > 0 else ""
+    
     msg = (
         f"📨 <b>Запрос на продление защиты</b>\n\n"
         f"🆔 Защита: #{pid}\n"
         f"👤 Менеджер: {row['manager']}\n"
         f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}\n"
+        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}{extend_count_text}\n"
         f"📅 Запрошено продление на: {days} дней\n"
         f"💬 Причина: {reason}\n\n"
         f"Выберите действие:"
@@ -2125,6 +2139,7 @@ from datetime import datetime, timedelta
 
 # === Проверка истекающих защит (ежедневно) ===
 async def check_expiring_protections():
+    """Проверка истекающих защит и отправка напоминаний за 2 дня"""
     while True:
         try:
             conn = get_conn()
@@ -2132,24 +2147,32 @@ async def check_expiring_protections():
             now = datetime.utcnow()
             two_days = (now + timedelta(days=2)).isoformat()
 
+            # Проверяем только активные защиты, которым осталось <= 2 дней
+            # и для которых еще не отправлялось напоминание
             rows = cur.execute("""
-                SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id,
+                SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id, p.partner, p.partner_city,
+                       p.area_m2, p.extend_count, p.reminder_2days_sent,
                        u.tg_id, u.id AS user_id
                 FROM protections p
                 LEFT JOIN users u ON u.id = p.manager_id
-                WHERE p.status='active' AND p.expires_at <= ?
+                WHERE p.status='active' 
+                  AND p.expires_at <= ?
+                  AND (p.reminder_2days_sent IS NULL OR p.reminder_2days_sent = 0)
             """, (two_days,)).fetchall()
 
             for r in rows:
                 manager_name = r["manager"]
-                sku = r["sku"]
+                sku = r["sku"] if "sku" in r.keys() else "—"
                 pid = r["id"]
                 expires_at = r["expires_at"]
-                manager_id = r["manager_id"]
-                tg_id = r["tg_id"]
+                manager_id = r["manager_id"] if "manager_id" in r.keys() else None
+                tg_id = r["tg_id"] if "tg_id" in r.keys() else None
+                partner = r["partner"] if "partner" in r.keys() else "—"
+                partner_city = r["partner_city"] if "partner_city" in r.keys() else "—"
+                area_m2 = r["area_m2"] if "area_m2" in r.keys() else None
+                extend_count = r["extend_count"] if "extend_count" in r.keys() else 0
 
                 # Получаем всех пользователей, привязанных к этому менеджеру
-                # (через manager_id или manager_ids в таблице users)
                 recipients: list[int] = []
                 
                 # Добавляем пользователя-менеджера, если у него есть tg_id
@@ -2193,11 +2216,17 @@ async def check_expiring_protections():
                 # Убираем дубликаты
                 recipients = list(dict.fromkeys(recipients))
 
+                # Формируем информативное сообщение
+                area_text = f"{area_m2} м²" if area_m2 else "—"
+                extend_text = f" (продлевалась {extend_count} раз)" if extend_count > 0 else ""
+
                 msg = (
                     f"⚠️ <b>Защита #{pid} истекает через 2 дня!</b>\n\n"
                     f"📦 SKU: {sku}\n"
                     f"👤 Менеджер: {manager_name}\n"
-                    f"⏰ Истекает: {expires_at[:10]}\n\n"
+                    f"🏢 Партнёр: {partner} ({partner_city})\n"
+                    f"📏 Площадь: {area_text}\n"
+                    f"⏰ Истекает: {expires_at[:10]}{extend_text}\n\n"
                     f"Выберите действие:"
                 )
 
@@ -2208,6 +2237,7 @@ async def check_expiring_protections():
                 kb.button(text="🔒 Закрыть защиту", callback_data=f"close_exp:{pid}")
                 kb.adjust(2, 1)
 
+                sent_count = 0
                 for tid in recipients:
                     if not tid:
                         continue
@@ -2218,15 +2248,152 @@ async def check_expiring_protections():
                             parse_mode="HTML",
                             reply_markup=kb.as_markup()
                         )
-                        print(f"📩 Напоминание с кнопками отправлено {tid}")
+                        sent_count += 1
+                        print(f"📩 Напоминание за 2 дня отправлено менеджеру {tid} (защита #{pid})")
                     except Exception as e:
                         print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
+                
+                # Отмечаем, что напоминание отправлено
+                if sent_count > 0:
+                    cur.execute(
+                        "UPDATE protections SET reminder_2days_sent = 1 WHERE id = ?",
+                        (pid,)
+                    )
+                    conn.commit()
+                    print(f"✅ Напоминание за 2 дня отправлено для защиты #{pid} ({sent_count} получателей)")
 
             conn.close()
         except Exception as e:
             print("❌ Ошибка в проверке истекающих защит:", e)
+            import traceback
+            traceback.print_exc()
 
         await asyncio.sleep(24 * 60 * 60)  # раз в сутки
+
+
+async def auto_close_expired_protections():
+    """Автоматическое закрытие защит, срок которых истёк без продления"""
+    while True:
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+            now = datetime.utcnow()
+            now_iso_str = now.isoformat()
+
+            # Находим все активные защиты, срок которых уже истёк
+            expired_rows = cur.execute("""
+                SELECT p.id, p.manager, p.sku, p.partner, p.partner_city, p.manager_id,
+                       p.expires_at, p.auto_closed,
+                       u.tg_id
+                FROM protections p
+                LEFT JOIN users u ON u.id = p.manager_id
+                WHERE p.status = 'active' 
+                  AND p.expires_at < ?
+                  AND (p.auto_closed IS NULL OR p.auto_closed = 0)
+            """, (now_iso_str,)).fetchall()
+
+            closed_count = 0
+            for row in expired_rows:
+                pid = row["id"]
+                manager_name = row["manager"] if "manager" in row.keys() else "—"
+                sku = row["sku"] if "sku" in row.keys() else "—"
+                partner = row["partner"] if "partner" in row.keys() else "—"
+                partner_city = row["partner_city"] if "partner_city" in row.keys() else "—"
+                manager_id = row["manager_id"] if "manager_id" in row.keys() else None
+                tg_id = row["tg_id"] if "tg_id" in row.keys() else None
+                expires_at = row["expires_at"] if "expires_at" in row.keys() else "—"
+
+                # Закрываем защиту
+                close_reason = "закрыта за бездействие"
+                cur.execute("""
+                    UPDATE protections 
+                    SET status = 'closed', 
+                        auto_closed = 1,
+                        close_reason = ?,
+                        closed_at = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                """, (close_reason, now_iso_str, now_iso_str, pid))
+                
+                # Записываем в историю
+                add_history(cur, pid, "system", "close", {
+                    "reason": close_reason,
+                    "auto": True,
+                    "expired_at": expires_at
+                })
+                
+                conn.commit()
+                closed_count += 1
+                
+                # Отправляем уведомление менеджеру
+                if tg_id:
+                    try:
+                        tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                        if tg_id_int:
+                            msg = (
+                                f"🔒 <b>Защита #{pid} автоматически закрыта</b>\n\n"
+                                f"📦 SKU: {sku}\n"
+                                f"🏢 Партнёр: {partner} ({partner_city})\n"
+                                f"⏰ Дата истечения: {expires_at[:10]}\n"
+                                f"📝 Причина: {close_reason}\n\n"
+                                f"Защита была закрыта автоматически, так как срок истёк и не было продления."
+                            )
+                            await bot.send_message(
+                                tg_id_int,
+                                msg,
+                                parse_mode="HTML"
+                            )
+                            print(f"📩 Уведомление об авто-закрытии отправлено менеджеру {tg_id_int} (защита #{pid})")
+                    except Exception as e:
+                        print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
+                
+                # Отправляем уведомление админам/суперадминам
+                try:
+                    admins = cur.execute("""
+                        SELECT tg_id, full_name, first_name 
+                        FROM users 
+                        WHERE role IN ('admin', 'superadmin') 
+                          AND tg_id IS NOT NULL 
+                          AND tg_id != ''
+                    """).fetchall()
+                    
+                    admin_msg = (
+                        f"🔒 <b>Защита #{pid} автоматически закрыта за бездействие</b>\n\n"
+                        f"👤 Менеджер: {manager_name}\n"
+                        f"📦 SKU: {sku}\n"
+                        f"🏢 Партнёр: {partner} ({partner_city})\n"
+                        f"⏰ Дата истечения: {expires_at[:10]}\n"
+                        f"📝 Причина: {close_reason}"
+                    )
+                    
+                    for admin in admins:
+                        admin_tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                        if admin_tg_id:
+                            try:
+                                admin_tg_id_int = int(admin_tg_id) if str(admin_tg_id).isdigit() else None
+                                if admin_tg_id_int:
+                                    await bot.send_message(
+                                        admin_tg_id_int,
+                                        admin_msg,
+                                        parse_mode="HTML"
+                                    )
+                            except Exception as e:
+                                print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка при отправке уведомлений админам: {e}")
+                
+                print(f"✅ Защита #{pid} автоматически закрыта за бездействие")
+
+            if closed_count > 0:
+                print(f"✅ Авто-закрыто защит: {closed_count}")
+            
+            conn.close()
+        except Exception as e:
+            print("❌ Ошибка в авто-закрытии защит:", e)
+            import traceback
+            traceback.print_exc()
+
+        await asyncio.sleep(6 * 60 * 60)  # проверяем каждые 6 часов
 
 # ===== TELEGRAM BOT (единая версия) =====
 from aiogram import Bot, Dispatcher, types, F
