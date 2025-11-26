@@ -20,8 +20,18 @@ DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3"))
 DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
 SKUS_PATH = BASE_DIR / "skus.csv"
 
-# Определяем тип БД
-USE_POSTGRES = bool(DATABASE_URL)
+# Определяем тип БД - проверяем и наличие DATABASE_URL, и возможность использовать psycopg2
+def _can_use_postgres():
+    """Проверяет, можем ли мы использовать PostgreSQL"""
+    if not DATABASE_URL:
+        return False
+    try:
+        import psycopg2
+        return True
+    except ImportError:
+        return False
+
+USE_POSTGRES = _can_use_postgres()
 
 
 # === CSV загрузка ===

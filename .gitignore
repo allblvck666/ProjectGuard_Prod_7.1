@@ -3,7 +3,7 @@ __pycache__/
 
 backend/.env
 backend/venv/
-
+frontend/.env
 backend/*.sqlite3
 backend/data.sqlite3*
 backend/skus.csvvenv/
