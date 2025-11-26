@@ -219,23 +219,23 @@ class ProtectionUpdate(BaseModel):
 
 
 @app.on_event("startup")
-def on_startup():
+async def on_startup():
     # 1. База и миграции
     init_db()
     init_users_table()
     _safe_migrate()
 
     # 2. Telegram бот
-    asyncio.get_event_loop().create_task(start_tg_bot())
+    asyncio.create_task(start_tg_bot())
 
     # 3. Проверка истекающих защит
-    asyncio.get_event_loop().create_task(check_expiring_protections())
+    asyncio.create_task(check_expiring_protections())
 
     # 4. Авто-закрытие защит за бездействие
-    asyncio.get_event_loop().create_task(auto_close_expired_protections())
+    asyncio.create_task(auto_close_expired_protections())
 
     # 5. Keep-alive механизм для предотвращения засыпания Render
-    asyncio.get_event_loop().create_task(keep_alive_worker())
+    asyncio.create_task(keep_alive_worker())
 
     print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
 
