@@ -220,24 +220,46 @@ class ProtectionUpdate(BaseModel):
 
 @app.on_event("startup")
 async def on_startup():
-    # 1. База и миграции
-    init_db()
-    init_users_table()
-    _safe_migrate()
-
-    # 2. Telegram бот
-    asyncio.create_task(start_tg_bot())
-
-    # 3. Проверка истекающих защит
-    asyncio.create_task(check_expiring_protections())
-
-    # 4. Авто-закрытие защит за бездействие
-    asyncio.create_task(auto_close_expired_protections())
-
-    # 5. Keep-alive механизм для предотвращения засыпания Render
-    asyncio.create_task(keep_alive_worker())
-
-    print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
+    # Запускаем инициализацию в фоне, чтобы не блокировать старт приложения
+    async def init_background():
+        try:
+            # 1. База и миграции
+            init_db()
+            init_users_table()
+            _safe_migrate()
+            print("✅ База данных инициализирована")
+        except Exception as e:
+            print(f"⚠️ Ошибка инициализации БД: {e}")
+        
+        try:
+            # 2. Telegram бот
+            asyncio.create_task(start_tg_bot())
+        except Exception as e:
+            print(f"⚠️ Ошибка запуска Telegram бота: {e}")
+        
+        try:
+            # 3. Проверка истекающих защит
+            asyncio.create_task(check_expiring_protections())
+        except Exception as e:
+            print(f"⚠️ Ошибка запуска проверки защит: {e}")
+        
+        try:
+            # 4. Авто-закрытие защит за бездействие
+            asyncio.create_task(auto_close_expired_protections())
+        except Exception as e:
+            print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
+        
+        try:
+            # 5. Keep-alive механизм для предотвращения засыпания Render
+            asyncio.create_task(keep_alive_worker())
+        except Exception as e:
+            print(f"⚠️ Ошибка запуска keep-alive: {e}")
+        
+        print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
+    
+    # Запускаем инициализацию в фоне, не ждем завершения
+    asyncio.create_task(init_background())
+    print("🚀 Приложение запускается, инициализация в фоне...")
 
     
 
