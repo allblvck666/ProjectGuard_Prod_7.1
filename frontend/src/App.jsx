@@ -1697,6 +1697,15 @@ function App() {
     // Используем общий loading для загрузки данных
 
   useEffect(() => {
+    // Устанавливаем data-атрибут для Telegram WebApp
+    if (typeof document !== "undefined") {
+      if (isTG) {
+        document.body.setAttribute("data-telegram-webapp", "true");
+      } else {
+        document.body.removeAttribute("data-telegram-webapp");
+      }
+    }
+    
     if (!isTG) {
       setReady(true);
       setLoading(false);

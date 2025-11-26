@@ -37,6 +37,55 @@
     -webkit-overflow-scrolling: touch;
   }
   
+  /* Фон для мобильного приложения */
+  @media (max-width: 768px) {
+    body {
+      background: #000000;
+      background-image: url('/aquafloor-bg.png');
+      background-size: cover;
+      background-position: center;
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+      position: relative;
+      min-height: 100vh;
+    }
+    
+    /* Затемнение для лучшей читаемости контента */
+    body::after {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 0;
+      pointer-events: none;
+    }
+    
+    /* Контент должен быть поверх фона */
+    .container,
+    .card,
+    .item,
+    .header {
+      position: relative;
+      z-index: 1;
+    }
+    
+    /* Для Telegram WebApp используем немного меньшее затемнение */
+    body:has(.telegram-webapp)::after,
+    html:has([data-telegram-webapp]) body::after {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+  
+  /* Альтернативный способ для Telegram WebApp через data-атрибут */
+  @media (max-width: 768px) {
+    body[data-telegram-webapp="true"]::after {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+  
   .container {
     max-width: 1200px;
     margin: 0 auto;
