@@ -1083,11 +1083,16 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
     try:
-        cur.execute("INSERT INTO managers(name, created_at) VALUES (?,?)", (name, now_iso()))
+        query = _adapt_query("INSERT INTO managers(name, created_at) VALUES (?,?)")
+        cur.execute(query, (name, now_iso()))
         conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+    except (sqlite3.IntegrityError, Exception) as e:
+        # Обрабатываем ошибки для обеих БД
+        error_str = str(e).lower()
+        if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+        raise
     conn.close()
     return {"ok": True}
 
@@ -2186,7 +2191,7 @@ async def check_expiring_protections():
 
             # Проверяем только активные защиты, которым осталось <= 2 дней
             # и для которых еще не отправлялось напоминание
-            rows = cur.execute("""
+            query = _adapt_query("""
                 SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id, p.partner, p.partner_city,
                        p.area_m2, p.extend_count, p.reminder_2days_sent,
                        u.tg_id, u.id AS user_id
@@ -2195,7 +2200,9 @@ async def check_expiring_protections():
                 WHERE p.status='active' 
                   AND p.expires_at <= ?
                   AND (p.reminder_2days_sent IS NULL OR p.reminder_2days_sent = 0)
-            """, (two_days,)).fetchall()
+            """)
+            cur.execute(query, (two_days,))
+            rows = cur.fetchall()
 
             for r in rows:
                 manager_name = r["manager"]
@@ -2324,7 +2331,7 @@ async def auto_close_expired_protections():
             now_iso_str = now.isoformat()
 
             # Находим все активные защиты, срок которых уже истёк
-            expired_rows = cur.execute("""
+            query = _adapt_query("""
                 SELECT p.id, p.manager, p.sku, p.partner, p.partner_city, p.manager_id,
                        p.expires_at, p.auto_closed,
                        u.tg_id
@@ -2333,7 +2340,9 @@ async def auto_close_expired_protections():
                 WHERE p.status = 'active' 
                   AND p.expires_at < ?
                   AND (p.auto_closed IS NULL OR p.auto_closed = 0)
-            """, (now_iso_str,)).fetchall()
+            """)
+            cur.execute(query, (now_iso_str,))
+            expired_rows = cur.fetchall()
 
             closed_count = 0
             for row in expired_rows:
