@@ -13,7 +13,7 @@ export default function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [telegramLoading, setTelegramLoading] = useState(false);
-  const [step, setStep] = useState("form"); // "form" | "code" | "verify"
+  const [step, setStep] = useState("form"); // "form" | "code" (только для браузера)
   const [verificationCode, setVerificationCode] = useState("");
 
   // === Форма входа/регистрации ===
@@ -32,16 +32,21 @@ export default function LoginPage({ onLogin }) {
     }
 
     const tgUser = tg.initDataUnsafe.user;
-    console.log("🔐 Telegram авто-логин для:", tgUser);
+    console.log("🔐 Telegram WebApp данные:", tgUser);
 
     // Заполняем форму данными из Telegram
-    setFullName(tgUser.first_name || tgUser.last_name ? 
-      `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() : "");
+    if (tgUser.first_name || tgUser.last_name) {
+      setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+    }
     
-    setTelegramLoading(true);
+    // Если есть номер телефона в Telegram - заполняем его
+    if (tgUser.phone_number) {
+      setPhone(tgUser.phone_number);
+    }
 
-    // Если есть имя - пытаемся автоматически залогиниться
-    if (tgUser.first_name) {
+    // Если есть все данные - пытаемся автоматически залогиниться
+    if (tgUser.id && (tgUser.first_name || tgUser.last_name)) {
+      setTelegramLoading(true);
       handleTelegramAutoLogin(tgUser);
     } else {
       setTelegramLoading(false);
@@ -50,8 +55,6 @@ export default function LoginPage({ onLogin }) {
 
   const handleTelegramAutoLogin = async (tgUser) => {
     try {
-      // В Telegram WebApp тоже используем номер телефона как основной идентификатор
-      // Если есть номер телефона в Telegram - используем его
       const tg = window.Telegram?.WebApp;
       let phone = "";
       if (tg?.initDataUnsafe?.user?.phone_number) {
@@ -61,25 +64,23 @@ export default function LoginPage({ onLogin }) {
       // Если нет телефона в Telegram - не делаем авто-логин, показываем форму
       if (!phone) {
         setTelegramLoading(false);
-        setErr("Введите номер телефона для входа");
-        return;
+        return; // Просто показываем форму для ввода телефона
       }
       
       // Нормализуем номер телефона
       const phoneDigits = normalizePhone(phone);
       if (!phoneDigits) {
         setTelegramLoading(false);
-        setErr("Введите корректный номер телефона");
         return;
       }
       
-      // Используем номер телефона как tg_id для единообразия
-      // Это гарантирует, что один номер = один аккаунт на всех устройствах
-      const tg_id = `tg-${phoneDigits}`;
+      // Используем реальный tg_id из Telegram WebApp
+      const tg_id = String(tgUser.id);
+      const full_name = `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() || "Пользователь";
       
       const data = await registerOrLogin({
         tg_id: tg_id,
-        full_name: `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() || "Пользователь",
+        full_name: full_name,
         phone: phone,
         position: "",
       });
@@ -90,17 +91,12 @@ export default function LoginPage({ onLogin }) {
       }
     } catch (err) {
       console.error("❌ Telegram авто-логин ошибка:", err);
-      // Если ошибка - показываем форму для ввода телефона
       setTelegramLoading(false);
-      if (err.response?.status === 400 && err.response?.data?.detail?.includes("phone")) {
-        setErr("Введите телефон для завершения регистрации");
-      } else {
-        setErr(err.response?.data?.detail || "Ошибка авторизации через Telegram");
-      }
+      // Если ошибка - показываем форму для ввода данных
     }
   };
 
-  const handleRequestCode = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErr("");
 
@@ -118,17 +114,45 @@ export default function LoginPage({ onLogin }) {
 
     try {
       setLoading(true);
-      const result = await requestVerificationCode({
-        full_name: fullName,
-        phone: phone,
-      });
 
-      setStep("code");
-      setErr("");
-      alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
+      // Если это Telegram WebApp - используем tg_id напрямую
+      if (isTG) {
+        const tg = window.Telegram?.WebApp;
+        const tgUser = tg?.initDataUnsafe?.user;
+        
+        if (tgUser?.id) {
+          // Используем реальный tg_id из Telegram WebApp
+          const tg_id = String(tgUser.id);
+          
+          const data = await registerOrLogin({
+            tg_id: tg_id,
+            full_name: fullName,
+            phone: phone,
+            position: position || null,
+          });
+
+          if (onLogin) {
+            onLogin(data.user?.role || "user");
+          }
+          return;
+        } else {
+          setErr("Не удалось получить данные Telegram. Попробуйте открыть приложение через Telegram.");
+          return;
+        }
+      } else {
+        // Для браузера - используем коды верификации
+        const result = await requestVerificationCode({
+          full_name: fullName,
+          phone: phone,
+        });
+
+        setStep("code");
+        setErr("");
+        alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
+      }
     } catch (e) {
       console.error(e);
-      setErr(e.response?.data?.detail || "Ошибка запроса кода");
+      setErr(e.response?.data?.detail || "Ошибка регистрации");
     } finally {
       setLoading(false);
     }
@@ -196,25 +220,25 @@ export default function LoginPage({ onLogin }) {
     );
   }
 
-  // === Форма ввода кода ===
-  if (step === "code") {
+  // === Форма ввода кода (только для браузера) ===
+  if (!isTG && step === "code") {
     return (
       <div
         className="container"
         style={{
           maxWidth: 420,
           margin: "auto",
-          paddingTop: isTG ? "20px" : "80px",
+          paddingTop: "80px",
           paddingBottom: "40px",
           textAlign: "center",
-          minHeight: isTG ? "100vh" : "auto",
+          minHeight: "auto",
           display: "flex",
           flexDirection: "column",
-          justifyContent: isTG ? "center" : "flex-start",
+          justifyContent: "flex-start",
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: isTG ? "24px" : "28px" }}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: "28px" }}>
             🔐 Введите код
           </h2>
           <p className="small" style={{ opacity: 0.7, margin: 0 }}>
@@ -298,7 +322,7 @@ export default function LoginPage({ onLogin }) {
     );
   }
 
-  // === Форма входа ===
+  // === Форма входа/регистрации ===
   return (
     <div
       className="container"
@@ -323,6 +347,11 @@ export default function LoginPage({ onLogin }) {
             ? "Заполните данные для входа" 
             : "Войдите или зарегистрируйтесь"}
         </p>
+        {isTG && (
+          <p className="small" style={{ opacity: 0.6, margin: "8px 0 0 0", fontSize: 12 }}>
+            Ваш Telegram ID определяется автоматически
+          </p>
+        )}
       </div>
 
       {/* Telegram Login Button (если доступен и не загружается) */}
@@ -334,7 +363,7 @@ export default function LoginPage({ onLogin }) {
 
       {/* Форма входа/регистрации */}
       <form
-        onSubmit={handleRequestCode}
+        onSubmit={handleSubmit}
         className="card"
         style={{
           gap: 16,
@@ -398,12 +427,16 @@ export default function LoginPage({ onLogin }) {
           disabled={loading}
           style={{ marginTop: 8 }}
         >
-          {loading ? "⏳ Отправляем..." : "📱 Получить код в Telegram"}
+          {loading 
+            ? (isTG ? "⏳ Регистрируем..." : "⏳ Отправляем...") 
+            : (isTG ? "🚪 Войти / Зарегистрироваться" : "📱 Получить код в Telegram")}
         </button>
 
-        <p style={{ fontSize: 12, opacity: 0.6, margin: 0, textAlign: "center" }}>
-          После отправки формы напишите /start боту, чтобы получить код верификации
-        </p>
+        {!isTG && (
+          <p style={{ fontSize: 12, opacity: 0.6, margin: 0, textAlign: "center" }}>
+            После отправки формы напишите /start боту, чтобы получить код верификации
+          </p>
+        )}
       </form>
     </div>
   );
