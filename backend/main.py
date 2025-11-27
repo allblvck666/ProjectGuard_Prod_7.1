@@ -1496,13 +1496,25 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     manager_id = current_user_id  # Сохраняем ID пользователя, который создал защиту
 
     # 🆕 Вставляем новую защиту с manager_id
-    insert_sql = _adapt_query("""
-        INSERT INTO protections(
-            manager, client, partner, partner_city, sku, area_m2, last4,
-            object_city, address, comment, status, created_at, expires_at, closed_at,
-            extend_count, auto_closed, manager_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
-    """)
+    # Строим INSERT запрос с RETURNING для PostgreSQL
+    if USE_POSTGRES:
+        insert_sql = """
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at, closed_at,
+                extend_count, auto_closed, manager_id
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'active', %s, %s, NULL, 0, 0, %s)
+            RETURNING id
+        """
+    else:
+        insert_sql = _adapt_query("""
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at, closed_at,
+                extend_count, auto_closed, manager_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+        """)
+    
     cur.execute(insert_sql, (
         (payload.manager or "").strip(),
         (payload.client or "").strip(),
@@ -1519,12 +1531,24 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         manager_id,
     ))
 
-    new_id = cur.lastrowid
+    # Получаем ID в зависимости от типа БД
+    if USE_POSTGRES:
+        result = cur.fetchone()
+        new_id = result["id"] if result else None
+    else:
+        new_id = cur.lastrowid
+    
+    if not new_id:
+        conn.close()
+        raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
+    
     add_history(cur, new_id, "manager", "create", {"sku": sku_display, "area_m2": total_area})
     conn.commit()
 
     # если защита "на проверке" — уведомляем админа
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (new_id,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (new_id,))
+    row = cur.fetchone()
     if row["status"] == "pending":
         try:
             asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
@@ -2227,13 +2251,26 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
     expires = add_days(created, ttl_days)
 
     # === Запись в базу ===
-    cur.execute("""
-        INSERT INTO protections(
-            manager, client, partner, partner_city, sku, area_m2, last4,
-            object_city, address, comment, status, created_at, expires_at,
-            closed_at, extend_count, auto_closed
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
-    """, (
+    # Строим INSERT запрос с RETURNING для PostgreSQL
+    if USE_POSTGRES:
+        insert_sql = """
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at,
+                closed_at, extend_count, auto_closed
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'pending', %s, %s, NULL, 0, 0)
+            RETURNING id
+        """
+    else:
+        insert_sql = _adapt_query("""
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at,
+                closed_at, extend_count, auto_closed
+            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
+        """)
+    
+    cur.execute(insert_sql, (
         (payload.manager or "").strip(),
         (payload.client or "").strip(),
         (payload.partner or "").strip(),
@@ -2248,7 +2285,17 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         expires,
     ))
 
-    new_id = cur.lastrowid
+    # Получаем ID в зависимости от типа БД
+    if USE_POSTGRES:
+        result = cur.fetchone()
+        new_id = result["id"] if result else None
+    else:
+        new_id = cur.lastrowid
+    
+    if not new_id:
+        conn.close()
+        raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
+    
     add_history(cur, new_id, "manager", "create_pending", {"reason": payload.comment})
     conn.commit()
     conn.close()
