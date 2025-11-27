@@ -374,8 +374,9 @@ def normalize_sku(raw: str) -> str:
     return re.sub(r"[\(\)а-яА-Я\s]+", "", raw or "").strip()
 
 def add_history(cur, protection_id: int, actor: str, action: str, payload: dict):
+    query = _adapt_query("INSERT INTO history(protection_id, at, actor, action, payload) VALUES (?,?,?,?,?)")
     cur.execute(
-        "INSERT INTO history(protection_id, at, actor, action, payload) VALUES (?,?,?,?,?)",
+        query,
         (protection_id, now_iso(), actor, action, json.dumps(payload, ensure_ascii=False)),
     )
 
