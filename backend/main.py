@@ -244,9 +244,9 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -271,23 +271,23 @@ async def _init_background():
         print(f"⚠️ Ошибка запуска Telegram бота: {e}")
     
     try:
-        # 3. Проверка истекающих защит
+    # 3. Проверка истекающих защит
         asyncio.create_task(check_expiring_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска проверки защит: {e}")
-    
+
     try:
-        # 4. Авто-закрытие защит за бездействие
+    # 4. Авто-закрытие защит за бездействие
         asyncio.create_task(auto_close_expired_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
-    
+
     try:
-        # 5. Keep-alive механизм для предотвращения засыпания Render
+    # 5. Keep-alive механизм для предотвращения засыпания Render
         asyncio.create_task(keep_alive_worker())
     except Exception as e:
         print(f"⚠️ Ошибка запуска keep-alive: {e}")
-    
+
     print("🚀 Startup: база и бот запущены, проверка защит активна, авто-закрытие включено, keep-alive включен")
 
 
@@ -1037,7 +1037,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-        conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1062,23 +1062,23 @@ def admin_list_managers(user=Depends(get_admin_user)):
         """
     else:
         query = """
-            SELECT
-                m.id, m.name, m.telegrams,
-                IFNULL(t.total,0) AS total,
-                IFNULL(t.active,0) AS active,
-                IFNULL(t.success,0) AS success,
-                IFNULL(t.closed,0) AS closed
-            FROM managers m
-            LEFT JOIN (
-                SELECT manager,
-                       COUNT(*) AS total,
-                       SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
-                       SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
-                       SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
-                FROM protections
-                GROUP BY manager
-            ) t ON t.manager = m.name
-            ORDER BY m.name COLLATE NOCASE
+        SELECT
+            m.id, m.name, m.telegrams,
+            IFNULL(t.total,0) AS total,
+            IFNULL(t.active,0) AS active,
+            IFNULL(t.success,0) AS success,
+            IFNULL(t.closed,0) AS closed
+        FROM managers m
+        LEFT JOIN (
+            SELECT manager,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active,
+                   SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success,
+                   SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed
+            FROM protections
+            GROUP BY manager
+        ) t ON t.manager = m.name
+        ORDER BY m.name COLLATE NOCASE
         """
     cur.execute(query)
     rows = cur.fetchall()
@@ -1168,8 +1168,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-            conn.close()
-            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+        conn.close()
+        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         raise
     conn.close()
     return {"ok": True}
@@ -1507,13 +1507,13 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-        insert_sql = _adapt_query("""
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at, closed_at,
-                extend_count, auto_closed, manager_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
-        """)
+    insert_sql = _adapt_query("""
+        INSERT INTO protections(
+            manager, client, partner, partner_city, sku, area_m2, last4,
+            object_city, address, comment, status, created_at, expires_at, closed_at,
+            extend_count, auto_closed, manager_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+    """)
     
     cur.execute(insert_sql, (
         (payload.manager or "").strip(),
@@ -1536,7 +1536,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -1824,14 +1824,48 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
                 )
                 
                 # Отправляем уведомления
+                sent_count = 0
                 for admin in admins:
                     tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0] if isinstance(admin, (list, tuple)) else None
-                    if tg_id:
-                        try:
-                            tg_id_int = int(str(tg_id).replace("tg-", "").replace("dev-", ""))
-                            await bot.send_message(tg_id_int, msg, parse_mode="HTML")
-                        except Exception as e:
+                    if not tg_id:
+                        continue
+                    
+                    try:
+                        # Пробуем разные форматы tg_id
+                        tg_id_int = None
+                        if isinstance(tg_id, int):
+                            tg_id_int = tg_id
+                        elif isinstance(tg_id, str):
+                            # Убираем префикс "tg-" или "dev-" если есть
+                            clean_id = tg_id.replace("tg-", "").replace("dev-", "").strip()
+                            if clean_id.isdigit():
+                                tg_id_int = int(clean_id)
+                            elif tg_id.isdigit():
+                                tg_id_int = int(tg_id)
+                        
+                        if not tg_id_int:
+                            print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
+                            continue
+                        
+                        # Проверяем, что бот инициализирован
+                        if bot is None:
+                            print(f"❌ Бот не инициализирован!")
+                            continue
+                        
+                        await bot.send_message(tg_id_int, msg, parse_mode="HTML")
+                        sent_count += 1
+                        print(f"✅ Уведомление о продлении отправлено админу {tg_id_int} (исходный tg_id: {tg_id})")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
+                            print(f"⚠️ Пользователь {tg_id} не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
+                        else:
                             print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
+                
+                if sent_count == 0 and len(admins) > 0:
+                    print(f"⚠️ Не удалось отправить уведомления о продлении ни одному админу. Всего админов: {len(admins)}")
+                elif sent_count > 0:
+                    print(f"✅ Уведомления о продлении отправлены {sent_count} админам/суперадминам")
             except Exception as e:
                 print(f"⚠️ Ошибка при отправке уведомлений о продлении: {e}")
         
@@ -1946,6 +1980,11 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
                 print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
+                error_msg = str(e)
+                if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
+                    admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
+                    print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
+                else:
                 print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                 print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
@@ -2116,7 +2155,7 @@ def admin_extend_requests(user=Depends(get_admin_user)):
         JOIN protections p ON p.id = h.protection_id
         WHERE h.action='extend_request'
         ORDER BY h.at DESC
-    """
+        """
     cur.execute(query)
     rows = cur.fetchall()
     out = []  # 🟢 вот этой строки не хватало
@@ -2167,18 +2206,18 @@ def stats():
         """
     else:
         query = """
-            SELECT 
-                manager,
-                COUNT(*) AS total,
-                SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_cnt,
-                SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_cnt,
-                SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_cnt,
-                ROUND(SUM(CASE WHEN status='active' THEN area_m2 ELSE 0 END), 1) AS active_area,
-                ROUND(SUM(CASE WHEN status='success' THEN area_m2 ELSE 0 END), 1) AS success_area,
-                ROUND(SUM(CASE WHEN status='closed' THEN area_m2 ELSE 0 END), 1) AS closed_area
-            FROM protections
-            WHERE status != 'deleted'
-            GROUP BY manager
+        SELECT 
+            manager,
+            COUNT(*) AS total,
+            SUM(CASE WHEN status='active' THEN 1 ELSE 0 END) AS active_cnt,
+            SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_cnt,
+            SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_cnt,
+            ROUND(SUM(CASE WHEN status='active' THEN area_m2 ELSE 0 END), 1) AS active_area,
+            ROUND(SUM(CASE WHEN status='success' THEN area_m2 ELSE 0 END), 1) AS success_area,
+            ROUND(SUM(CASE WHEN status='closed' THEN area_m2 ELSE 0 END), 1) AS closed_area
+        FROM protections
+        WHERE status != 'deleted'
+        GROUP BY manager
         """
     cur.execute(query)
     rows = cur.fetchall()
@@ -2315,11 +2354,11 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         """
     else:
         insert_sql = _adapt_query("""
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at,
-                closed_at, extend_count, auto_closed
-            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
+        INSERT INTO protections(
+            manager, client, partner, partner_city, sku, area_m2, last4,
+            object_city, address, comment, status, created_at, expires_at,
+            closed_at, extend_count, auto_closed
+        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
         """)
     
     cur.execute(insert_sql, (
@@ -2342,7 +2381,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -3455,10 +3494,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-            except Exception as e:
+    except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -3471,7 +3510,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-                        _bot_running = False
+        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
