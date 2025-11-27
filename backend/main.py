@@ -529,9 +529,9 @@ async def request_verification_code(data: RequestVerificationCode):
     # Генерируем 6-значный код
     code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
     
-    # Сохраняем код в БД (действителен 10 минут)
+    # Сохраняем код в БД (действителен 30 минут для удобства)
     from datetime import datetime, timedelta
-    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat() + "Z"
+    expires_at = (datetime.utcnow() + timedelta(minutes=30)).isoformat() + "Z"
     created_at = now_iso()
     
     conn = get_conn()
@@ -573,7 +573,7 @@ async def request_verification_code(data: RequestVerificationCode):
                     msg = (
                         f"🔐 <b>Код верификации для регистрации</b>\n\n"
                         f"Ваш код: <code>{code}</code>\n\n"
-                        f"Код действителен 10 минут.\n"
+                        f"Код действителен 30 минут.\n"
                         f"Введите его в приложении для завершения регистрации."
                     )
                     await bot.send_message(

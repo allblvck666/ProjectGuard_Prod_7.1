@@ -10,6 +10,17 @@ function normalizePhone(phone) {
 
 export default function LoginPage({ onLogin }) {
   const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
+  
+  // Отладочное логирование
+  useEffect(() => {
+    console.log("🔍 DEBUG LoginPage: isTG =", isTG);
+    console.log("🔍 DEBUG LoginPage: window.Telegram =", window.Telegram);
+    console.log("🔍 DEBUG LoginPage: window.Telegram?.WebApp =", window.Telegram?.WebApp);
+    console.log("🔍 DEBUG LoginPage: window.Telegram?.WebApp?.initDataUnsafe =", window.Telegram?.WebApp?.initDataUnsafe);
+    console.log("🔍 DEBUG LoginPage: window.Telegram?.WebApp?.initDataUnsafe?.user =", window.Telegram?.WebApp?.initDataUnsafe?.user);
+    console.log("🔍 DEBUG LoginPage: window.Telegram?.WebApp?.initDataUnsafe?.user?.id =", window.Telegram?.WebApp?.initDataUnsafe?.user?.id);
+  }, []);
+  
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [telegramLoading, setTelegramLoading] = useState(false);
@@ -23,34 +34,65 @@ export default function LoginPage({ onLogin }) {
 
   // === Telegram авто-логин ===
   useEffect(() => {
-    if (!isTG) return;
-
-    const tg = window.Telegram?.WebApp;
-    if (!tg?.initDataUnsafe?.user) {
-      console.log("Telegram WebApp: нет initDataUnsafe.user");
+    if (!isTG) {
+      console.log("⚠️ DEBUG: Это не Telegram WebApp");
       return;
     }
 
-    const tgUser = tg.initDataUnsafe.user;
-    console.log("🔐 Telegram WebApp данные:", tgUser);
-
-    // Заполняем форму данными из Telegram
-    if (tgUser.first_name || tgUser.last_name) {
-      setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+    const tg = window.Telegram?.WebApp;
+    if (!tg) {
+      console.log("⚠️ DEBUG: window.Telegram.WebApp не найден");
+      return;
     }
+
+    // Инициализируем WebApp
+    tg.ready();
+    tg.expand();
+
+    // Ждем немного, чтобы WebApp инициализировался
+    const checkUser = () => {
+      const tgUser = tg?.initDataUnsafe?.user;
+      console.log("🔍 DEBUG: Проверка tgUser:", tgUser);
+      
+      if (!tgUser) {
+        console.log("⚠️ DEBUG: initDataUnsafe.user не найден. initDataUnsafe =", tg?.initDataUnsafe);
+        // Попробуем получить через initData
+        if (tg?.initData) {
+          console.log("🔍 DEBUG: initData найден:", tg.initData);
+          // initData - это строка, которую нужно парсить на бэкенде
+          // Но для фронтенда мы можем попробовать получить user другим способом
+        }
+        setTelegramLoading(false);
+        return;
+      }
+
+      console.log("✅ DEBUG: Telegram WebApp данные:", tgUser);
+      console.log("✅ DEBUG: tgUser.id =", tgUser.id);
+
+      // Заполняем форму данными из Telegram
+      if (tgUser.first_name || tgUser.last_name) {
+        setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+      }
+      
+      // Если есть номер телефона в Telegram - заполняем его
+      if (tgUser.phone_number) {
+        setPhone(tgUser.phone_number);
+      }
+
+      // Если есть все данные - пытаемся автоматически залогиниться
+      if (tgUser.id && (tgUser.first_name || tgUser.last_name || tgUser.phone_number)) {
+        setTelegramLoading(true);
+        handleTelegramAutoLogin(tgUser);
+      } else {
+        setTelegramLoading(false);
+      }
+    };
+
+    // Проверяем сразу и через небольшую задержку (на случай, если данные еще не загрузились)
+    checkUser();
+    const timeout = setTimeout(checkUser, 500);
     
-    // Если есть номер телефона в Telegram - заполняем его
-    if (tgUser.phone_number) {
-      setPhone(tgUser.phone_number);
-    }
-
-    // Если есть все данные - пытаемся автоматически залогиниться
-    if (tgUser.id && (tgUser.first_name || tgUser.last_name)) {
-      setTelegramLoading(true);
-      handleTelegramAutoLogin(tgUser);
-    } else {
-      setTelegramLoading(false);
-    }
+    return () => clearTimeout(timeout);
   }, [isTG]);
 
   const handleTelegramAutoLogin = async (tgUser) => {
@@ -118,11 +160,21 @@ export default function LoginPage({ onLogin }) {
       // Если это Telegram WebApp - используем tg_id напрямую
       if (isTG) {
         const tg = window.Telegram?.WebApp;
+        console.log("🔍 DEBUG: isTG =", isTG);
+        console.log("🔍 DEBUG: window.Telegram =", window.Telegram);
+        console.log("🔍 DEBUG: tg =", tg);
+        console.log("🔍 DEBUG: tg?.initDataUnsafe =", tg?.initDataUnsafe);
+        console.log("🔍 DEBUG: tg?.initDataUnsafe?.user =", tg?.initDataUnsafe?.user);
+        console.log("🔍 DEBUG: tg?.initData =", tg?.initData);
+        console.log("🔍 DEBUG: tg?.version =", tg?.version);
+        
+        // Пробуем получить tg_id из initDataUnsafe
         const tgUser = tg?.initDataUnsafe?.user;
         
         if (tgUser?.id) {
           // Используем реальный tg_id из Telegram WebApp
           const tg_id = String(tgUser.id);
+          console.log("✅ DEBUG: Используем tg_id из Telegram WebApp:", tg_id);
           
           const data = await registerOrLogin({
             tg_id: tg_id,
@@ -131,15 +183,29 @@ export default function LoginPage({ onLogin }) {
             position: position || null,
           });
 
+          console.log("✅ DEBUG: registerOrLogin успешен:", data);
           if (onLogin) {
             onLogin(data.user?.role || "user");
           }
           return;
         } else {
-          setErr("Не удалось получить данные Telegram. Попробуйте открыть приложение через Telegram.");
+          console.error("❌ DEBUG: tgUser?.id отсутствует. tgUser =", tgUser);
+          console.error("❌ DEBUG: Возможно, приложение открыто не через Telegram WebApp, а через обычный браузер.");
+          console.error("❌ DEBUG: Используем коды верификации как fallback.");
+          
+          // Fallback: если tg_id не получен, используем коды верификации
+          const result = await requestVerificationCode({
+            full_name: fullName,
+            phone: phone,
+          });
+
+          setStep("code");
+          setErr("");
+          alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
           return;
         }
       } else {
+        console.log("⚠️ DEBUG: Это браузерная версия, используем коды верификации");
         // Для браузера - используем коды верификации
         const result = await requestVerificationCode({
           full_name: fullName,
@@ -151,7 +217,7 @@ export default function LoginPage({ onLogin }) {
         alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
       }
     } catch (e) {
-      console.error(e);
+      console.error("❌ DEBUG: Ошибка в handleSubmit:", e);
       setErr(e.response?.data?.detail || "Ошибка регистрации");
     } finally {
       setLoading(false);
