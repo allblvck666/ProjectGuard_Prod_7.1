@@ -1,6 +1,6 @@
 // frontend/src/LoginPage.jsx
 import { useState, useEffect } from "react";
-import { registerOrLogin } from "./api";
+import { registerOrLogin, requestVerificationCode, verifyCode } from "./api";
 import TelegramLoginButton from "./TelegramLoginButton";
 
 // Функция для нормализации номера телефона (убираем все нецифровые символы)
@@ -13,6 +13,8 @@ export default function LoginPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [telegramLoading, setTelegramLoading] = useState(false);
+  const [step, setStep] = useState("form"); // "form" | "code" | "verify"
+  const [verificationCode, setVerificationCode] = useState("");
 
   // === Форма входа/регистрации ===
   const [fullName, setFullName] = useState("");
@@ -98,7 +100,7 @@ export default function LoginPage({ onLogin }) {
     }
   };
 
-  const handleSubmit = async (e) => {
+  const handleRequestCode = async (e) => {
     e.preventDefault();
     setErr("");
 
@@ -113,30 +115,54 @@ export default function LoginPage({ onLogin }) {
       setErr("Введите корректный номер телефона");
       return;
     }
-    
-    // Получаем tg_id - ВСЕГДА на основе номера телефона для единообразия
-    // Один и тот же номер телефона на разных устройствах = один и тот же аккаунт
-    let tg_id = "";
-    if (isTG) {
-      // В Telegram тоже используем номер телефона как основной идентификатор
-      tg_id = `tg-${phoneDigits}`;
-    } else {
-      // Для браузера - используем префикс dev-
-      tg_id = `dev-${phoneDigits}`;
+
+    try {
+      setLoading(true);
+      const result = await requestVerificationCode({
+        full_name: fullName,
+        phone: phone,
+      });
+
+      setStep("code");
+      setErr("");
+      alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
+    } catch (e) {
+      console.error(e);
+      setErr(e.response?.data?.detail || "Ошибка запроса кода");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyCode = async (e) => {
+    e.preventDefault();
+    setErr("");
+
+    if (!verificationCode || verificationCode.length !== 6) {
+      setErr("Введите 6-значный код");
+      return;
     }
 
-    if (!tg_id) {
-      setErr("Не удалось определить идентификатор пользователя");
+    const phoneDigits = normalizePhone(phone);
+    if (!phoneDigits) {
+      setErr("Некорректный номер телефона");
       return;
     }
 
     try {
       setLoading(true);
+      const result = await verifyCode({
+        phone: phone,
+        code: verificationCode,
+      });
+
+      // Теперь регистрируем/логиним пользователя с полученным tg_id
       const data = await registerOrLogin({
-        tg_id: tg_id,
+        tg_id: result.tg_id,
         full_name: fullName,
         phone: phone,
         position: position || null,
+        verification_code: verificationCode,
       });
 
       if (onLogin) {
@@ -144,7 +170,7 @@ export default function LoginPage({ onLogin }) {
       }
     } catch (e) {
       console.error(e);
-      setErr(e.response?.data?.detail || "Ошибка входа");
+      setErr(e.response?.data?.detail || "Неверный код или код истек");
     } finally {
       setLoading(false);
     }
@@ -166,6 +192,108 @@ export default function LoginPage({ onLogin }) {
       >
         <div style={{ fontSize: 48 }}>⏳</div>
         <div style={{ fontSize: 18, opacity: 0.8 }}>Авторизуем через Telegram...</div>
+      </div>
+    );
+  }
+
+  // === Форма ввода кода ===
+  if (step === "code") {
+    return (
+      <div
+        className="container"
+        style={{
+          maxWidth: 420,
+          margin: "auto",
+          paddingTop: isTG ? "20px" : "80px",
+          paddingBottom: "40px",
+          textAlign: "center",
+          minHeight: isTG ? "100vh" : "auto",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: isTG ? "center" : "flex-start",
+        }}
+      >
+        <div style={{ marginBottom: 32 }}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: isTG ? "24px" : "28px" }}>
+            🔐 Введите код
+          </h2>
+          <p className="small" style={{ opacity: 0.7, margin: 0 }}>
+            Код отправлен в Telegram бот
+          </p>
+          <p className="small" style={{ opacity: 0.6, margin: "8px 0 0 0", fontSize: 12 }}>
+            Если не получили код, напишите /start боту
+          </p>
+        </div>
+
+        <form
+          onSubmit={handleVerifyCode}
+          className="card"
+          style={{
+            gap: 16,
+            display: "flex",
+            flexDirection: "column",
+            textAlign: "left",
+          }}
+        >
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Код верификации *</span>
+            <input
+              className="input"
+              type="text"
+              value={verificationCode}
+              onChange={(e) => {
+                const value = e.target.value.replace(/\D/g, "").slice(0, 6);
+                setVerificationCode(value);
+              }}
+              placeholder="123456"
+              maxLength={6}
+              required
+              style={{ textAlign: "center", fontSize: 24, letterSpacing: 8 }}
+            />
+          </label>
+
+          {err && (
+            <div
+              style={{
+                color: "var(--danger)",
+                padding: "12px",
+                background: "rgba(239, 68, 68, 0.1)",
+                borderRadius: "8px",
+                fontSize: 14,
+              }}
+            >
+              {err}
+            </div>
+          )}
+
+          <button
+            className="btn"
+            type="submit"
+            disabled={loading || verificationCode.length !== 6}
+            style={{ marginTop: 8 }}
+          >
+            {loading ? "⏳ Проверяем..." : "✅ Подтвердить"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setStep("form");
+              setVerificationCode("");
+              setErr("");
+            }}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              fontSize: 14,
+              padding: 8,
+            }}
+          >
+            ← Назад к форме
+          </button>
+        </form>
       </div>
     );
   }
@@ -206,7 +334,7 @@ export default function LoginPage({ onLogin }) {
 
       {/* Форма входа/регистрации */}
       <form
-        onSubmit={handleSubmit}
+        onSubmit={handleRequestCode}
         className="card"
         style={{
           gap: 16,
@@ -270,8 +398,12 @@ export default function LoginPage({ onLogin }) {
           disabled={loading}
           style={{ marginTop: 8 }}
         >
-          {loading ? "⏳ Входим..." : "🚪 Войти / Зарегистрироваться"}
+          {loading ? "⏳ Отправляем..." : "📱 Получить код в Telegram"}
         </button>
+
+        <p style={{ fontSize: 12, opacity: 0.6, margin: 0, textAlign: "center" }}>
+          После отправки формы напишите /start боту, чтобы получить код верификации
+        </p>
       </form>
     </div>
   );

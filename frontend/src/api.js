@@ -88,6 +88,18 @@ export const fetchMe = async () => {
   return res.data.user;
 };
 
+// ===== ВЕРИФИКАЦИЯ ЧЕРЕЗ TELEGRAM =====
+
+export const requestVerificationCode = async (data) => {
+  const res = await api.post("/api/auth/request-verification-code", data);
+  return res.data;
+};
+
+export const verifyCode = async (data) => {
+  const res = await api.post("/api/auth/verify-code", data);
+  return res.data;
+};
+
 // ===== АДМИНСКИЕ API ДЛЯ УПРАВЛЕНИЯ ПОЛЬЗОВАТЕЛЯМИ =====
 
 export const adminUsersAPI = {

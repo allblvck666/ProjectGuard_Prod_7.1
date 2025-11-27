@@ -1088,7 +1088,7 @@ function NotificationsTab() {
 }
 
 /* ===== Вкладка: Запросы на продление ===== */
-function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extendBusy }) {
+function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doRejectExtendRequest, doDeleteExtendRequest, extendBusy }) {
   return (
     <div className="admin-card">
       <Row>
@@ -1158,6 +1158,23 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extend
                           >
                             ➕ 10 дн
                           </button>
+                          <button
+                            className="admin-btn-danger"
+                            onClick={() => doRejectExtendRequest(r.protection_id)}
+                            disabled={extendBusy === r.protection_id}
+                            title="Отклонить с уведомлением менеджера"
+                          >
+                            🚫 Отклонить
+                          </button>
+                          <button
+                            className="admin-btn-secondary"
+                            onClick={() => doDeleteExtendRequest(r.protection_id)}
+                            disabled={extendBusy === r.protection_id}
+                            title="Удалить без уведомления"
+                            style={{ fontSize: 12, padding: "6px 8px" }}
+                          >
+                            🗑️
+                          </button>
                         </Row>
                       </td>
                     </tr>
@@ -1207,23 +1224,44 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, extend
                     )}
                   </div>
                   
-                  <div className="admin-request-card-actions">
-                    <button
-                      className="admin-btn-success"
-                      onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
-                      disabled={extendBusy === r.protection_id}
-                      style={{ flex: 1 }}
-                    >
-                      ✅ Продлить на {r.days || 10} дн.
-                    </button>
-                    <button
-                      className="admin-btn-secondary"
-                      onClick={() => doAdminExtend(r.protection_id, 10)}
-                      disabled={extendBusy === r.protection_id}
-                      style={{ flex: 1 }}
-                    >
-                      ➕ +10 дн
-                    </button>
+                  <div className="admin-request-card-actions" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="admin-btn-success"
+                        onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
+                        disabled={extendBusy === r.protection_id}
+                        style={{ flex: 1 }}
+                      >
+                        ✅ Продлить на {r.days || 10} дн.
+                      </button>
+                      <button
+                        className="admin-btn-secondary"
+                        onClick={() => doAdminExtend(r.protection_id, 10)}
+                        disabled={extendBusy === r.protection_id}
+                        style={{ flex: 1 }}
+                      >
+                        ➕ +10 дн
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="admin-btn-danger"
+                        onClick={() => doRejectExtendRequest(r.protection_id)}
+                        disabled={extendBusy === r.protection_id}
+                        style={{ flex: 1 }}
+                      >
+                        🚫 Отклонить
+                      </button>
+                      <button
+                        className="admin-btn-secondary"
+                        onClick={() => doDeleteExtendRequest(r.protection_id)}
+                        disabled={extendBusy === r.protection_id}
+                        style={{ flex: 0.5 }}
+                        title="Удалить без уведомления"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1358,6 +1396,45 @@ export default function AdminPage({ onBack }) {
       await loadRequests();
     } catch (e) {
       alert(e.response?.data?.detail || "Не удалось продлить");
+    } finally {
+      setExtendBusy(0);
+    }
+  };
+
+  const doRejectExtendRequest = async (pid) => {
+    const reason = prompt("Укажите причину отклонения запроса на продление:", "");
+    if (reason === null) return; // Пользователь отменил
+    
+    if (!reason.trim()) {
+      alert("Необходимо указать причину отклонения");
+      return;
+    }
+
+    try {
+      setExtendBusy(pid);
+      await api.post(`/api/admin/protections/${pid}/reject-extend-request`, {
+        reason: reason.trim()
+      });
+      alert("Запрос отклонен. Менеджер получит уведомление в Telegram.");
+      await loadRequests();
+    } catch (e) {
+      alert(e.response?.data?.detail || "Не удалось отклонить запрос");
+    } finally {
+      setExtendBusy(0);
+    }
+  };
+
+  const doDeleteExtendRequest = async (pid) => {
+    if (!confirm("Удалить запрос на продление? Менеджер не получит уведомление.")) {
+      return;
+    }
+
+    try {
+      setExtendBusy(pid);
+      await api.delete(`/api/admin/protections/${pid}/delete-extend-request`);
+      await loadRequests();
+    } catch (e) {
+      alert(e.response?.data?.detail || "Не удалось удалить запрос");
     } finally {
       setExtendBusy(0);
     }
@@ -1542,6 +1619,8 @@ export default function AdminPage({ onBack }) {
             loadingReq={loadingReq}
             loadRequests={loadRequests}
             doAdminExtend={doAdminExtend}
+            doRejectExtendRequest={doRejectExtendRequest}
+            doDeleteExtendRequest={doDeleteExtendRequest}
             extendBusy={extendBusy}
           />
         )}

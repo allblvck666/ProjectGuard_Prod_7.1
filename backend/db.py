@@ -746,6 +746,38 @@ def init_db():
             """
         )
 
+    # === Verification codes (verification_codes) ===
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verification_codes (
+                id SERIAL PRIMARY KEY,
+                phone TEXT NOT NULL,
+                code TEXT NOT NULL,
+                full_name TEXT,
+                tg_id TEXT,
+                expires_at TEXT NOT NULL,
+                used INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+    else:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS verification_codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                phone TEXT NOT NULL,
+                code TEXT NOT NULL,
+                full_name TEXT,
+                tg_id TEXT,
+                expires_at TEXT NOT NULL,
+                used INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+
     conn.commit()
     conn.close()
 

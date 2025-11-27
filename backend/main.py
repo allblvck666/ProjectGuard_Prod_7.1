@@ -7,7 +7,7 @@ from typing import List, Optional, Literal
 from datetime import datetime
 from pathlib import Path
 from jose import jwt, JWTError
-import asyncio, sqlite3, json, os, re, hashlib, hmac
+import asyncio, sqlite3, json, os, re, hashlib, hmac, secrets, time
 
 # === Базовая директория и .env ===
 BASE_DIR = Path(__file__).resolve().parent
@@ -450,10 +450,21 @@ class UserRegister(BaseModel):
 
 class RegisterOrLogin(BaseModel):
     """Модель для единого эндпоинта регистрации/входа"""
-    tg_id: str  # Обязательное, из Telegram WebApp или dev-режима
+    tg_id: Optional[str] = None  # Опциональное, получается через код
     full_name: str
     phone: str
     position: Optional[str] = None  # Должность
+    verification_code: Optional[str] = None  # Код для получения tg_id
+
+class RequestVerificationCode(BaseModel):
+    """Запрос одноразового кода для получения Telegram ID"""
+    full_name: str
+    phone: str
+
+class VerifyCode(BaseModel):
+    """Верификация кода и получение tg_id"""
+    phone: str
+    code: str
 
 
 class UserLogin(BaseModel):
@@ -506,14 +517,169 @@ async def get_me(user=Depends(get_current_active_user)):
     }
 
 
+# === Эндпоинты для верификации через Telegram ===
+@app.post("/api/auth/request-verification-code")
+async def request_verification_code(data: RequestVerificationCode):
+    """Запрос одноразового кода для получения Telegram ID"""
+    import re
+    phone_clean = re.sub(r'\D', '', str(data.phone))
+    if not phone_clean or len(phone_clean) < 10:
+        raise HTTPException(status_code=400, detail="Некорректный номер телефона")
+    
+    # Генерируем 6-значный код
+    code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
+    
+    # Сохраняем код в БД (действителен 10 минут)
+    from datetime import datetime, timedelta
+    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat() + "Z"
+    created_at = now_iso()
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Помечаем старые коды для этого телефона как использованные
+    update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE phone=? AND used=0")
+    cur.execute(update_query, (phone_clean,))
+    
+    # Сохраняем новый код
+    insert_query = _adapt_query("""
+        INSERT INTO verification_codes (phone, code, full_name, expires_at, created_at, used)
+        VALUES (?, ?, ?, ?, ?, 0)
+    """)
+    cur.execute(insert_query, (phone_clean, code, data.full_name, expires_at, created_at))
+    conn.commit()
+    conn.close()
+    
+    # Ищем пользователя с таким номером телефона, чтобы получить tg_id
+    query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(query, (phone_clean,))
+    user = cur.fetchone()
+    
+    tg_id_to_save = None
+    if user and user.get("tg_id"):
+        tg_id_to_save = user.get("tg_id")
+        # Нормализуем tg_id
+        from backend.db import normalize_tg_id
+        tg_id_clean = normalize_tg_id(tg_id_to_save)
+        if tg_id_clean and tg_id_clean.isdigit():
+            # Обновляем код, добавляя tg_id
+            update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE phone=? AND code=? AND used=0")
+            cur.execute(update_query, (tg_id_clean, phone_clean, code))
+            conn.commit()
+            tg_id_to_save = tg_id_clean
+            
+            try:
+                # Отправляем код через Telegram
+                msg = (
+                    f"🔐 <b>Код верификации для регистрации</b>\n\n"
+                    f"Ваш код: <code>{code}</code>\n\n"
+                    f"Код действителен 10 минут.\n"
+                    f"Введите его в приложении для завершения регистрации."
+                )
+                await bot.send_message(
+                    chat_id=int(tg_id_clean),
+                    text=msg,
+                    parse_mode="HTML"
+                )
+                conn.close()
+                return {"ok": True, "message": "Код отправлен в Telegram"}
+            except Exception as e:
+                print(f"⚠️ Не удалось отправить код в Telegram: {e}")
+                conn.close()
+                return {"ok": True, "message": f"Код создан, но не удалось отправить в Telegram. Напишите /start боту, чтобы получить код.", "code": code}
+    
+    conn.close()
+    
+    # Если не нашли пользователя с Telegram, возвращаем код напрямую (для тестирования)
+    # В продакшене лучше не возвращать код, а требовать, чтобы пользователь сначала написал /start боту
+    return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram", "code": code}
+
+
+@app.post("/api/auth/verify-code")
+async def verify_code(data: VerifyCode):
+    """Верификация кода и получение tg_id"""
+    import re
+    phone_clean = re.sub(r'\D', '', str(data.phone))
+    if not phone_clean:
+        raise HTTPException(status_code=400, detail="Некорректный номер телефона")
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Ищем неиспользованный код по телефону или по коду (если пользователь уже написал /start)
+    query = _adapt_query("""
+        SELECT * FROM verification_codes 
+        WHERE phone=? AND code=? AND used=0 AND expires_at > ?
+        ORDER BY created_at DESC LIMIT 1
+    """)
+    cur.execute(query, (phone_clean, data.code, now_iso()))
+    code_record = cur.fetchone()
+    
+    if not code_record:
+        conn.close()
+        raise HTTPException(status_code=400, detail="Неверный код или код истек")
+    
+    # Помечаем код как использованный
+    update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE id=?")
+    cur.execute(update_query, (code_record["id"],))
+    conn.commit()
+    
+    # Получаем tg_id из записи (если был сохранен при создании кода)
+    tg_id = code_record.get("tg_id")
+    
+    # Если tg_id не был сохранен, ищем пользователя по телефону
+    if not tg_id:
+        query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
+        cur.execute(query, (phone_clean,))
+        user = cur.fetchone()
+        if user:
+            tg_id = user.get("tg_id")
+    
+    # Если все еще нет tg_id, ищем пользователя, который недавно написал /start
+    # (по имени из кода верификации)
+    if not tg_id:
+        full_name = code_record.get("full_name")
+        if full_name:
+            # Ищем пользователя с таким именем, который недавно был создан/обновлен
+            query = _adapt_query("""
+                SELECT tg_id FROM users 
+                WHERE first_name LIKE ? OR full_name LIKE ?
+                ORDER BY updated_at DESC, created_at DESC LIMIT 1
+            """)
+            cur.execute(query, (f"%{full_name}%", f"%{full_name}%"))
+            user = cur.fetchone()
+            if user:
+                tg_id = user.get("tg_id")
+    
+    conn.close()
+    
+    if not tg_id:
+        raise HTTPException(status_code=400, detail="Telegram ID не найден. Напишите /start боту и попробуйте снова.")
+    
+    # Нормализуем tg_id
+    from backend.db import normalize_tg_id
+    tg_id_clean = normalize_tg_id(tg_id)
+    
+    return {"ok": True, "tg_id": tg_id_clean}
+
+
 @app.post("/api/auth/register_or_login")
 async def register_or_login(data: RegisterOrLogin):
     """
     Единый эндпоинт для регистрации/входа по Telegram данным.
     Использует UPSERT логику: если пользователь с таким tg_id есть - обновляет, иначе создает.
+    Теперь поддерживает получение tg_id через код верификации.
     """
+    # Если передан код верификации, сначала верифицируем его
+    if data.verification_code and not data.tg_id:
+        verify_data = VerifyCode(phone=data.phone, code=data.verification_code)
+        verify_result = await verify_code(verify_data)
+        data.tg_id = verify_result["tg_id"]
+    
     if not data.tg_id:
-        raise HTTPException(status_code=400, detail="tg_id is required")
+        raise HTTPException(status_code=400, detail="tg_id is required. Используйте код верификации или укажите tg_id")
     
     # Валидация обязательных полей
     if not data.full_name or not data.phone:
@@ -1181,6 +1347,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
+
         conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
@@ -1656,6 +1823,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
+
         insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
@@ -1685,6 +1853,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
+
         new_id = cur.lastrowid
     
     if not new_id:
@@ -2200,7 +2369,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 if result:
                     sent_count += 1
                     admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
@@ -2209,8 +2378,8 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 else:
                     print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                     print(f"🔍 Тип ошибки: {type(e).__name__}")
-                import traceback
-                traceback.print_exc()
+                    import traceback
+                    traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
@@ -2404,6 +2573,98 @@ def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user)):
     # админ без лимита
     return extend(pid, days=days, actor="admin")
 
+
+@app.post("/api/admin/protections/{pid}/reject-extend-request")
+def admin_reject_extend_request(pid: int, data: dict = Body(...), user=Depends(get_admin_user)):
+    """Отклонение запроса на продление с указанием причины"""
+    reason = (data or {}).get("reason", "Не указана")
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Получаем информацию о защите
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Защита не найдена")
+    
+    # Добавляем запись в историю об отклонении
+    add_history(cur, pid, "admin", "extend_reject", {
+        "source": "app",
+        "reason": reason,
+        "rejected_by": user.get("full_name", user.get("first_name", "Admin"))
+    })
+    
+    # Отправляем уведомление менеджеру в Telegram
+    manager_name = row.get("manager", "")
+    if manager_name:
+        # Ищем менеджера по имени
+        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+        cur.execute(query, (manager_name, manager_name))
+        manager_user = cur.fetchone()
+        
+        if manager_user and manager_user.get("tg_id"):
+            tg_id = manager_user.get("tg_id")
+            from backend.db import normalize_tg_id
+            tg_id_clean = normalize_tg_id(tg_id)
+            
+            if tg_id_clean and tg_id_clean.isdigit():
+                try:
+                    msg = (
+                        f"🚫 <b>Запрос на продление отклонен</b>\n\n"
+                        f"Защита: <b>#{pid}</b>\n"
+                        f"📦 SKU: {row.get('sku', '—')}\n"
+                        f"⏰ Текущая дата истечения: {row.get('expires_at', '')[:10]}\n\n"
+                        f"💬 <b>Причина отклонения:</b>\n{reason}"
+                    )
+                    asyncio.create_task(bot.send_message(
+                        chat_id=int(tg_id_clean),
+                        text=msg,
+                        parse_mode="HTML"
+                    ))
+                    print(f"✅ Уведомление об отклонении отправлено менеджеру {tg_id_clean}")
+                except Exception as e:
+                    print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"ok": True, "message": "Запрос отклонен"}
+
+
+@app.delete("/api/admin/protections/{pid}/delete-extend-request")
+def admin_delete_extend_request(pid: int, user=Depends(get_admin_user)):
+    """Удаление запроса на продление (без уведомления)"""
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Проверяем, что защита существует
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Защита не найдена")
+    
+    # Удаляем последний запрос на продление из истории
+    query = _adapt_query("""
+        DELETE FROM history 
+        WHERE protection_id=? AND action='extend_request'
+        AND id = (
+            SELECT id FROM history 
+            WHERE protection_id=? AND action='extend_request'
+            ORDER BY at DESC LIMIT 1
+        )
+    """)
+    cur.execute(query, (pid, pid))
+    
+    conn.commit()
+    conn.close()
+    
+    return {"ok": True, "message": "Запрос удален"}
+
 # ===== Stats =====
 @app.get("/api/stats")
 def stats():
@@ -2573,6 +2834,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
             RETURNING id
         """
     else:
+
         insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
@@ -2601,6 +2863,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
+
         new_id = cur.lastrowid
     
     if not new_id:
@@ -3095,6 +3358,36 @@ async def approve_handler(callback: types.CallbackQuery):
     update_query = _adapt_query("UPDATE protections SET status='active', closed_at=NULL, sku=? WHERE id=?")
     cur.execute(update_query, (sku_display, pid))
     add_history(cur, pid, "admin", "approve", {"source": "tg", "sku": sku_display})
+    
+    # Отправляем уведомление менеджеру
+    manager_name = row.get("manager", "")
+    if manager_name:
+        # Ищем менеджера по имени
+        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+        cur.execute(query, (manager_name, manager_name))
+        manager_user = cur.fetchone()
+        
+        if manager_user and manager_user.get("tg_id"):
+            tg_id = manager_user.get("tg_id")
+            from backend.db import normalize_tg_id
+            tg_id_clean = normalize_tg_id(tg_id)
+            
+            if tg_id_clean and tg_id_clean.isdigit():
+                try:
+                    msg = (
+                        f"✅ <b>Защита одобрена</b>\n\n"
+                        f"Защита: <b>#{pid}</b>\n"
+                        f"📦 SKU: {sku_display}\n"
+                        f"⏰ Дата истечения: {row.get('expires_at', '')[:10]}"
+                    )
+                    asyncio.create_task(bot.send_message(
+                        chat_id=int(tg_id_clean),
+                        text=msg,
+                        parse_mode="HTML"
+                    ))
+                    print(f"✅ Уведомление об одобрении отправлено менеджеру {tg_id_clean}")
+                except Exception as e:
+                    print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
 
     # достаём все связанные tg-сообщения
     query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
@@ -3277,6 +3570,38 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     update_query = _adapt_query("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?")
     cur.execute(update_query, (new_exp, now_iso(), pid))
     add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
+    
+    # Отправляем уведомление менеджеру
+    manager_name = row.get("manager", "")
+    if manager_name:
+        # Ищем менеджера по имени
+        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+        cur.execute(query, (manager_name, manager_name))
+        manager_user = cur.fetchone()
+        
+        if manager_user and manager_user.get("tg_id"):
+            tg_id = manager_user.get("tg_id")
+            from backend.db import normalize_tg_id
+            tg_id_clean = normalize_tg_id(tg_id)
+            
+            if tg_id_clean and tg_id_clean.isdigit():
+                try:
+                    msg = (
+                        f"✅ <b>Защита продлена</b>\n\n"
+                        f"Защита: <b>#{pid}</b>\n"
+                        f"📦 SKU: {row.get('sku', '—')}\n"
+                        f"⏰ Новая дата истечения: {new_exp[:10]}\n"
+                        f"📅 Продлено на: {days} дней"
+                    )
+                    await bot.send_message(
+                        chat_id=int(tg_id_clean),
+                        text=msg,
+                        parse_mode="HTML"
+                    )
+                    print(f"✅ Уведомление о продлении отправлено менеджеру {tg_id_clean}")
+                except Exception as e:
+                    print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
+    
     conn.commit()
     conn.close()
     
@@ -3439,7 +3764,29 @@ async def cmd_start_with_webapp(message: types.Message):
             conn.commit()
             print(f"✅ Создан новый пользователь с tg_id {tg_id}")
         
+        # Проверяем, есть ли активные коды верификации для этого tg_id
+        # Ищем коды, которые были созданы, но еще не использованы
+        query = _adapt_query("""
+            SELECT * FROM verification_codes 
+            WHERE tg_id=? AND used=0 AND expires_at > ?
+            ORDER BY created_at DESC LIMIT 1
+        """)
+        cur.execute(query, (str(tg_id), now_iso()))
+        code_record = cur.fetchone()
+        
         conn.close()
+        
+        # Если есть активный код, отправляем его пользователю
+        if code_record:
+            code = code_record.get("code")
+            msg = (
+                f"🔐 <b>Ваш код верификации</b>\n\n"
+                f"Код: <code>{code}</code>\n\n"
+                f"Введите этот код в приложении для завершения регистрации.\n"
+                f"Код действителен до {code_record.get('expires_at', '')[:16]}"
+            )
+            await message.answer(msg, parse_mode="HTML")
+        
     except Exception as e:
         print(f"⚠️ Ошибка обновления tg_id при /start: {e}")
     
