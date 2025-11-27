@@ -244,9 +244,9 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -529,10 +529,16 @@ async def register_or_login(data: RegisterOrLogin):
     role = "superadmin" if phone_clean == superadmin_phone else "user"
     
     try:
+        # Нормализуем tg_id - убираем префиксы "dev-", "tg-"
+        from backend.db import normalize_tg_id
+        normalized_tg_id = normalize_tg_id(data.tg_id)
+        if not normalized_tg_id:
+            raise HTTPException(status_code=400, detail="Invalid tg_id format")
+        
         # Используем upsert_user для создания или обновления
         # Роль будет определена внутри upsert_user по телефону
         user = upsert_user({
-            "tg_id": str(data.tg_id),
+            "tg_id": normalized_tg_id,
             "full_name": data.full_name,
             "phone": data.phone,
             "position": data.position,
@@ -737,22 +743,32 @@ async def telegram_auth(request: Request):
     # Если hash == "dev-mode", пропускаем проверку Telegram,
     # но всё равно работаем через таблицу users.
     if data.get("hash") == "dev-mode":
-        tg_id = int(data["id"])
+        from backend.db import normalize_tg_id
+        tg_id_raw = data["id"]
+        tg_id_normalized = normalize_tg_id(tg_id_raw)
+        if not tg_id_normalized:
+            raise HTTPException(status_code=400, detail="Invalid tg_id format")
+        tg_id = int(tg_id_normalized)
         username = data.get("username") or ""
         first_name = data.get("first_name") or "DevUser"
         role = "superadmin" if tg_id == 426188469 else "manager"
 
         conn = get_conn()
         cur = conn.cursor()
+        # Используем нормализованный tg_id как строку для совместимости
         cur.execute(
-            """
-            INSERT OR IGNORE INTO users (tg_id, tg_username, first_name, role, created_at)
+            _adapt_query("""
+                INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
             VALUES (?,?,?,?,?)
-            """,
-            (tg_id, username, first_name, role, now_iso()),
+                ON CONFLICT(tg_id) DO UPDATE SET
+                    tg_username=excluded.tg_username,
+                    first_name=excluded.first_name,
+                    role=excluded.role
+            """),
+            (str(tg_id), username, first_name, role, now_iso()),
         )
         conn.commit()
-        user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
         conn.close()
 
         token = create_access_token(dict(user))
@@ -771,7 +787,12 @@ async def telegram_auth(request: Request):
     if not verify_telegram_auth(data):
         raise HTTPException(status_code=400, detail="Invalid Telegram auth data")
 
-    tg_id = int(data["id"])
+    from backend.db import normalize_tg_id
+    tg_id_raw = data["id"]
+    tg_id_normalized = normalize_tg_id(tg_id_raw)
+    if not tg_id_normalized:
+        raise HTTPException(status_code=400, detail="Invalid tg_id format")
+    tg_id = int(tg_id_normalized)
     username = data.get("username")
     first_name = data.get("first_name")
 
@@ -780,12 +801,43 @@ async def telegram_auth(request: Request):
 
     # === Главный админ ===
     if tg_id == 426188469:
+        # Проверяем, есть ли пользователь с правильным tg_id
+        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+        
+        # Если пользователя с правильным tg_id нет, ищем пользователя с неправильным tg_id
+        # (например, dev-79207455960) и обновляем его tg_id
+        if not user:
+            # Ищем пользователя с неправильными форматами tg_id для главного админа
+            wrong_tg_ids = ["dev-79207455960", "79207455960", "tg-79207455960"]
+            for wrong_id in wrong_tg_ids:
+                existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
+                if existing_user:
+                    # Обновляем tg_id на правильный
         cur.execute(
-            "INSERT OR IGNORE INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)",
-            (tg_id, username, first_name, "superadmin", now_iso())
+                        _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
+                        (str(tg_id), username, first_name, "superadmin", existing_user["id"])
         )
         conn.commit()
-        user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+                    user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+                    print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
+                    break
+        
+        # Если пользователь все еще не найден, создаем нового
+        if not user:
+            cur.execute(
+                _adapt_query("""
+                    INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(tg_id) DO UPDATE SET
+                        tg_username=excluded.tg_username,
+                        first_name=excluded.first_name,
+                        role=excluded.role
+                """),
+                (str(tg_id), username, first_name, "superadmin", now_iso())
+            )
+            conn.commit()
+            user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+        
         conn.close()
         token = create_access_token(dict(user))
         return {
@@ -800,14 +852,14 @@ async def telegram_auth(request: Request):
         }
 
     # --- Остальные пользователи ---
-    row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+    row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
     if not row:
         cur.execute(
-            "INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)",
-            (tg_id, username, first_name, "manager", now_iso())
+            _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
+            (str(tg_id), username, first_name, "manager", now_iso())
         )
         conn.commit()
-        row = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+        row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
 
         role = row["role"]
     token = create_access_token(dict(row))
@@ -828,9 +880,12 @@ async def telegram_auth(request: Request):
 # ===== DEV-авторизация без проверки Telegram =====
 @app.post("/api/auth/dev-login")
 def dev_login(payload: dict):
-    tg_id = int(payload.get("tg_id") or payload.get("id") or 0)
-    if not tg_id:
+    from backend.db import normalize_tg_id
+    tg_id_raw = payload.get("tg_id") or payload.get("id") or "0"
+    tg_id_normalized = normalize_tg_id(tg_id_raw)
+    if not tg_id_normalized:
         raise HTTPException(status_code=400, detail="tg_id is required")
+    tg_id = int(tg_id_normalized)
 
     username = payload.get("username") or ""
     first_name = payload.get("first_name") or "DevUser"
@@ -845,19 +900,19 @@ def dev_login(payload: dict):
     cur = conn.cursor()
 
     cur.execute(
-        """
+        _adapt_query("""
         INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
         VALUES (?,?,?,?,?)
         ON CONFLICT(tg_id) DO UPDATE SET
             tg_username=excluded.tg_username,
             first_name=excluded.first_name,
             role=excluded.role
-        """,
-        (tg_id, username, first_name, role, now_iso()),
+        """),
+        (str(tg_id), username, first_name, role, now_iso()),
     )
     conn.commit()
 
-    user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+    user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
     conn.close()
 
     if not user:
@@ -1037,7 +1092,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-        conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1168,7 +1223,7 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-            conn.close()
+        conn.close()
         raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
@@ -1508,7 +1563,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-        insert_sql = _adapt_query("""
+    insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -1537,7 +1592,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -1986,7 +2041,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
-                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                 print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
                 traceback.print_exc()
@@ -2382,7 +2437,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -3495,10 +3550,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-            except Exception as e:
+    except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -3511,7 +3566,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-                        _bot_running = False
+        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")

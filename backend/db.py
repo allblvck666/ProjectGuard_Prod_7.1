@@ -302,6 +302,21 @@ def get_all_users():
     return [dict(row) for row in rows]
 
 
+def normalize_tg_id(tg_id):
+    """
+    Нормализует tg_id, убирая префиксы 'dev-', 'tg-' и оставляя только числовой ID.
+    """
+    if not tg_id:
+        return None
+    tg_id_str = str(tg_id).strip()
+    # Убираем префиксы
+    tg_id_str = tg_id_str.replace("dev-", "").replace("tg-", "").strip()
+    # Проверяем, что осталось число
+    if tg_id_str.isdigit():
+        return tg_id_str
+    # Если не число, возвращаем как есть (на случай, если это уже нормализованный ID)
+    return tg_id_str if tg_id_str else None
+
 def upsert_user(data: dict):
     """
     Создать или обновить пользователя по tg_id (UPSERT логика).
@@ -311,15 +326,33 @@ def upsert_user(data: dict):
     conn = get_conn()
     cur = conn.cursor()
     
-    tg_id = str(data.get("tg_id", ""))
+    # Нормализуем tg_id перед использованием
+    tg_id_raw = data.get("tg_id", "")
+    tg_id = normalize_tg_id(tg_id_raw)
     if not tg_id:
         conn.close()
         raise ValueError("tg_id is required")
     
-    # Проверяем, существует ли пользователь
-    query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
-    cur.execute(query, (tg_id,))
+    # Проверяем, существует ли пользователь по нормализованному tg_id
+    # Также ищем пользователей со старым форматом (с префиксами)
+    query = _adapt_query("SELECT * FROM users WHERE tg_id = ? OR tg_id = ? OR tg_id = ?")
+    cur.execute(query, (tg_id, f"dev-{tg_id}", f"tg-{tg_id}"))
     existing = cur.fetchone()
+    
+    # Если нашли пользователя со старым форматом, обновляем его tg_id
+    if existing:
+        existing_dict = dict(existing)
+        existing_tg_id = existing_dict.get("tg_id")
+        existing_id = existing_dict.get("id")
+        if existing_tg_id and existing_tg_id != tg_id:
+            # Обновляем tg_id на нормализованный
+            update_query = _adapt_query("UPDATE users SET tg_id = ? WHERE id = ?")
+            cur.execute(update_query, (tg_id, existing_id))
+            conn.commit()
+            # Перечитываем пользователя
+            query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
+            cur.execute(query, (tg_id,))
+            existing = cur.fetchone()
     
     now = now_iso()
     
