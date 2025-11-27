@@ -1795,6 +1795,12 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             cur.execute(protections_query, (name,))
             protection_ids = [r["id"] for r in cur.fetchall()]
             
+            # Удаляем записи из tg_notifications для всех защит (ПЕРЕД удалением защит)
+            if protection_ids:
+                placeholders = ",".join(["?"] * len(protection_ids))
+                tg_notifications_delete_query = _adapt_query(f"DELETE FROM tg_notifications WHERE protection_id IN ({placeholders})")
+                cur.execute(tg_notifications_delete_query, protection_ids)
+            
             # Удаляем историю для всех защит
             if protection_ids:
                 placeholders = ",".join(["?"] * len(protection_ids))
