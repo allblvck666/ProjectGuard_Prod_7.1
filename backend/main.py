@@ -880,14 +880,14 @@ async def telegram_auth(request: Request):
             existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-                    cur.execute(
-                        _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
-                        (str(tg_id), username, first_name, existing_user["id"])
-                    )
-                    conn.commit()
-                    row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-                    print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
-                    break
+                cur.execute(
+                    _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
+                    (str(tg_id), username, first_name, existing_user["id"])
+                )
+                conn.commit()
+                row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+                print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
+                break
         
         # Если пользователь все еще не найден, создаем нового
         if not row:
@@ -1651,7 +1651,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         """
     else:
         insert_sql = _adapt_query("""
-        INSERT INTO protections(
+            INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
             extend_count, auto_closed, manager_id
@@ -2163,33 +2163,36 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     continue
                 
                 # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
-                    try:
-                        result = await bot.send_message(
-                            chat_id=tg_id_int,
-                            text=msg,
-                            parse_mode="HTML",
-                            reply_markup=kb.as_markup()
-                        )
-                    except Exception as send_error:
-                        # Если не получилось с int, пробуем со строкой
-                        error_msg = str(send_error).lower()
-                        if "chat not found" in error_msg or "chat_not_found" in error_msg:
-                            print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
-                            # Пробуем использовать строку вместо int
-                            try:
-                                result = await bot.send_message(
-                                    chat_id=str(tg_id_int),
-                                    text=msg,
-                                    parse_mode="HTML",
-                                    reply_markup=kb.as_markup()
-                                )
-                            except Exception as e2:
-                                raise send_error  # Возвращаем исходную ошибку
-                        else:
-                            raise send_error
-                sent_count += 1
-                admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                result = None
+                try:
+                    result = await bot.send_message(
+                        chat_id=tg_id_int,
+                        text=msg,
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
+                except Exception as send_error:
+                    # Если не получилось с int, пробуем со строкой
+                    error_msg = str(send_error).lower()
+                    if "chat not found" in error_msg or "chat_not_found" in error_msg:
+                        print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
+                        # Пробуем использовать строку вместо int
+                        try:
+                            result = await bot.send_message(
+                                chat_id=str(tg_id_int),
+                                text=msg,
+                                parse_mode="HTML",
+                                reply_markup=kb.as_markup()
+                            )
+                        except Exception as e2:
+                            raise send_error  # Возвращаем исходную ошибку
+                    else:
+                        raise send_error
+                
+                if result:
+                    sent_count += 1
+                    admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
@@ -2198,8 +2201,8 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 else:
                     print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                     print(f"🔍 Тип ошибки: {type(e).__name__}")
-                    import traceback
-                    traceback.print_exc()
+                import traceback
+                traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
@@ -3413,7 +3416,9 @@ async def cmd_start_with_webapp(message: types.Message):
         conn = get_conn()
         cur = conn.cursor()
         # Проверяем, есть ли пользователь с таким tg_id
-        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+        query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
+        cur.execute(query, (str(tg_id),))
+        user = cur.fetchone()
         
         if user:
             # Обновляем username и first_name если они изменились
