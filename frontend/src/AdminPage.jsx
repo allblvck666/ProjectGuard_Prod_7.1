@@ -153,7 +153,7 @@ function DashboardTab() {
           className="admin-stat-card" 
           style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", cursor: "pointer" }}
           onClick={() => {
-            const event = new CustomEvent("admin:switch-tab", { detail: "pending" });
+            const event = new CustomEvent("admin:switch-tab", { detail: "managers" });
             window.dispatchEvent(event);
           }}
         >
@@ -684,6 +684,33 @@ function UsersTable() {
                               </button>
                             )}
                           </div>
+                          {(u.role === "admin" || u.role === "superadmin") && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 12, background: "rgba(255, 255, 255, 0.05)", borderRadius: 8, width: "100%" }}>
+                              <input
+                                type="checkbox"
+                                id={`notify-toggle-${u.id}`}
+                                checked={u.receive_notifications === 1 || u.receive_notifications === undefined}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const newValue = e.target.checked ? 1 : 0;
+                                  updateUser(u.id, { receive_notifications: newValue }).then(() => {
+                                    setUsers(prevUsers => prevUsers.map(user => 
+                                      user.id === u.id ? { ...user, receive_notifications: newValue } : user
+                                    ));
+                                  });
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ width: 18, height: 18, cursor: "pointer" }}
+                              />
+                              <label 
+                                htmlFor={`notify-toggle-${u.id}`} 
+                                style={{ fontSize: 14, color: "rgba(255, 255, 255, 0.8)", cursor: "pointer", userSelect: "none" }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                🔔 Получать уведомления
+                              </label>
+                            </div>
+                          )}
                           <button
                             className="admin-btn-secondary"
                             onClick={(e) => {

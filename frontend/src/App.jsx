@@ -2,18 +2,20 @@
 import axios from "axios";
 import { api, fetchMe, adminUsersAPI } from "./api";
 
-import AdminPage from "./AdminPage.jsx";
-console.log("📦 App.jsx загружает AdminPage из", import.meta.url);
+// Ленивая загрузка AdminPage - загружается только когда нужен
+import { lazy, Suspense, memo } from "react";
+const AdminPage = lazy(() => import("./AdminPage.jsx"));
+
 import { useEffect, useState } from "react";
 import "./App.css";
-console.log("🔥 App.jsx reloaded at", new Date().toISOString());
 import LoginPage from "./LoginPage";
+import ThemeToggle from "./ThemeToggle";
 
 // ✅ Правильный универсальный путь
 import { API_BASE } from "./api";
 
 /* === Карточка статистики === */
-function StatCard({ s }) {
+const StatCard = memo(function StatCard({ s }) {
   const [expanded, setExpanded] = useState(false);
   
   return (
@@ -80,7 +82,7 @@ function StatCard({ s }) {
       )}
     </div>
   );
-}
+});
 
 /* === Выбор артикулов === */
 function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) {
@@ -1139,10 +1141,6 @@ function App() {
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
 
-  console.log("📌 AUTH =", auth);
-  console.log("📌 ROUTE =", route);
-  console.log("📌 IS_TG =", isTG);
-
   // 🔍 Проверка валидности токена при загрузке (только для браузера)
   useEffect(() => {
     if (isTG) {
@@ -1176,7 +1174,6 @@ function App() {
         });
       })
       .catch((err) => {
-        console.warn("⚠️ Token verification failed:", err);
         // Токен невалидный - очищаем и показываем LoginPage
         localStorage.removeItem("jwt_token");
         localStorage.removeItem("role");
@@ -1214,7 +1211,6 @@ function App() {
           }
         })
         .catch((err) => {
-          console.warn("⚠️ Existing token invalid, re-login needed:", err);
           // Токен невалидный - делаем новый логин
           localStorage.removeItem("jwt_token");
           localStorage.removeItem("role");
@@ -1226,18 +1222,15 @@ function App() {
     try {
       const tg = window.Telegram?.WebApp;
       if (!tg?.initDataUnsafe?.user) {
-        console.log("Telegram WebApp: нет initDataUnsafe.user");
         // Если нет данных пользователя, но есть токен - используем его
         if (auth.token) {
           return;
         }
         // Если нет ни токена, ни данных - показываем ошибку
-        console.error("❌ Telegram WebApp: нет данных пользователя и нет токена");
         return;
       }
 
       const user = tg.initDataUnsafe.user;
-      console.log("Telegram WebApp user =", user);
 
       // Если уже есть валидный токен - не делаем повторный запрос
       if (auth.token) {
@@ -1262,9 +1255,7 @@ function App() {
           return r.json();
         })
         .then((data) => {
-          console.log("telegram-login resp =", data);
           if (!data.ok) {
-            console.error("❌ Telegram login failed:", data);
             return;
           }
 
@@ -1287,11 +1278,10 @@ function App() {
           tg.expand();
         })
         .catch((err) => {
-          console.error("❌ Telegram auto-login error:", err);
           // Не очищаем токен, если он был - возможно это временная ошибка сети
         });
     } catch (err) {
-      console.error("❌ Telegram auto-login skipped:", err);
+      // Ошибка инициализации Telegram WebApp
     }
   }, [isTG, auth.token]);
 
@@ -1340,7 +1330,6 @@ function App() {
         alert("❌ Ошибка входа");
       }
     } catch (err) {
-      console.error(err);
       alert("Ошибка запроса к серверу");
     }
   };
@@ -1353,7 +1342,6 @@ function App() {
   useEffect(() => {
     const currentRole = auth.role || role;
     if (route === "admin" && currentRole !== "admin" && currentRole !== "superadmin") {
-      console.log("⛔ Доступ в админку запрещён — роль:", currentRole);
       setRoute("home");
     }
   }, [route, auth.role, role]);
@@ -1503,31 +1491,22 @@ function App() {
         setStats(s.data || []);
       } else if (route === "archive") {
         // Для архива загружаем все неактивные защиты (success, closed, deleted)
-        console.log("📦 Загрузка архива...", { managerFilter, search });
         const list = await api.get("/api/protections", {
           params: { manager: managerFilter || "", status: "archived", search: search || "" },
         });
         let data = list.data || [];
-        console.log("📦 Получено защит из API:", data.length);
         // Бэкенд уже возвращает только неактивные защиты (success, closed, deleted, archived)
         // Дополнительная фильтрация не нужна, но на всякий случай оставляем
         data = data.filter((it) => it.status !== "active" && it.status !== "pending");
-        console.log("📦 После фильтрации:", data.length);
         setItems(data);
       } else if (route === "active") {
         // Для активных защит загружаем только активные
-        console.log("📋 Загрузка активных защит...", { managerFilter, search });
         const list = await api.get("/api/protections", {
           params: { manager: managerFilter || "", status: "active", search: search || "" },
         });
         let data = list.data || [];
-        console.log("📋 Получено активных защит из API:", data.length);
-        if (data.length > 0) {
-          console.log("📋 Первые 3 защиты:", data.slice(0, 3).map(it => ({ id: it.id, status: it.status, client: it.client })));
-        }
         // Убеждаемся, что все защиты активны (на всякий случай)
         data = data.filter(it => it.status === "active");
-        console.log("📋 После проверки статуса:", data.length);
         setItems(data);
       } else {
         // Для остальных экранов загружаем все
@@ -1541,7 +1520,6 @@ function App() {
         setItems(list.data || []);
       }
     } catch (err) {
-      console.error("❌ Ошибка загрузки данных:", err);
       if (route === "archive" || route === "active") {
         setItems([]);
       }
@@ -1559,31 +1537,62 @@ function App() {
     // Загружаем данные при смене route
     load();
 
-    // Загружаем справочники только один раз или при необходимости
-    api.get("/api/skus").then((r) => {
-      console.log("📦 skus raw:", r.data);
-      const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
-
-      const normalized = dataRaw.map((x) => ({
-        sku: x.sku || x.article || x.art || x.name || "",
-        type: x.type || x.category || x.kind || x.group || "",
-        collection: x.collection || x.series || x.line || "",
-      }));
-
-      console.log("✅ normalized skus:", normalized.slice(0, 5));
-      setSkus(normalized);
-    });
-
-    api.get("/api/managers").then((r) => {
-      console.log("👥 managers raw:", r.data);
-      const dataRaw = Array.isArray(r.data) ? r.data : r.data?.managers || [];
-      const normalized = dataRaw.map((m) => ({
-        id: m.id,
-        first_name: m.name || m.first_name || "",
-      }));
-      console.log("✅ normalized managers:", normalized);
-      setManagers(normalized);
-    });
+    // Загружаем справочники только один раз (кэшируем в localStorage)
+    const cachedSkus = localStorage.getItem("cached_skus");
+    const cachedManagers = localStorage.getItem("cached_managers");
+    const cacheTime = 5 * 60 * 1000; // 5 минут
+    
+    if (cachedSkus) {
+      try {
+        const { data, timestamp } = JSON.parse(cachedSkus);
+        if (Date.now() - timestamp < cacheTime) {
+          setSkus(data);
+        } else {
+          localStorage.removeItem("cached_skus");
+        }
+      } catch (e) {
+        localStorage.removeItem("cached_skus");
+      }
+    }
+    
+    if (cachedManagers) {
+      try {
+        const { data, timestamp } = JSON.parse(cachedManagers);
+        if (Date.now() - timestamp < cacheTime) {
+          setManagers(data);
+        } else {
+          localStorage.removeItem("cached_managers");
+        }
+      } catch (e) {
+        localStorage.removeItem("cached_managers");
+      }
+    }
+    
+    // Загружаем справочники только если нет кэша или кэш устарел
+    if (!cachedSkus || Date.now() - JSON.parse(cachedSkus).timestamp >= cacheTime) {
+      api.get("/api/skus").then((r) => {
+        const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
+        const normalized = dataRaw.map((x) => ({
+          sku: x.sku || x.article || x.art || x.name || "",
+          type: x.type || x.category || x.kind || x.group || "",
+          collection: x.collection || x.series || x.line || "",
+        }));
+        setSkus(normalized);
+        localStorage.setItem("cached_skus", JSON.stringify({ data: normalized, timestamp: Date.now() }));
+      });
+    }
+    
+    if (!cachedManagers || Date.now() - JSON.parse(cachedManagers).timestamp >= cacheTime) {
+      api.get("/api/managers").then((r) => {
+        const dataRaw = Array.isArray(r.data) ? r.data : r.data?.managers || [];
+        const normalized = dataRaw.map((m) => ({
+          id: m.id,
+          first_name: m.name || m.first_name || "",
+        }));
+        setManagers(normalized);
+        localStorage.setItem("cached_managers", JSON.stringify({ data: normalized, timestamp: Date.now() }));
+      });
+    }
 
     if (showHistory) loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1694,7 +1703,6 @@ function App() {
             alert("✅ Отправлено админу на проверку.");
             await load();
           } catch (subErr) {
-            console.error(subErr);
             alert("❌ Ошибка при отправке админу.");
           }
         } else {
@@ -1865,7 +1873,7 @@ function App() {
       setReady(true);
       }
     } catch (e) {
-      console.warn("Telegram WebApp init error:", e);
+      // Telegram WebApp init error
     } finally {
       setLoading(false);
     }
@@ -1931,9 +1939,9 @@ if (isTG && (!ready || loading)) {
                 localStorage.setItem("auth_user", JSON.stringify(updatedUser));
                 localStorage.setItem("role", finalRole);
               }
-            } catch (e) {
-              console.warn("Не удалось обновить данные пользователя:", e);
-            }
+          } catch (e) {
+            // Не удалось обновить данные пользователя
+          }
           }
           
           setAuth({ token, role: finalRole, user });
@@ -1950,7 +1958,25 @@ if (isTG && (!ready || loading)) {
 
   // 👑 Админка
   if (route === "admin") {
-    return <AdminPage onBack={goHome} />;
+    return (
+      <Suspense fallback={
+        <div style={{ 
+          padding: 40, 
+          textAlign: "center", 
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexDirection: "column",
+          gap: 16
+        }}>
+          <div style={{ fontSize: 48 }}>⏳</div>
+          <div style={{ opacity: 0.7 }}>Загрузка админки...</div>
+        </div>
+      }>
+        <AdminPage onBack={goHome} />
+      </Suspense>
+    );
   }
 
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
@@ -1976,19 +2002,22 @@ if (isTG && (!ready || loading)) {
             <h1 className="home-greeting">Привет, {userName} 👋</h1>
             <p className="home-subtitle">Выберите раздел для работы</p>
           </div>
-        <button
-            className="btn secondary" 
-            onClick={handleLogout}
-          style={{
-              fontSize: 14,
-              padding: "12px 20px",
-              height: "auto",
-              whiteSpace: "nowrap",
-              flexShrink: 0
-            }}
-          >
-            🚪 Выйти
-        </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <ThemeToggle />
+            <button
+              className="btn secondary" 
+              onClick={handleLogout}
+              style={{
+                fontSize: 14,
+                padding: "12px 20px",
+                height: "auto",
+                whiteSpace: "nowrap",
+                flexShrink: 0
+              }}
+            >
+              🚪 Выйти
+            </button>
+          </div>
         </div>
 
         <div className="home-grid">
@@ -2141,6 +2170,7 @@ if (isTG && (!ready || loading)) {
           <h1 style={{ margin: 0, fontWeight: 700 }}>
             ⚙️ Настройки
           </h1>
+          <ThemeToggle />
         </div>
         {/* Фиксированная кнопка "назад" на мобильной версии */}
         <button 

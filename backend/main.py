@@ -491,7 +491,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[int] = None
     manager_id: Optional[int] = None
-    receive_extend_notifications: Optional[int] = None
+    receive_notifications: Optional[int] = None
     manager_ids: Optional[str] = None  # JSON массив ID менеджеров
 
 
@@ -1384,8 +1384,8 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
         update_data["is_active"] = data.is_active
     if data.manager_id is not None:
         update_data["manager_id"] = data.manager_id
-    if data.receive_extend_notifications is not None:
-        update_data["receive_extend_notifications"] = data.receive_extend_notifications
+    if data.receive_notifications is not None:
+        update_data["receive_notifications"] = data.receive_notifications
     if data.manager_ids is not None:
         # Валидируем, что это валидный JSON массив
         import json
@@ -1911,15 +1911,16 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             if normalize_sku(row["sku"]) != sku_code:
                 continue
             if min_a <= float(row["area_m2"]) <= max_a:
-                # Отправляем уведомление всем админам и суперадминам о похожей защите
+                # Отправляем уведомление всем админам и суперадминам о похожей защите (только тем, у кого включены уведомления)
                 admins = cur.execute(
-                    """
+                    _adapt_query("""
                     SELECT tg_id, full_name, first_name 
                     FROM users 
                     WHERE role IN ('admin', 'superadmin') 
                       AND tg_id IS NOT NULL 
                       AND tg_id != ''
-                    """
+                      AND (receive_notifications IS NULL OR receive_notifications = 1)
+                    """)
                 ).fetchall()
                 
                 duplicate_msg = (
@@ -2299,107 +2300,8 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
     add_history(cur, pid, actor, "extend", {"days": days})
     conn.commit()
     
-    # Отправляем уведомление админам и суперадминам о продлении
-    if background_tasks:
-        async def notify_admins_extend():
-            try:
-                # Получаем всех админов и суперадминов
-                admin_conn = get_conn()
-                admin_cur = admin_conn.cursor()
-                admin_query = _adapt_query("SELECT id, tg_id, full_name, first_name FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
-                admin_cur.execute(admin_query)
-                admins = admin_cur.fetchall()
-                admin_conn.close()
-                
-                manager_name = row.get("manager", "—")
-                sku = row.get("sku", "—")
-                expires_at = new_exp[:10] if new_exp else "—"
-                
-                msg = (
-                    f"🔄 <b>Защита продлена</b>\n\n"
-                    f"👤 Менеджер: {manager_name}\n"
-                    f"📦 SKU: {sku}\n"
-                    f"⏰ Продлено на: {days} дней\n"
-                    f"📅 Новая дата истечения: {expires_at}\n"
-                    f"🆔 ID защиты: {pid}"
-                )
-                
-                # Отправляем уведомления
-                sent_count = 0
-                for admin in admins:
-                    # Обрабатываем разные форматы данных (dict для PostgreSQL, tuple для SQLite)
-                    if isinstance(admin, dict):
-                        tg_id = admin.get("tg_id")
-                        admin_id = admin.get("id")
-                    elif isinstance(admin, (list, tuple)):
-                        # Для SQLite: (id, tg_id, full_name, first_name)
-                        admin_id = admin[0] if len(admin) > 0 else None
-                        tg_id = admin[1] if len(admin) > 1 else None
-                    else:
-                        continue
-                    
-                    if not tg_id:
-                        continue
-                    
-                    # Нормализуем tg_id и обновляем в базе, если нужно
-                    from backend.db import normalize_tg_id
-                    normalized_tg_id = normalize_tg_id(tg_id)
-                    if normalized_tg_id and normalized_tg_id != str(tg_id):
-                        # Обновляем tg_id в базе, если он был с префиксом
-                        if admin_id:
-                            try:
-                                update_conn = get_conn()
-                                update_cur = update_conn.cursor()
-                                update_query = _adapt_query("UPDATE users SET tg_id=? WHERE id=?")
-                                update_cur.execute(update_query, (normalized_tg_id, admin_id))
-                                update_conn.commit()
-                                update_conn.close()
-                                print(f"✅ Обновлен tg_id пользователя {admin_id} с {tg_id} на {normalized_tg_id}")
-                                tg_id = normalized_tg_id
-                            except Exception as e:
-                                print(f"⚠️ Ошибка обновления tg_id для пользователя {admin_id}: {e}")
-                    
-                    try:
-                        # Пробуем разные форматы tg_id
-                        tg_id_int = None
-                        if isinstance(tg_id, int):
-                            tg_id_int = tg_id
-                        elif isinstance(tg_id, str):
-                            # Убираем префикс "tg-" или "dev-" если есть
-                            clean_id = tg_id.replace("tg-", "").replace("dev-", "").strip()
-                            if clean_id.isdigit():
-                                tg_id_int = int(clean_id)
-                            elif tg_id.isdigit():
-                                tg_id_int = int(tg_id)
-                        
-                        if not tg_id_int:
-                            print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
-                            continue
-                        
-                        # Проверяем, что бот инициализирован
-                        if bot is None:
-                            print(f"❌ Бот не инициализирован!")
-                            continue
-                        
-                        # Используем chat_id как именованный параметр
-                        await bot.send_message(chat_id=tg_id_int, text=msg, parse_mode="HTML")
-                        sent_count += 1
-                        print(f"✅ Уведомление о продлении отправлено админу {tg_id_int} (исходный tg_id: {tg_id})")
-                    except Exception as e:
-                        error_msg = str(e)
-                        if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
-                            print(f"⚠️ Пользователь {tg_id} не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
-                        else:
-                            print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
-                
-                if sent_count == 0 and len(admins) > 0:
-                    print(f"⚠️ Не удалось отправить уведомления о продлении ни одному админу. Всего админов: {len(admins)}")
-                elif sent_count > 0:
-                    print(f"✅ Уведомления о продлении отправлены {sent_count} админам/суперадминам")
-            except Exception as e:
-                print(f"⚠️ Ошибка при отправке уведомлений о продлении: {e}")
-        
-        background_tasks.add_task(notify_admins_extend)
+    # Уведомления админам отправляются только при запросе на продление (request_extend)
+    # или при спорных защитах (create_protection), но не при обычном продлении
     
     query = _adapt_query("SELECT * FROM protections WHERE id=?")
     cur.execute(query, (pid,))
@@ -2431,13 +2333,14 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
         {"days": days, "reason": reason},
     )
     
-    # Отправляем уведомление всем админам и суперадминам
+    # Отправляем уведомление всем админам и суперадминам, у которых включены уведомления
     admin_query = _adapt_query("""
         SELECT id, tg_id, full_name, first_name 
         FROM users 
         WHERE role IN ('admin', 'superadmin') 
           AND tg_id IS NOT NULL 
           AND tg_id != ''
+          AND (receive_notifications IS NULL OR receive_notifications = 1)
     """)
     cur.execute(admin_query)
     admins = cur.fetchall()
@@ -2940,14 +2843,16 @@ def admin_manager_protections(manager_id: int, user=Depends(get_admin_user)):
     cur = conn.cursor()
 
     # Проверяем, что менеджер существует
-    manager_row = cur.execute("SELECT name FROM managers WHERE id=?", (manager_id,)).fetchone()
+    query = _adapt_query("SELECT name FROM managers WHERE id=?")
+    cur.execute(query, (manager_id,))
+    manager_row = cur.fetchone()
     if not manager_row:
         conn.close()
         return []  # если менеджера нет — просто возвращаем пустой список
 
-    manager_name = manager_row["name"]
+    manager_name = manager_row["name"] if isinstance(manager_row, dict) else manager_row[0]
 
-    cur.execute("""
+    protections_query = _adapt_query("""
         SELECT 
             id,
             partner,
@@ -2971,7 +2876,8 @@ def admin_manager_protections(manager_id: int, user=Depends(get_admin_user)):
                 ELSE 5
             END,
             id DESC
-    """, (manager_name,))
+    """)
+    cur.execute(protections_query, (manager_name,))
 
     rows = cur.fetchall()
     conn.close()
@@ -3345,15 +3251,16 @@ async def auto_close_expired_protections():
                         import traceback
                         traceback.print_exc()
                 
-                # Отправляем уведомление админам/суперадминам
+                # Отправляем уведомление админам/суперадминам (только тем, у кого включены уведомления)
                 try:
-                    admins = cur.execute("""
+                    admins = cur.execute(_adapt_query("""
                         SELECT tg_id, full_name, first_name 
                         FROM users 
                         WHERE role IN ('admin', 'superadmin') 
                           AND tg_id IS NOT NULL 
                           AND tg_id != ''
-                    """).fetchall()
+                          AND (receive_notifications IS NULL OR receive_notifications = 1)
+                    """)).fetchall()
                     
                     admin_msg = (
                         f"🔒 <b>Защита #{pid} автоматически закрыта за бездействие</b>\n\n"
@@ -3450,19 +3357,19 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
             if a["tg_id"]:
                 tg_ids.append(a["tg_id"])
 
-    # админы этой же группы
+    # админы этой же группы (только те, у кого включены уведомления)
     if group_tag:
         admins = cur.execute(
-            "SELECT tg_id FROM users WHERE role='admin' AND group_tag=?",
+            _adapt_query("SELECT tg_id FROM users WHERE role='admin' AND group_tag=? AND (receive_notifications IS NULL OR receive_notifications = 1)"),
             (group_tag,)
         ).fetchall()
         for a in admins:
             if a["tg_id"]:
                 tg_ids.append(a["tg_id"])
 
-    # супер-админ (ты) — на всякий случай всегда
+    # супер-админ (только те, у кого включены уведомления)
     superadmins = cur.execute(
-        "SELECT tg_id FROM users WHERE role='superadmin'"
+        _adapt_query("SELECT tg_id FROM users WHERE role='superadmin' AND (receive_notifications IS NULL OR receive_notifications = 1)")
     ).fetchall()
     for sa in superadmins:
         if sa["tg_id"]:
@@ -4147,12 +4054,12 @@ async def cmd_extend(message: types.Message):
         
         await message.answer(f"✅ Защита #{pid} продлена на {days} дней\n📅 Новая дата: {new_exp[:10]}")
         
-        # Отправляем уведомление админам
+        # Отправляем уведомление админам (только тем, у кого включены уведомления)
         async def notify_admins():
             try:
                 admin_conn = get_conn()
                 admin_cur = admin_conn.cursor()
-                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != '' AND (receive_notifications IS NULL OR receive_notifications = 1)")
                 admin_cur.execute(admin_query)
                 admins = admin_cur.fetchall()
                 admin_conn.close()
