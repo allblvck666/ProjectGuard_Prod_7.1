@@ -734,6 +734,11 @@ function ActiveProtectionsPage({
                           <b>👨‍💼 Менеджер:</b> {it.manager}
                         </div>
                       )}
+                      {it.creator_name && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>👤 Создал:</b> {it.creator_name}
+                        </div>
+                      )}
                       {it.created_at && (
                         <div className="small" style={{ marginBottom: 6 }}>
                           <b>📅 Создано:</b> {new Date(it.created_at).toLocaleString("ru-RU", { 

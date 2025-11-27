@@ -214,6 +214,7 @@ class ProtectionOut(BaseModel):
     warn_text: Optional[str] = None
     extend_count: Optional[int] = 0
     manager_id: Optional[int] = None  # ID пользователя, создавшего защиту
+    creator_name: Optional[str] = None  # Имя создателя защиты (full_name из users)
     close_reason: Optional[str] = None  # Причина закрытия из истории
     success_doc: Optional[str] = None  # Документ 1С из истории
     delete_reason: Optional[str] = None  # Причина удаления из истории
@@ -344,7 +345,24 @@ def row_to_out(row, history_data: dict = None) -> ProtectionOut:
     warn_text = "⏰ Через 2 дня истекает — напомни менеджеру." if warn2d else None
     # Проверяем наличие manager_id в строке (для совместимости с SQLite и PostgreSQL)
     manager_id = row["manager_id"] if "manager_id" in row.keys() else None
+    
     history_data = history_data or {}
+    
+    # Получаем имя создателя защиты из history_data (если передано) или делаем запрос
+    creator_name = history_data.get("creator_name")
+    if not creator_name and manager_id:
+        try:
+            conn = get_conn()
+            cur = conn.cursor()
+            creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+            cur.execute(creator_query, (manager_id,))
+            creator_row = cur.fetchone()
+            conn.close()
+            if creator_row:
+                creator_name = creator_row.get("full_name") or creator_row.get("first_name") or None
+        except Exception as e:
+            print(f"⚠️ Ошибка получения имени создателя защиты: {e}")
+    
     return ProtectionOut(
         id=row["id"],
         manager=row["manager"],
@@ -366,6 +384,7 @@ def row_to_out(row, history_data: dict = None) -> ProtectionOut:
         warn_text=warn_text,
         extend_count=row["extend_count"] if "extend_count" in row.keys() else 0,
         manager_id=manager_id,  # ID пользователя, создавшего защиту
+        creator_name=creator_name,  # Имя создателя защиты (full_name из users)
         close_reason=history_data.get("close_reason"),
         success_doc=history_data.get("success_doc"),
         delete_reason=history_data.get("delete_reason"),
@@ -2194,6 +2213,22 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     cur.execute(sql, params)
     rows = cur.fetchall()
     
+    # Получаем имена создателей для всех защит через JOIN
+    creator_map = {}
+    if rows:
+        manager_ids = [r["manager_id"] for r in rows if "manager_id" in r.keys() and r["manager_id"]]
+        if manager_ids:
+            placeholders = ",".join(["?"] * len(manager_ids))
+            creator_sql = _adapt_query(f"SELECT id, full_name, first_name FROM users WHERE id IN ({placeholders})")
+            creator_cur = conn.cursor()
+            creator_cur.execute(creator_sql, manager_ids)
+            creator_rows = creator_cur.fetchall()
+            for cr in creator_rows:
+                creator_id = cr["id"]
+                creator_name = cr.get("full_name") or cr.get("first_name") or None
+                if creator_name:
+                    creator_map[creator_id] = creator_name
+    
     # Получаем историю для всех защит, чтобы извлечь комментарии
     protection_ids = [r["id"] for r in rows]
     history_map = {}
@@ -2223,6 +2258,15 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
                 if pid not in history_map:
                     history_map[pid] = {}
                 history_map[pid]["close_reason"] = r["close_reason"]
+    
+    # Добавляем creator_name в history_map для передачи в row_to_out
+    for r in rows:
+        pid = r["id"]
+        manager_id = r.get("manager_id") if "manager_id" in r.keys() else None
+        if manager_id and manager_id in creator_map:
+            if pid not in history_map:
+                history_map[pid] = {}
+            history_map[pid]["creator_name"] = creator_map[manager_id]
     
     conn.close()
     return [row_to_out(r, history_map.get(r["id"], {})) for r in rows]
@@ -3123,8 +3167,9 @@ async def check_expiring_protections():
                 kb = InlineKeyboardBuilder()
                 kb.button(text="✅ Продлить на 10 дней", callback_data=f"extend:{pid}:10")
                 kb.button(text="✅ Продлить на 30 дней", callback_data=f"extend:{pid}:30")
+                kb.button(text="✅ Успешно (1С)", callback_data=f"success_exp:{pid}")
                 kb.button(text="🔒 Закрыть защиту", callback_data=f"close_exp:{pid}")
-                kb.adjust(2, 1)
+                kb.adjust(2, 2)
 
                 sent_count = 0
                 for tid in recipients:
@@ -3633,6 +3678,38 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
     )
 
 
+# === Обработка успешного завершения защиты при истечении ===
+@dp.callback_query(F.data.startswith("success_exp:"))
+async def success_expiring_handler(callback: types.CallbackQuery):
+    pid = int(callback.data.split(":")[1])
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    if not row:
+        await callback.answer("❌ Защита не найдена", show_alert=True)
+        conn.close()
+        return
+    
+    if row["status"] != "active":
+        await callback.answer("❌ Защита не активна", show_alert=True)
+        conn.close()
+        return
+    
+    # Запрашиваем номер документа 1С
+    await callback.answer()
+    await callback.message.edit_text(
+        f"✅ <b>Отметить защиту #{pid} как успешную</b>\n\n"
+        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
+        f"👤 Менеджер: {row['manager']}\n"
+        f"⏰ Дата истечения: {row['expires_at'][:10]}\n\n"
+        f"💬 <b>Номер документа из 1С:</b> (укажите в ответе на это сообщение)",
+        parse_mode="HTML"
+    )
+    conn.close()
+
 # === Обработка закрытия защиты при истечении ===
 @dp.callback_query(F.data.startswith("close_exp:"))
 async def close_expiring_handler(callback: types.CallbackQuery):
@@ -3648,20 +3725,22 @@ async def close_expiring_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
-    update_query = _adapt_query("UPDATE protections SET status='archived', closed_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, "manager", "close", {"reason": "Истек срок", "source": "tg_expiring"})
-    conn.commit()
-    conn.close()
+    if row["status"] != "active":
+        await callback.answer("❌ Защита не активна", show_alert=True)
+        conn.close()
+        return
     
-    await callback.answer("🔒 Защита закрыта")
+    # Запрашиваем причину закрытия
+    await callback.answer()
     await callback.message.edit_text(
-        f"🔒 <b>Защита #{pid} закрыта</b>\n\n"
+        f"🔒 <b>Закрыть защиту #{pid}</b>\n\n"
         f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
         f"👤 Менеджер: {row['manager']}\n"
-        f"📅 Дата закрытия: {now_iso()[:10]}",
+        f"⏰ Дата истечения: {row['expires_at'][:10]}\n\n"
+        f"💬 <b>Причина закрытия:</b> (укажите в ответе на это сообщение)",
         parse_mode="HTML"
     )
+    conn.close()
 
 
 # === Обработка продления защиты админом ===
@@ -3839,19 +3918,18 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
     conn.close()
 
 @dp.message(F.text & F.reply_to_message)
-async def handle_reject_reason(message: types.Message):
-    """Обработка причины отклонения из ответа на сообщение"""
-    if "Отклонение запроса на продление" not in message.reply_to_message.text:
-        return
+async def handle_reply_message(message: types.Message):
+    """Обработка ответов на сообщения (причина отклонения, номер 1С, причина закрытия)"""
+    reply_text = message.reply_to_message.text or ""
     
     # Извлекаем ID защиты из текста
     import re
-    match = re.search(r'#(\d+)', message.reply_to_message.text)
+    match = re.search(r'#(\d+)', reply_text)
     if not match:
         return
     
     pid = int(match.group(1))
-    reason = message.text.strip()
+    user_text = message.text.strip()
     
     conn = get_conn()
     cur = conn.cursor()
@@ -3863,28 +3941,75 @@ async def handle_reject_reason(message: types.Message):
         conn.close()
         return
     
-    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": reason})
-    
-    # Удаляем запрос на продление из истории, чтобы он пропал из админки
-    delete_extend_request_query = _adapt_query("""
-        DELETE FROM history 
-        WHERE protection_id=? AND action='extend_request'
-        AND id = (
-            SELECT id FROM history 
+    # Определяем тип действия по тексту сообщения
+    if "Отклонение запроса на продление" in reply_text:
+        # Обработка отклонения запроса на продление
+        add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": user_text})
+        
+        # Удаляем запрос на продление из истории, чтобы он пропал из админки
+        delete_extend_request_query = _adapt_query("""
+            DELETE FROM history 
             WHERE protection_id=? AND action='extend_request'
-            ORDER BY at DESC LIMIT 1
+            AND id = (
+                SELECT id FROM history 
+                WHERE protection_id=? AND action='extend_request'
+                ORDER BY at DESC LIMIT 1
+            )
+        """)
+        cur.execute(delete_extend_request_query, (pid, pid))
+        
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
+            f"💬 Причина: {user_text}",
+            parse_mode="HTML"
         )
-    """)
-    cur.execute(delete_extend_request_query, (pid, pid))
     
-    conn.commit()
-    conn.close()
+    elif "Отметить защиту" in reply_text and "успешной" in reply_text:
+        # Обработка успешного завершения защиты
+        if not user_text:
+            await message.answer("❌ Нужно указать номер документа из 1С")
+            conn.close()
+            return
+        
+        update_query = _adapt_query("UPDATE protections SET status='success', closed_at=? WHERE id=?")
+        cur.execute(update_query, (now_iso(), pid))
+        add_history(cur, pid, "manager", "success", {"doc_1c": user_text, "source": "tg_expiring"})
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"✅ <b>Защита #{pid} отмечена как успешная</b>\n\n"
+            f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
+            f"👤 Менеджер: {row['manager']}\n"
+            f"📄 Документ 1С: {user_text}\n"
+            f"📅 Дата завершения: {now_iso()[:10]}",
+            parse_mode="HTML"
+        )
     
-    await message.answer(
-        f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
-        f"💬 Причина: {reason}",
-        parse_mode="HTML"
-    )
+    elif "Закрыть защиту" in reply_text:
+        # Обработка закрытия защиты
+        if not user_text:
+            await message.answer("❌ Нужно указать причину закрытия")
+            conn.close()
+            return
+        
+        update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
+        cur.execute(update_query, (now_iso(), pid))
+        add_history(cur, pid, "manager", "close", {"reason": user_text, "source": "tg_expiring"})
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"🔒 <b>Защита #{pid} закрыта</b>\n\n"
+            f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
+            f"👤 Менеджер: {row['manager']}\n"
+            f"💬 Причина: {user_text}\n"
+            f"📅 Дата закрытия: {now_iso()[:10]}",
+            parse_mode="HTML"
+        )
 
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
