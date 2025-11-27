@@ -1501,17 +1501,20 @@ async def telegram_login(request: Request):
     conn = get_conn()
     cur = conn.cursor()
 
-    cur.execute("""
+    cur.execute(
+        _adapt_query("""
         INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
         VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(tg_id) DO UPDATE SET
             tg_username=excluded.tg_username,
             first_name=excluded.first_name,
             role=excluded.role
-    """, (tg_id, username, first_name, role, now_iso()))
+        """),
+        (str(tg_id), username, first_name, role, now_iso())
+    )
 
     conn.commit()
-    user = cur.execute("SELECT * FROM users WHERE tg_id=?", (tg_id,)).fetchone()
+    user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
     conn.close()
 
     # выдаём токен

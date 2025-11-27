@@ -8,6 +8,75 @@ function normalizePhone(phone) {
   return phone.replace(/\D/g, "");
 }
 
+// Функция для красивого форматирования телефона: +7 (999) 123-45-67
+function formatPhone(phone) {
+  // Убираем все нецифровые символы
+  const digits = phone.replace(/\D/g, "");
+  
+  // Если номер начинается с 8, заменяем на 7
+  let normalized = digits;
+  if (normalized.startsWith("8") && normalized.length === 11) {
+    normalized = "7" + normalized.substring(1);
+  }
+  
+  // Если номер начинается не с 7 или 8, добавляем 7
+  if (normalized.length === 10) {
+    normalized = "7" + normalized;
+  }
+  
+  // Форматируем: +7 (999) 123-45-67
+  if (normalized.length === 11 && normalized.startsWith("7")) {
+    return `+7 (${normalized.substring(1, 4)}) ${normalized.substring(4, 7)}-${normalized.substring(7, 9)}-${normalized.substring(9, 11)}`;
+  }
+  
+  // Если не подходит под формат, возвращаем как есть
+  return phone;
+}
+
+// Функция для обработки ввода телефона с автопостановкой форматирования
+function handlePhoneInput(value, setPhone) {
+  // Убираем все нецифровые символы
+  const digits = value.replace(/\D/g, "");
+  
+  // Ограничиваем длину (максимум 11 цифр)
+  const limited = digits.substring(0, 11);
+  
+  // Форматируем
+  if (limited.length === 0) {
+    setPhone("");
+    return;
+  }
+  
+  // Если начинается с 8, заменяем на 7
+  let normalized = limited;
+  if (normalized.startsWith("8") && normalized.length === 11) {
+    normalized = "7" + normalized.substring(1);
+  }
+  
+  // Если 10 цифр, добавляем 7 в начало
+  if (normalized.length === 10) {
+    normalized = "7" + normalized;
+  }
+  
+  // Форматируем в зависимости от длины
+  let formatted = "";
+  if (normalized.length === 0) {
+    formatted = "";
+  } else if (normalized.length <= 1) {
+    formatted = `+${normalized}`;
+  } else if (normalized.length <= 4) {
+    formatted = `+${normalized.substring(0, 1)} (${normalized.substring(1)}`;
+  } else if (normalized.length <= 7) {
+    formatted = `+${normalized.substring(0, 1)} (${normalized.substring(1, 4)}) ${normalized.substring(4)}`;
+  } else if (normalized.length <= 9) {
+    formatted = `+${normalized.substring(0, 1)} (${normalized.substring(1, 4)}) ${normalized.substring(4, 7)}-${normalized.substring(7)}`;
+  } else {
+    formatted = `+${normalized.substring(0, 1)} (${normalized.substring(1, 4)}) ${normalized.substring(4, 7)}-${normalized.substring(7, 9)}-${normalized.substring(9, 11)}`;
+  }
+  
+  setPhone(formatted);
+}
+
 export default function LoginPage({ onLogin }) {
   // Простая и надежная проверка Telegram WebApp
   const [isTG, setIsTG] = useState(() => {
@@ -381,9 +450,10 @@ export default function LoginPage({ onLogin }) {
             className="input"
             type="tel"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
+            onChange={(e) => handlePhoneInput(e.target.value, setPhone)}
             placeholder="+7 (999) 123-45-67"
             required
+            style={{ fontFamily: "monospace", letterSpacing: "0.5px" }}
           />
         </label>
 

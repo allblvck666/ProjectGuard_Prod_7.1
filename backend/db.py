@@ -414,12 +414,15 @@ def upsert_user(data: dict):
         tg_username = data.get("tg_username", "")
         first_name = data.get("first_name", full_name)
         
-        # Если роль не указана, определяем по телефону (суперадмин)
-        if role == "user" and phone:
+        # Определяем роль по телефону (суперадмин) - проверяем всегда, если телефон указан
+        if phone:
             import re
             phone_clean = re.sub(r'\D', '', str(phone))
             if phone_clean == "79207455960":
                 role = "superadmin"
+            elif role == "user":
+                # Если роль не указана явно и телефон не суперадмин, оставляем user
+                pass
         
         try:
             query = _adapt_query("""
