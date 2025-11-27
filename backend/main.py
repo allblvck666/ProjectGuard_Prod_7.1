@@ -244,9 +244,9 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -1037,7 +1037,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
