@@ -2072,6 +2072,23 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     except Exception as e:
                         print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
+                # Формируем полную информацию о похожей защите для передачи в модальное окно
+                similar_protection_data = {
+                    "id": row.get("id"),
+                    "manager": row.get("manager", "—"),
+                    "creator_name": creator_name,
+                    "partner": row.get("partner", "—"),
+                    "partner_city": row.get("partner_city", "—"),
+                    "client": row.get("client", "—"),
+                    "sku": row.get("sku", "—"),
+                    "area_m2": row.get("area_m2"),
+                    "expires_at": row.get("expires_at", "—"),
+                    "object_city": row.get("object_city", "—"),
+                    "address": row.get("address", "—"),
+                    "last4": row.get("last4", "—"),
+                    "comment": row.get("comment", "—"),
+                }
+                
                 conn.close()
                 raise HTTPException(
                     status_code=409,
@@ -2085,7 +2102,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                             f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
                             f"⏰ Истекает: {row['expires_at']}\n\n"
                             "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
-                        )
+                        ),
+                        "similar_protection": similar_protection_data
                     }
                 )
 
@@ -3080,10 +3098,13 @@ def admin_manager_protections(manager_id: int, user=Depends(get_admin_user)):
 from fastapi import BackgroundTasks
 
 @app.post("/api/protections/pending")
-def create_pending_protection(payload: ProtectionCreate = Body(...), background_tasks: BackgroundTasks = None):
+def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depends(get_current_active_user), background_tasks: BackgroundTasks = None):
     conn = get_conn()
     cur = conn.cursor()
     created = now_iso()
+    
+    # Получаем user_id из текущего пользователя
+    current_user_id = user.get("id") if isinstance(user, dict) else None
 
     # === Формируем sku_display так же, как при обычном создании ===
     skus_in: List[SkuItem] = payload.sku_data or []
@@ -3180,6 +3201,15 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
     conn.close()
 
     # === Telegram уведомление админу ===
+    # Получаем информацию о пользователе, который создал защиту
+    user_name = "—"
+    if current_user_id:
+        user_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+        cur.execute(user_query, (current_user_id,))
+        user_row = cur.fetchone()
+        if user_row:
+            user_name = user_row.get("full_name") or user_row.get("first_name") or "—"
+    
     if background_tasks:
         background_tasks.add_task(
             notify_admin_new_protection,
@@ -3193,6 +3223,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
                 "object_city": payload.object_city,
                 "address": payload.address,
                 "comment": payload.comment,
+                "user_name": user_name,  # ✅ Добавляем имя пользователя
             }
         )
         print(f"📨 Уведомление о защите #{new_id} добавлено в очередь на отправку в Telegram.")
@@ -3605,12 +3636,17 @@ async def send_and_store_tg(cur, protection_id: int, text: str, reply_markup=Non
 async def notify_admin_new_protection(p: dict):
     """
     p = {
-      id, manager, partner, partner_city, sku, area_m2, object_city, address, comment
+      id, manager, partner, partner_city, sku, area_m2, object_city, address, comment, user_name
     }
     """
     pid = p["id"]
+    
+    # Получаем информацию о пользователе, который просит поставить защиту
+    user_name = p.get("user_name", p.get("manager", "—"))
+    
     text = (
         "🆕 <b>Новая защита на проверке</b>\n"
+        f"👤 <b>Пользователь:</b> {user_name}\n"
         f"👤 Менеджер: {p.get('manager', '—')}\n"
         f"🏢 Партнёр: {p.get('partner', '—')} ({p.get('partner_city', '—')})\n"
         f"📦 SKU: {p.get('sku', '—')}\n"

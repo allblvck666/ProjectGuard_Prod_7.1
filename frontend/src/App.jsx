@@ -523,14 +523,97 @@ function CreateProtectionPage({
           okText="📤 Отправить запрос админу"
         >
           <div style={{ marginBottom: 16 }}>
-            <div className="small" style={{ marginBottom: 12, color: "rgba(255, 255, 255, 0.9)", whiteSpace: "pre-line" }}>
+            <div className="small" style={{ marginBottom: 16, color: "rgba(255, 255, 255, 0.9)", whiteSpace: "pre-line" }}>
               {similarProtectionModal.similarInfo?.message || "Похожая активная защита уже существует."}
             </div>
+            
+            {/* Информация о похожей защите */}
+            {similarProtectionModal.similarInfo?.similarProtection && (
+              <div style={{ 
+                padding: 16, 
+                background: "rgba(255, 193, 7, 0.15)", 
+                borderRadius: 12, 
+                border: "2px solid rgba(255, 193, 7, 0.4)",
+                marginBottom: 16
+              }}>
+                <div className="small" style={{ fontWeight: 700, marginBottom: 12, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  📋 Информация о существующей защите:
+                </div>
+                {similarProtectionModal.similarInfo.similarProtection.id && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>🆔 ID:</b> #{similarProtectionModal.similarInfo.similarProtection.id}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.manager && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>👤 Менеджер:</b> {similarProtectionModal.similarInfo.similarProtection.manager}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.creator_name && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>👤 Создал:</b> {similarProtectionModal.similarInfo.similarProtection.creator_name}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.partner && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>🏢 Партнёр:</b> {similarProtectionModal.similarInfo.similarProtection.partner}
+                    {similarProtectionModal.similarInfo.similarProtection.partner_city && ` (${similarProtectionModal.similarInfo.similarProtection.partner_city})`}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.client && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>👥 Клиент:</b> {similarProtectionModal.similarInfo.similarProtection.client}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.sku && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>📦 Артикул:</b> {similarProtectionModal.similarInfo.similarProtection.sku}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.area_m2 && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>📏 Площадь:</b> {similarProtectionModal.similarInfo.similarProtection.area_m2} м²
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.object_city && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>📍 Город объекта:</b> {similarProtectionModal.similarInfo.similarProtection.object_city}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.address && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>🚚 Адрес:</b> {similarProtectionModal.similarInfo.similarProtection.address}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.last4 && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>🔢 Последние 4 цифры:</b> {similarProtectionModal.similarInfo.similarProtection.last4}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.expires_at && (
+                  <div className="small" style={{ marginBottom: 6 }}>
+                    <b>⏰ Истекает:</b> {new Date(similarProtectionModal.similarInfo.similarProtection.expires_at).toLocaleString("ru-RU", { 
+                      day: "2-digit", 
+                      month: "2-digit", 
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit"
+                    })}
+                  </div>
+                )}
+                {similarProtectionModal.similarInfo.similarProtection.comment && (
+                  <div className="small">
+                    <b>💬 Комментарий:</b> {similarProtectionModal.similarInfo.similarProtection.comment}
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div style={{ 
               padding: 12, 
-              background: "rgba(255, 193, 7, 0.1)", 
+              background: "rgba(102, 126, 234, 0.1)", 
               borderRadius: 8, 
-              border: "1px solid rgba(255, 193, 7, 0.3)",
+              border: "1px solid rgba(102, 126, 234, 0.3)",
               marginBottom: 12
             }}>
               <div className="small" style={{ fontWeight: 600, marginBottom: 8 }}>
@@ -1893,11 +1976,11 @@ function App() {
       ) {
         // Парсим информацию о похожей защите из сообщения
         const msg = err.response.data.detail.msg;
-        // Извлекаем информацию о похожей защите из сообщения
+        // Извлекаем полную информацию о похожей защите из detail
+        const similarProtection = err.response?.data?.detail?.similar_protection || null;
         const similarInfo = {
           message: msg,
-          // Парсим данные из сообщения (если они есть в detail)
-          similarProtection: err.response?.data?.detail?.similar_protection || null
+          similarProtection: similarProtection
         };
         setSimilarProtectionModal({
           open: true,
