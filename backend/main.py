@@ -244,9 +244,9 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -631,7 +631,7 @@ async def register(data: UserRegister):
 async def login(data: UserLogin):
     """
     Универсальный вход:
-        - По email/password
+    - По email/password
     - По Telegram данным (telegram_id, username, first_name)
     - По телефону/имени (phone, full_name) - создает пользователя, если его нет
     """
@@ -813,11 +813,11 @@ async def telegram_auth(request: Request):
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
                     # Обновляем tg_id на правильный
-                    cur.execute(
+        cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-                    )
-                    conn.commit()
+        )
+        conn.commit()
                     user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
                     print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
                     break
@@ -879,11 +879,11 @@ async def telegram_auth(request: Request):
             existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-                cur.execute(
+        cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                     (str(tg_id), username, first_name, existing_user["id"])
-                )
-                conn.commit()
+        )
+        conn.commit()
                 row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
                 print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
                 break
@@ -1056,9 +1056,10 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
     if data.role and data.role != "superadmin":
         conn = get_conn()
         cur = conn.cursor()
-        superadmin_count = cur.execute(
-            "SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1"
-        ).fetchone()[0]
+        query = _adapt_query("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1")
+        cur.execute(query)
+        result = cur.fetchone()
+        superadmin_count = result[0] if result else 0
         target_user = get_user_by_id(user_id)
         if target_user and target_user["role"] == "superadmin" and superadmin_count <= 1:
             conn.close()
@@ -1165,7 +1166,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-        conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1296,7 +1297,7 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-            conn.close()
+        conn.close()
         raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
@@ -1636,7 +1637,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-        insert_sql = _adapt_query("""
+    insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -1665,7 +1666,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -1934,7 +1935,7 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
                 # Получаем всех админов и суперадминов
                 admin_conn = get_conn()
                 admin_cur = admin_conn.cursor()
-                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+                admin_query = _adapt_query("SELECT id, tg_id, full_name, first_name FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
                 admin_cur.execute(admin_query)
                 admins = admin_cur.fetchall()
                 admin_conn.close()
@@ -1955,9 +1956,37 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
                 # Отправляем уведомления
                 sent_count = 0
                 for admin in admins:
-                    tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0] if isinstance(admin, (list, tuple)) else None
+                    # Обрабатываем разные форматы данных (dict для PostgreSQL, tuple для SQLite)
+                    if isinstance(admin, dict):
+                        tg_id = admin.get("tg_id")
+                        admin_id = admin.get("id")
+                    elif isinstance(admin, (list, tuple)):
+                        # Для SQLite: (id, tg_id, full_name, first_name)
+                        admin_id = admin[0] if len(admin) > 0 else None
+                        tg_id = admin[1] if len(admin) > 1 else None
+                    else:
+                        continue
+                    
                     if not tg_id:
                         continue
+                    
+                    # Нормализуем tg_id и обновляем в базе, если нужно
+                    from backend.db import normalize_tg_id
+                    normalized_tg_id = normalize_tg_id(tg_id)
+                    if normalized_tg_id and normalized_tg_id != str(tg_id):
+                        # Обновляем tg_id в базе, если он был с префиксом
+                        if admin_id:
+                            try:
+                                update_conn = get_conn()
+                                update_cur = update_conn.cursor()
+                                update_query = _adapt_query("UPDATE users SET tg_id=? WHERE id=?")
+                                update_cur.execute(update_query, (normalized_tg_id, admin_id))
+                                update_conn.commit()
+                                update_conn.close()
+                                print(f"✅ Обновлен tg_id пользователя {admin_id} с {tg_id} на {normalized_tg_id}")
+                                tg_id = normalized_tg_id
+                            except Exception as e:
+                                print(f"⚠️ Ошибка обновления tg_id для пользователя {admin_id}: {e}")
                     
                     try:
                         # Пробуем разные форматы tg_id
@@ -2032,7 +2061,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
     
     # Отправляем уведомление всем админам и суперадминам
     admin_query = _adapt_query("""
-        SELECT tg_id, full_name, first_name 
+        SELECT id, tg_id, full_name, first_name 
         FROM users 
         WHERE role IN ('admin', 'superadmin') 
           AND tg_id IS NOT NULL 
@@ -2075,6 +2104,26 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
             if not tg_id:
                 print(f"⚠️ У админа {admin.get('full_name', admin.get('first_name', 'Unknown'))} нет tg_id")
                 continue
+            
+            # Нормализуем tg_id и обновляем в базе, если нужно
+            from backend.db import normalize_tg_id
+            normalized_tg_id = normalize_tg_id(tg_id)
+            if normalized_tg_id and normalized_tg_id != str(tg_id):
+                # Обновляем tg_id в базе, если он был с префиксом
+                admin_id = admin.get("id")
+                if admin_id:
+                    try:
+                        update_conn = get_conn()
+                        update_cur = update_conn.cursor()
+                        update_query = _adapt_query("UPDATE users SET tg_id=? WHERE id=?")
+                        update_cur.execute(update_query, (normalized_tg_id, admin_id))
+                        update_conn.commit()
+                        update_conn.close()
+                        print(f"✅ Обновлен tg_id пользователя {admin_id} с {tg_id} на {normalized_tg_id}")
+                        tg_id = normalized_tg_id
+                    except Exception as e:
+                        print(f"⚠️ Ошибка обновления tg_id для пользователя {admin_id}: {e}")
+            
             try:
                 # Пробуем разные форматы tg_id
                 tg_id_int = None
@@ -2114,7 +2163,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
-                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                 print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
                 traceback.print_exc()
@@ -2510,7 +2559,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -2863,7 +2912,7 @@ dp = Dispatcher()
 def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
     """
     Возвращает список tg_id:
-        - менеджер (users.role='manager' и first_name=manager_name)
+    - менеджер (users.role='manager' и first_name=manager_name)
     - его ассистенты (users.role='assistant' и manager_id = id менеджера)
     - админы той же группы (если у менеджера есть group_tag)
     """
@@ -3623,10 +3672,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-            except Exception as e:
+    except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -3639,7 +3688,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-                        _bot_running = False
+        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
