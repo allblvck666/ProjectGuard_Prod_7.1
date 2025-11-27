@@ -168,7 +168,7 @@ export default function LoginPage({ onLogin }) {
   const [phone, setPhone] = useState("");
   const [position, setPosition] = useState("");
 
-  // === Telegram авто-логин ===
+  // === Заполнение формы данными из Telegram (БЕЗ автоматического логина) ===
   useEffect(() => {
     if (!isTG) {
       return;
@@ -183,89 +183,38 @@ export default function LoginPage({ onLogin }) {
     tg.ready();
     tg.expand();
 
-    // Функция для проверки и получения данных пользователя
-    const checkUser = () => {
+    // Функция для заполнения формы данными из Telegram (БЕЗ автоматического логина)
+    const fillFormFromTelegram = () => {
       // Пробуем получить из initDataUnsafe
       let tgUser = tg?.initDataUnsafe?.user;
       
-      // Если нет, пробуем получить из initData (будет парситься на бэкенде)
-      const hasInitData = tg?.initData && tg.initData.length > 0;
-      
-      if (!tgUser && !hasInitData) {
+      if (!tgUser) {
         // Пробуем еще раз через небольшую задержку
-        setTimeout(checkUser, 500);
+        setTimeout(fillFormFromTelegram, 500);
         return;
       }
 
-      // Заполняем форму данными из Telegram (если есть)
+      // ТОЛЬКО заполняем форму данными из Telegram, НЕ логинимся автоматически
       if (tgUser) {
         if (tgUser.first_name || tgUser.last_name) {
-          setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+          const name = `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim();
+          if (name && !fullName) {
+            setFullName(name);
+          }
         }
         
-        // Если есть номер телефона в Telegram - заполняем его
-        if (tgUser.phone_number) {
-          setPhone(tgUser.phone_number);
-        }
-
-        // Если есть все данные - пытаемся автоматически залогиниться
-        if (tgUser.id && (tgUser.first_name || tgUser.last_name || tgUser.phone_number)) {
-          setTelegramLoading(true);
-          handleTelegramAutoLogin(tgUser);
-          return;
+        // Если есть номер телефона в Telegram - заполняем его (с форматированием)
+        if (tgUser.phone_number && !phone) {
+          handlePhoneInput(tgUser.phone_number, setPhone);
         }
       }
-      
-      setTelegramLoading(false);
     };
 
-    // Проверяем сразу и через небольшие задержки
-    checkUser();
-    setTimeout(checkUser, 300);
-    setTimeout(checkUser, 800);
-    setTimeout(checkUser, 1500);
+    // Заполняем форму сразу и через небольшие задержки
+    fillFormFromTelegram();
+    setTimeout(fillFormFromTelegram, 300);
+    setTimeout(fillFormFromTelegram, 800);
   }, [isTG]);
-
-  const handleTelegramAutoLogin = async (tgUser) => {
-    try {
-      const tg = window.Telegram?.WebApp;
-      let phone = "";
-      if (tg?.initDataUnsafe?.user?.phone_number) {
-        phone = tg.initDataUnsafe.user.phone_number;
-      }
-      
-      // Если нет телефона в Telegram - не делаем авто-логин, показываем форму
-      if (!phone) {
-        setTelegramLoading(false);
-        return;
-      }
-      
-      // Нормализуем номер телефона
-      const phoneDigits = normalizePhone(phone);
-      if (!phoneDigits) {
-        setTelegramLoading(false);
-        return;
-      }
-      
-      // Используем реальный tg_id из Telegram WebApp
-      const tg_id = String(tgUser.id);
-      const full_name = `${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim() || "Пользователь";
-      
-      const data = await registerOrLogin({
-        tg_id: tg_id,
-        full_name: full_name,
-        phone: phone,
-        position: "",
-      });
-
-      if (onLogin) {
-        onLogin(data.user?.role || "user");
-      }
-    } catch (err) {
-      console.error("❌ Telegram авто-логин ошибка:", err);
-      setTelegramLoading(false);
-    }
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -357,25 +306,6 @@ export default function LoginPage({ onLogin }) {
     }
   };
 
-  // === Telegram Mini App - показываем спиннер ===
-  if (isTG && telegramLoading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: "100vh",
-          gap: 16,
-          padding: 20,
-        }}
-      >
-        <div style={{ fontSize: 48 }}>⏳</div>
-        <div style={{ fontSize: 18, opacity: 0.8 }}>Авторизуем через Telegram...</div>
-      </div>
-    );
-  }
 
   // === Форма входа/регистрации ===
   return (
@@ -414,12 +344,6 @@ export default function LoginPage({ onLogin }) {
         )}
       </div>
 
-      {/* Telegram Login Button (если доступен и не загружается) */}
-      {isTG && !telegramLoading && (
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-          <TelegramLoginButton onLogin={onLogin} />
-        </div>
-      )}
 
       {/* Форма входа/регистрации */}
       <form

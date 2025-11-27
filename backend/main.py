@@ -1514,7 +1514,9 @@ async def telegram_login(request: Request):
     )
 
     conn.commit()
-    user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+    query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
+    cur.execute(query, (str(tg_id),))
+    user = cur.fetchone()
     conn.close()
 
     # выдаём токен
