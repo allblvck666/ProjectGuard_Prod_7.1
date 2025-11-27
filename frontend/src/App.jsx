@@ -258,7 +258,8 @@ function CreateProtectionPage({
   managers, skus, selectedSkus, setSelectedSkus, 
   perSkuMode, setPerSkuMode, onAreaChange,
   errorFields, submit, onBack,
-  extendRequestModal, setExtendRequestModal, submitExtendRequest
+  extendRequestModal, setExtendRequestModal, submitExtendRequest,
+  similarProtectionModal, setSimilarProtectionModal, submitSimilarProtectionRequest
 }) {
   const errorClass = (field) => errorFields.includes(field) ? "input error" : "input";
 
@@ -512,6 +513,51 @@ function CreateProtectionPage({
           </button>
         </div>
       </div>
+
+      {/* Модальное окно для похожей защиты */}
+      {similarProtectionModal.open && (
+        <Modal
+          title="⚠️ Похожая защита уже существует"
+          onClose={() => setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" })}
+          onOk={submitSimilarProtectionRequest}
+          okText="📤 Отправить запрос админу"
+        >
+          <div style={{ marginBottom: 16 }}>
+            <div className="small" style={{ marginBottom: 12, color: "rgba(255, 255, 255, 0.9)", whiteSpace: "pre-line" }}>
+              {similarProtectionModal.similarInfo?.message || "Похожая активная защита уже существует."}
+            </div>
+            <div style={{ 
+              padding: 12, 
+              background: "rgba(255, 193, 7, 0.1)", 
+              borderRadius: 8, 
+              border: "1px solid rgba(255, 193, 7, 0.3)",
+              marginBottom: 12
+            }}>
+              <div className="small" style={{ fontWeight: 600, marginBottom: 8 }}>
+                💬 Укажите причину для администратора:
+              </div>
+              <textarea
+                className="input"
+                placeholder="Например: это другой объект, другой клиент, согласовано с менеджером и т.п."
+                value={similarProtectionModal.requestReason}
+                onChange={(e) =>
+                  setSimilarProtectionModal({ ...similarProtectionModal, requestReason: e.target.value })
+                }
+                style={{ 
+                  minHeight: 100, 
+                  maxHeight: 200,
+                  width: "100%", 
+                  resize: "vertical",
+                  fontFamily: "inherit"
+                }}
+              />
+            </div>
+            <div className="small" style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 12 }}>
+              ⚠️ Защита будет отправлена администратору на проверку. Вы получите уведомление после решения.
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -1592,6 +1638,12 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [history, setHistory] = useState([]);
   const [extendRequestModal, setExtendRequestModal] = useState({ open: false, id: null, reason: "", days: 10, message: "" });
+  const [similarProtectionModal, setSimilarProtectionModal] = useState({ 
+    open: false, 
+    similarInfo: null, 
+    payload: null, 
+    requestReason: "" 
+  });
 
   const load = async () => {
     setLoading(true);
@@ -1839,7 +1891,20 @@ function App() {
         err.response?.status === 409 &&
         err.response?.data?.detail?.msg
       ) {
-        alert(err.response.data.detail.msg);
+        // Парсим информацию о похожей защите из сообщения
+        const msg = err.response.data.detail.msg;
+        // Извлекаем информацию о похожей защите из сообщения
+        const similarInfo = {
+          message: msg,
+          // Парсим данные из сообщения (если они есть в detail)
+          similarProtection: err.response?.data?.detail?.similar_protection || null
+        };
+        setSimilarProtectionModal({
+          open: true,
+          similarInfo,
+          payload,
+          requestReason: ""
+        });
       } else {
         alert("❌ Ошибка: не удалось создать защиту");
       }
@@ -1884,6 +1949,25 @@ function App() {
       await load();
     } catch (err) {
       alert("Ошибка при отправке запроса на продление.");
+    }
+  };
+
+  const submitSimilarProtectionRequest = async () => {
+    if (!similarProtectionModal.requestReason.trim()) {
+      alert("⚠️ Укажите причину для запроса администратору.");
+      return;
+    }
+
+    try {
+      await api.post("/api/protections/pending", {
+        ...similarProtectionModal.payload,
+        comment: similarProtectionModal.requestReason.trim(),
+      });
+      alert("✅ Запрос отправлен администратору на проверку.");
+      setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" });
+      await load();
+    } catch (err) {
+      alert("❌ Ошибка при отправке запроса администратору.");
     }
   };
 
@@ -2195,6 +2279,9 @@ if (isTG && (!ready || loading)) {
         extendRequestModal={extendRequestModal}
         setExtendRequestModal={setExtendRequestModal}
         submitExtendRequest={submitExtendRequest}
+        similarProtectionModal={similarProtectionModal}
+        setSimilarProtectionModal={setSimilarProtectionModal}
+        submitSimilarProtectionRequest={submitSimilarProtectionRequest}
       />
     );
   }

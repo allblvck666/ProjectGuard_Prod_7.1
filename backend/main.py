@@ -136,18 +136,52 @@ SKUS = load_skus()
 def approve_pending(pid: int, user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute(
-        "SELECT * FROM protections WHERE id=? AND status='pending'", (pid,)
-    ).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=? AND status='pending'")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
     update_query = _adapt_query("UPDATE protections SET status='active', approved_by_admin=1, updated_at=? WHERE id=?")
     cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, "admin", "approve", {"approved": True})
+    add_history(cur, pid, "admin", "approve", {"approved": True, "source": "app"})
+    
+    # Обновляем сообщения в Telegram
+    notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
+    cur.execute(notif_query, (pid,))
+    notif_rows = cur.fetchall()
+    
     conn.commit()
     conn.close()
+    
+    # Обновляем сообщения в Telegram асинхронно
+    async def update_telegram_messages():
+        r = dict(row)
+        sku_display = r.get("sku") or r.get("comment") or "—"
+        final_text = (
+            f"✅ Защита #{pid} одобрена!\n\n"
+            f"👤 Менеджер: {r.get('manager', '—')}\n"
+            f"🏢 Партнёр: {r.get('partner', '—')} ({r.get('partner_city', '—')})\n"
+            f"📦 SKU: {sku_display}\n"
+            f"📏 Площадь: {r.get('area_m2', '—')} м²"
+        )
+        for n in notif_rows:
+            try:
+                await bot.edit_message_text(
+                    chat_id=n["chat_id"],
+                    message_id=n["message_id"],
+                    text=final_text,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+    
+    try:
+        asyncio.create_task(update_telegram_messages())
+    except Exception as e:
+        print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
+    
     return {"ok": True}
 
 
@@ -156,18 +190,52 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
     reason = payload.get("reason", "").strip() or "Отклонено администратором"
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute(
-        "SELECT * FROM protections WHERE id=? AND status='pending'", (pid,)
-    ).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=? AND status='pending'")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
-    update_query = _adapt_query("UPDATE protections SET status='deleted', admin_comment=?, updated_at=? WHERE id=?")
-    cur.execute(update_query, (reason, now_iso(), pid))
-    add_history(cur, pid, "admin", "reject", {"reason": reason})
+    update_query = _adapt_query("UPDATE protections SET status='rejected', closed_at=?, admin_comment=?, updated_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), reason, now_iso(), pid))
+    add_history(cur, pid, "admin", "reject", {"reason": reason, "source": "app"})
+    
+    # Обновляем сообщения в Telegram
+    notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
+    cur.execute(notif_query, (pid,))
+    notif_rows = cur.fetchall()
+    
     conn.commit()
     conn.close()
+    
+    # Обновляем сообщения в Telegram асинхронно
+    async def update_telegram_messages():
+        r = dict(row)
+        final_text = (
+            f"🚫 Защита #{pid} отклонена.\n\n"
+            f"👤 Менеджер: {r.get('manager', '—')}\n"
+            f"🏢 Партнёр: {r.get('partner', '—')} ({r.get('partner_city', '—')})\n"
+            f"📦 SKU: {r.get('sku', '—')}\n"
+            f"📏 Площадь: {r.get('area_m2', '—')} м²\n\n"
+            f"💬 Причина: {reason}"
+        )
+        for n in notif_rows:
+            try:
+                await bot.edit_message_text(
+                    chat_id=n["chat_id"],
+                    message_id=n["message_id"],
+                    text=final_text,
+                    parse_mode="HTML",
+                )
+            except Exception as e:
+                print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+    
+    try:
+        asyncio.create_task(update_telegram_messages())
+    except Exception as e:
+        print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
+    
     return {"ok": True, "reason": reason}
 
 
