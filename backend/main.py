@@ -261,8 +261,12 @@ async def _init_background():
     
     # Запускаем async задачи
     try:
-        # 2. Telegram бот
-        asyncio.create_task(start_tg_bot())
+        # 2. Telegram бот (запускаем только один раз)
+        if not _bot_running:
+            print("🔄 Запуск Telegram бота...")
+            asyncio.create_task(start_tg_bot())
+        else:
+            print("⚠️ Telegram бот уже запущен, пропускаем")
     except Exception as e:
         print(f"⚠️ Ошибка запуска Telegram бота: {e}")
     
@@ -3066,27 +3070,40 @@ async def start_tg_bot():
     _bot_running = True
     print("🤖 Запуск Telegram-бота...")
     
+    # Проверяем, есть ли активный webhook или polling
+    try:
+        webhook_info = await bot.get_webhook_info()
+        if webhook_info.url:
+            print(f"⚠️ Обнаружен активный webhook: {webhook_info.url}")
+            print("🔄 Удаляем webhook...")
+    except Exception as e:
+        print(f"⚠️ Ошибка проверки webhook: {e}")
+    
     # Удаляем webhook несколько раз для надежности
-    for attempt in range(3):
+    for attempt in range(5):
         try:
-            await bot.delete_webhook(drop_pending_updates=True)
-            print(f"✅ Webhook удален (попытка {attempt + 1})")
+            result = await bot.delete_webhook(drop_pending_updates=True)
+            if result:
+                print(f"✅ Webhook удален (попытка {attempt + 1})")
+            else:
+                print(f"ℹ️ Webhook не был установлен (попытка {attempt + 1})")
             break
         except Exception as e:
             print(f"⚠️ Ошибка удаления webhook (попытка {attempt + 1}): {e}")
-            if attempt < 2:
-                await asyncio.sleep(2)
+            if attempt < 4:
+                await asyncio.sleep(3)
     
-    # Ждем немного перед запуском polling
-    await asyncio.sleep(1)
+    # Ждем перед запуском polling
+    await asyncio.sleep(2)
     
     # Запускаем polling с обработкой конфликтов
-    max_retries = 5
-    retry_delay = 5
+    max_retries = 3
+    retry_delay = 10
     
     for attempt in range(max_retries):
         try:
             print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
+            # Запускаем polling в отдельной задаче, чтобы не блокировать
             await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
             print("✅ Telegram-бот запущен (inline кнопки активны)")
             break
@@ -3094,16 +3111,21 @@ async def start_tg_bot():
             error_str = str(e).lower()
             if "conflict" in error_str or "terminated by other" in error_str:
                 print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
+                print(f"💡 Возможно, бот запущен в другом месте (локально или на другом сервере)")
                 if attempt < max_retries - 1:
-                    # Пытаемся снова удалить webhook и подождать
+                    # Пытаемся снова удалить webhook и подождать дольше
                     try:
                         await bot.delete_webhook(drop_pending_updates=True)
+                        print(f"⏳ Ждем {retry_delay} секунд перед следующей попыткой...")
                         await asyncio.sleep(retry_delay)
                     except:
                         await asyncio.sleep(retry_delay)
                 else:
-                    print("❌ Не удалось запустить бота: конфликт с другим экземпляром")
-                    print("💡 Решение: убедитесь, что бот не запущен локально или на другом сервере")
+                    print("❌ Не удалось запустить бота после всех попыток")
+                    print("💡 Проверьте:")
+                    print("   1. Не запущен ли файл bot.py локально")
+                    print("   2. Нет ли других сервисов на Render с этим токеном")
+                    print("   3. Не установлен ли webhook вручную через API")
                     _bot_running = False
                     return
             else:

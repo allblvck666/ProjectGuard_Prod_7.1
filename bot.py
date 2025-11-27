@@ -1,3 +1,7 @@
+# ⚠️ ВНИМАНИЕ: Этот файл НЕ должен запускаться!
+# Бот запускается автоматически через backend/main.py
+# Запуск этого файла создаст конфликт с основным ботом!
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -33,7 +37,11 @@ async def main():
     print("✅ Bot запущен")
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+# ⚠️ НЕ ЗАПУСКАЙТЕ ЭТОТ ФАЙЛ!
+# Бот уже запущен через backend/main.py
+# Запуск этого файла создаст конфликт!
+
+# if __name__ == "__main__":
+#     asyncio.run(main())
 
 
