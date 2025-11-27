@@ -143,10 +143,8 @@ def approve_pending(pid: int, user=Depends(get_admin_user)):
         conn.close()
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
-    cur.execute(
-        "UPDATE protections SET status='active', approved_by_admin=1, updated_at=? WHERE id=?",
-        (now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='active', approved_by_admin=1, updated_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "admin", "approve", {"approved": True})
     conn.commit()
     conn.close()
@@ -165,10 +163,8 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
         conn.close()
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
-    cur.execute(
-        "UPDATE protections SET status='deleted', admin_comment=?, updated_at=? WHERE id=?",
-        (reason, now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='deleted', admin_comment=?, updated_at=? WHERE id=?")
+    cur.execute(update_query, (reason, now_iso(), pid))
     add_history(cur, pid, "admin", "reject", {"reason": reason})
     conn.commit()
     conn.close()
@@ -886,8 +882,8 @@ async def telegram_auth(request: Request):
                 # Обновляем tg_id на правильный
                 cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
-                        (str(tg_id), username, first_name, existing_user["id"])
-                    )
+                    (str(tg_id), username, first_name, existing_user["id"])
+                )
                 conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
@@ -1339,8 +1335,10 @@ def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(get_admin_u
     if exists:
         conn.close()
         raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
-    cur.execute("UPDATE managers SET name=? WHERE id=?", (new_name, mid))
-    cur.execute("UPDATE protections SET manager=? WHERE manager=?", (new_name, old_name))
+    update_query1 = _adapt_query("UPDATE managers SET name=? WHERE id=?")
+    cur.execute(update_query1, (new_name, mid))
+    update_query2 = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
+    cur.execute(update_query2, (new_name, old_name))
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -1364,8 +1362,10 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, user=Depen
             conn.close()
             raise HTTPException(status_code=404, detail="transfer_to manager not found")
         new_name = row_to["name"]
-        cur.execute("UPDATE protections SET manager=? WHERE manager=?", (new_name, name))
-    cur.execute("DELETE FROM managers WHERE id=?", (mid,))
+        update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
+        cur.execute(update_query, (new_name, name))
+    delete_query = _adapt_query("DELETE FROM managers WHERE id=?")
+    cur.execute(delete_query, (mid,))
     conn.commit()
     conn.close()
     return {"ok": True}
@@ -1726,10 +1726,8 @@ def update_manager_telegrams(manager_id: int, body: dict = Body(...)):
         conn.close()
         raise HTTPException(status_code=404, detail="Менеджер не найден")
 
-    cur.execute(
-        "UPDATE managers SET telegrams = ? WHERE id = ?",
-        (json.dumps(telegrams, ensure_ascii=False), manager_id)
-    )
+    update_query = _adapt_query("UPDATE managers SET telegrams = ? WHERE id = ?")
+    cur.execute(update_query, (json.dumps(telegrams, ensure_ascii=False), manager_id))
     conn.commit()
     conn.close()
 
@@ -2174,9 +2172,9 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     result = await bot.send_message(
                         chat_id=tg_id_int,
                         text=msg,
-                    parse_mode="HTML",
-                    reply_markup=kb.as_markup()
-                )
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
                 except Exception as send_error:
                     # Если не получилось с int, пробуем со строкой
                     error_msg = str(send_error).lower()
@@ -2191,14 +2189,18 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                                 reply_markup=kb.as_markup()
                             )
                         except Exception as e2:
-                            raise send_error  # Возвращаем исходную ошибку
+                            # Если и со строкой не получилось, просто пропускаем этого пользователя
+                            print(f"⚠️ Не удалось отправить уведомление админу {tg_id_int} даже со строкой: {e2}")
+                            result = None
                     else:
-                        raise send_error
+                        # Для других ошибок тоже не поднимаем исключение, просто логируем
+                        print(f"⚠️ Ошибка отправки уведомления админу {tg_id_int}: {send_error}")
+                        result = None
                 
                 if result:
                     sent_count += 1
                     admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
@@ -2354,10 +2356,8 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                 asyncio.create_task(send_delete_notification())
     
     actor = "admin" if is_admin else "manager"
-    cur.execute(
-        "UPDATE protections SET status='deleted', closed_at=? WHERE id=?",
-        (now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     conn.commit()
     conn.close()
@@ -3092,10 +3092,8 @@ async def approve_handler(callback: types.CallbackQuery):
     sku_display = r.get("sku") or r.get("comment") or "—"
 
     # апдейтим саму защиту
-    cur.execute(
-        "UPDATE protections SET status='active', closed_at=NULL, sku=? WHERE id=?",
-        (sku_display, pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='active', closed_at=NULL, sku=? WHERE id=?")
+    cur.execute(update_query, (sku_display, pid))
     add_history(cur, pid, "admin", "approve", {"source": "tg", "sku": sku_display})
 
     # достаём все связанные tg-сообщения
@@ -3147,10 +3145,8 @@ async def reject_handler(callback: types.CallbackQuery):
 
     r = dict(row)
 
-    cur.execute(
-        "UPDATE protections SET status='rejected', closed_at=? WHERE id=?",
-        (now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='rejected', closed_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "admin", "reject", {"source": "tg"})
 
     notif_rows = cur.execute(
@@ -3207,7 +3203,8 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
     
     from datetime import datetime, timedelta
     new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat()
-    cur.execute("UPDATE protections SET expires_at=? WHERE id=?", (new_exp, pid))
+    update_query = _adapt_query("UPDATE protections SET expires_at=? WHERE id=?")
+    cur.execute(update_query, (new_exp, pid))
     add_history(cur, pid, "manager", "extend", {"days": days, "source": "tg_expiring"})
     conn.commit()
     conn.close()
@@ -3237,10 +3234,8 @@ async def close_expiring_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
-    cur.execute(
-        "UPDATE protections SET status='archived', closed_at=? WHERE id=?",
-        (now_iso(), pid)
-    )
+    update_query = _adapt_query("UPDATE protections SET status='archived', closed_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "manager", "close", {"reason": "Истек срок", "source": "tg_expiring"})
     conn.commit()
     conn.close()
@@ -3279,7 +3274,8 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     
     from datetime import datetime, timedelta
     new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat() + "Z"
-    cur.execute("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?", (new_exp, now_iso(), pid))
+    update_query = _adapt_query("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?")
+    cur.execute(update_query, (new_exp, now_iso(), pid))
     add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
     conn.commit()
     conn.close()
