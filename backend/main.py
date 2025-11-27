@@ -133,7 +133,7 @@ SKUS = load_skus()
 # ====== ADMIN: approve / reject pending protections ======
 
 @app.post("/api/admin/pending/{pid}/approve")
-def approve_pending(pid: int, user=Depends(get_admin_user)):
+def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: BackgroundTasks = None):
     conn = get_conn()
     cur = conn.cursor()
     query = _adapt_query("SELECT * FROM protections WHERE id=? AND status='pending'")
@@ -155,7 +155,7 @@ def approve_pending(pid: int, user=Depends(get_admin_user)):
     conn.commit()
     conn.close()
     
-    # Обновляем сообщения в Telegram асинхронно
+    # Обновляем сообщения в Telegram асинхронно через BackgroundTasks
     async def update_telegram_messages():
         r = dict(row)
         sku_display = r.get("sku") or r.get("comment") or "—"
@@ -177,16 +177,25 @@ def approve_pending(pid: int, user=Depends(get_admin_user)):
             except Exception as e:
                 print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
     
-    try:
-        asyncio.create_task(update_telegram_messages())
-    except Exception as e:
-        print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
+    if background_tasks:
+        background_tasks.add_task(update_telegram_messages)
+    else:
+        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(update_telegram_messages())
+            else:
+                loop.run_until_complete(update_telegram_messages())
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
     
     return {"ok": True}
 
 
 @app.post("/api/admin/pending/{pid}/reject")
-def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
+def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), background_tasks: BackgroundTasks = None):
     reason = payload.get("reason", "").strip() or "Отклонено администратором"
     conn = get_conn()
     cur = conn.cursor()
@@ -209,7 +218,7 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
     conn.commit()
     conn.close()
     
-    # Обновляем сообщения в Telegram асинхронно
+    # Обновляем сообщения в Telegram асинхронно через BackgroundTasks
     async def update_telegram_messages():
         r = dict(row)
         final_text = (
@@ -231,10 +240,19 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user)):
             except Exception as e:
                 print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
     
-    try:
-        asyncio.create_task(update_telegram_messages())
-    except Exception as e:
-        print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
+    if background_tasks:
+        background_tasks.add_task(update_telegram_messages)
+    else:
+        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(update_telegram_messages())
+            else:
+                loop.run_until_complete(update_telegram_messages())
+        except Exception as e:
+            print(f"⚠️ Ошибка при обновлении сообщений в Telegram: {e}")
     
     return {"ok": True, "reason": reason}
 
