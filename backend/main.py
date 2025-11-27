@@ -244,6 +244,7 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
+            # Инициализация базы данных с правильными отступами
             init_db()
             init_users_table()
             _safe_migrate()
