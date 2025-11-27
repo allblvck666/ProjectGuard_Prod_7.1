@@ -3426,10 +3426,9 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
     tg_ids: list[int] = []
 
     # найдём самого менеджера
-    mgr = cur.execute(
-        "SELECT id, tg_id, group_tag FROM users WHERE role='manager' AND first_name=?",
-        (manager_name,)
-    ).fetchone()
+    mgr_query = _adapt_query("SELECT id, tg_id, group_tag FROM users WHERE role='manager' AND first_name=?")
+    cur.execute(mgr_query, (manager_name,))
+    mgr = cur.fetchone()
 
     group_tag = None
     if mgr:
@@ -3438,10 +3437,9 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
         group_tag = mgr["group_tag"]
 
         # ассистенты этого менеджера
-        assistants = cur.execute(
-            "SELECT tg_id FROM users WHERE role='assistant' AND manager_id=?",
-            (mgr["id"],)
-        ).fetchall()
+        assistants_query = _adapt_query("SELECT tg_id FROM users WHERE role='assistant' AND manager_id=?")
+        cur.execute(assistants_query, (mgr["id"],))
+        assistants = cur.fetchall()
         for a in assistants:
             if a["tg_id"]:
                 tg_ids.append(a["tg_id"])
@@ -3457,9 +3455,9 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
                 tg_ids.append(a["tg_id"])
 
     # супер-админ (только те, у кого включены уведомления)
-    superadmins = cur.execute(
-        _adapt_query("SELECT tg_id FROM users WHERE role='superadmin' AND (receive_notifications IS NULL OR receive_notifications = 1)")
-    ).fetchall()
+    superadmins_query = _adapt_query("SELECT tg_id FROM users WHERE role='superadmin' AND (receive_notifications IS NULL OR receive_notifications = 1)")
+    cur.execute(superadmins_query)
+    superadmins = cur.fetchall()
     for sa in superadmins:
         if sa["tg_id"]:
             tg_ids.append(sa["tg_id"])
