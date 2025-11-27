@@ -1928,7 +1928,7 @@ def resolve_manager_for_user(cur, user_id):
 
 # ===== Создание защиты =====
 @app.post("/api/protections", response_model=ProtectionOut)
-def create_protection(payload: ProtectionCreate, user=Depends(get_current_active_user)):
+def create_protection(payload: ProtectionCreate, user=Depends(get_current_active_user), background_tasks: BackgroundTasks = None):
     conn = get_conn()
     cur = conn.cursor()
     created = now_iso()
@@ -2035,7 +2035,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                 )
                 
-                # Отправляем уведомления асинхронно
+                # Отправляем уведомления асинхронно через BackgroundTasks
                 async def send_duplicate_notifications():
                     sent_count = 0
                     for admin in admins:
@@ -2057,10 +2057,20 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     if sent_count > 0:
                         print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                 
-                try:
-                    asyncio.create_task(send_duplicate_notifications())
-                except Exception as e:
-                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                # Используем BackgroundTasks для отправки уведомлений
+                if background_tasks:
+                    background_tasks.add_task(send_duplicate_notifications)
+                else:
+                    # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(send_duplicate_notifications())
+                        else:
+                            loop.run_until_complete(send_duplicate_notifications())
+                    except Exception as e:
+                        print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
                 conn.close()
                 raise HTTPException(
@@ -2162,10 +2172,20 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     cur.execute(query, (new_id,))
     row = cur.fetchone()
     if row["status"] == "pending":
-        try:
-            asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
-        except Exception as e:
-            print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+        # Используем BackgroundTasks для отправки уведомлений
+        if background_tasks:
+            background_tasks.add_task(notify_admin_new_protection, row_to_out(row).dict())
+        else:
+            # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
+                else:
+                    loop.run_until_complete(notify_admin_new_protection(row_to_out(row).dict()))
+            except Exception as e:
+                print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
 
     conn.close()
     return row_to_out(row)
@@ -2869,12 +2889,29 @@ def admin_reject_extend_request(pid: int, data: dict = Body(...), user=Depends(g
                         f"⏰ Текущая дата истечения: {row.get('expires_at', '')[:10]}\n\n"
                         f"💬 <b>Причина отклонения:</b>\n{reason}"
                     )
-                    asyncio.create_task(bot.send_message(
-                        chat_id=int(tg_id_clean),
-                        text=msg,
-                        parse_mode="HTML"
-                    ))
-                    print(f"✅ Уведомление об отклонении отправлено менеджеру {tg_id_clean}")
+                    # Отправляем уведомление асинхронно через BackgroundTasks
+                    # BackgroundTasks не поддерживает async напрямую, поэтому используем asyncio.create_task
+                    async def send_reject_notification():
+                        try:
+                            await bot.send_message(
+                                chat_id=int(tg_id_clean),
+                                text=msg,
+                                parse_mode="HTML"
+                            )
+                            print(f"✅ Уведомление об отклонении отправлено менеджеру {tg_id_clean}")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки уведомления об отклонении менеджеру {tg_id_clean}: {e}")
+                    
+                    # Запускаем async функцию через asyncio.create_task
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(send_reject_notification())
+                        else:
+                            loop.run_until_complete(send_reject_notification())
+                    except Exception as e:
+                        print(f"⚠️ Не удалось отправить уведомление об отклонении: {e}")
                 except Exception as e:
                     print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
     
