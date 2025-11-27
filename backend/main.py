@@ -639,17 +639,42 @@ async def verify_code(data: VerifyCode):
             tg_id = user.get("tg_id")
     
     # Если все еще нет tg_id, ищем пользователя, который недавно написал /start
-    # (по имени из кода верификации)
+    # (по имени из кода верификации или по телефону)
     if not tg_id:
-        full_name = code_record.get("full_name")
-        if full_name:
-            # Ищем пользователя с таким именем, который недавно был создан/обновлен
+        # Сначала ищем по телефону (для суперадмина это важно)
+        query = _adapt_query("""
+            SELECT tg_id FROM users 
+            WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''
+            ORDER BY updated_at DESC, created_at DESC LIMIT 1
+        """)
+        cur.execute(query, (phone_clean,))
+        user = cur.fetchone()
+        if user:
+            tg_id = user.get("tg_id")
+        
+        # Если не нашли по телефону, ищем по имени
+        if not tg_id:
+            full_name = code_record.get("full_name")
+            if full_name:
+                # Ищем пользователя с таким именем, который недавно был создан/обновлен
+                query = _adapt_query("""
+                    SELECT tg_id FROM users 
+                    WHERE (first_name LIKE ? OR full_name LIKE ?) AND tg_id IS NOT NULL AND tg_id != ''
+                    ORDER BY updated_at DESC, created_at DESC LIMIT 1
+                """)
+                cur.execute(query, (f"%{full_name}%", f"%{full_name}%"))
+                user = cur.fetchone()
+                if user:
+                    tg_id = user.get("tg_id")
+        
+        # Если все еще нет tg_id, но это суперадмин по телефону, ищем пользователя с ролью superadmin
+        if not tg_id and phone_clean == "79207455960":
             query = _adapt_query("""
                 SELECT tg_id FROM users 
-                WHERE first_name LIKE ? OR full_name LIKE ?
+                WHERE role='superadmin' AND tg_id IS NOT NULL AND tg_id != ''
                 ORDER BY updated_at DESC, created_at DESC LIMIT 1
             """)
-            cur.execute(query, (f"%{full_name}%", f"%{full_name}%"))
+            cur.execute(query)
             user = cur.fetchone()
             if user:
                 tg_id = user.get("tg_id")
@@ -3785,6 +3810,16 @@ async def cmd_start_with_webapp(message: types.Message):
             cur.execute(query, (f"%{first_name}%", now_iso()))
             code_records = cur.fetchall()
         
+        # Если не нашли, ищем все активные коды (для суперадмина может быть полезно)
+        if not code_records:
+            query = _adapt_query("""
+                SELECT * FROM verification_codes 
+                WHERE used=0 AND expires_at > ?
+                ORDER BY created_at DESC LIMIT 5
+            """)
+            cur.execute(query, (now_iso(),))
+            code_records = cur.fetchall()
+        
         conn.close()
         
         # Если есть активные коды, отправляем самый свежий
@@ -3794,12 +3829,9 @@ async def cmd_start_with_webapp(message: types.Message):
             
             # Обновляем код, добавляя tg_id для будущих поисков
             if not code_record.get("tg_id"):
-                conn = get_conn()
-                cur = conn.cursor()
                 update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE id=?")
                 cur.execute(update_query, (str(tg_id), code_record.get("id")))
                 conn.commit()
-                conn.close()
             
             msg = (
                 f"🔐 <b>Ваш код верификации</b>\n\n"
