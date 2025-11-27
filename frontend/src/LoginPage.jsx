@@ -9,72 +9,86 @@ function normalizePhone(phone) {
 }
 
 export default function LoginPage({ onLogin }) {
-  // Более надежная проверка Telegram WebApp
-  const [isTG, setIsTG] = useState(false);
+  // Простая и надежная проверка Telegram WebApp
+  const [isTG, setIsTG] = useState(() => {
+    // Проверяем сразу при инициализации
+    if (typeof window === "undefined") return false;
+    return window.Telegram?.WebApp != null;
+  });
   
-  // Проверяем Telegram WebApp при загрузке и периодически
+  // Проверяем Telegram WebApp при загрузке - агрессивная проверка
   useEffect(() => {
     const checkTelegram = () => {
-      if (typeof window === "undefined") return false;
+      if (typeof window === "undefined") return;
       
-      // Проверяем наличие Telegram WebApp
+      // Множественные проверки для определения Telegram WebApp
       const hasTelegram = window.Telegram?.WebApp != null;
+      const hasTelegramObject = window.Telegram != null;
+      
+      // Дополнительные проверки по URL и другим признакам
+      const isTelegramUserAgent = navigator.userAgent.includes("Telegram");
+      const hasTelegramInReferrer = document.referrer.includes("telegram.org") || document.referrer.includes("t.me");
       
       if (hasTelegram) {
         const tg = window.Telegram.WebApp;
-        // Дополнительные проверки
-        const hasPlatform = tg.platform !== undefined;
-        const hasVersion = tg.version !== undefined;
-        const hasInitData = tg.initData !== undefined || tg.initDataUnsafe !== undefined;
+        // Инициализируем WebApp
+        try {
+          tg.ready();
+          tg.expand();
+        } catch (e) {
+          console.log("⚠️ Ошибка инициализации WebApp:", e);
+        }
         
-        console.log("🔍 DEBUG checkTelegram:", {
-          hasTelegram,
-          hasPlatform,
-          hasVersion,
-          hasInitData,
+        console.log("✅ Telegram WebApp обнаружен:", {
           platform: tg.platform,
           version: tg.version,
-          initDataLength: tg.initData?.length || 0,
+          hasInitData: !!tg.initData,
           hasInitDataUnsafe: !!tg.initDataUnsafe,
           hasUser: !!tg.initDataUnsafe?.user,
-          userId: tg.initDataUnsafe?.user?.id
+          userId: tg.initDataUnsafe?.user?.id,
+          initDataLength: tg.initData?.length || 0
         });
         
-        // Если есть хотя бы одна из этих проверок - это Telegram WebApp
-        if (hasPlatform || hasVersion || hasInitData) {
-          console.log("✅ Определен как Telegram WebApp");
-          setIsTG(true);
-          return true;
-        }
+        setIsTG(true);
+        return true;
+      } else if (hasTelegramObject || isTelegramUserAgent || hasTelegramInReferrer) {
+        // Если есть признаки Telegram, но WebApp еще не загружен - ждем
+        console.log("⏳ Признаки Telegram обнаружены, ждем загрузки WebApp...", {
+          hasTelegramObject,
+          isTelegramUserAgent,
+          hasTelegramInReferrer
+        });
+        // Не устанавливаем isTG в false, чтобы не показывать ошибку
+        return false;
+      } else {
+        console.log("❌ Telegram WebApp не обнаружен");
+        setIsTG(false);
+        return false;
       }
-      
-      console.log("❌ Не определен как Telegram WebApp");
-      setIsTG(false);
-      return false;
     };
     
     // Проверяем сразу
     checkTelegram();
     
-    // Проверяем периодически (на случай, если Telegram загружается асинхронно)
-    const interval = setInterval(() => {
-      if (!isTG) {
-        checkTelegram();
-      } else {
-        clearInterval(interval);
-      }
-    }, 100);
+    // Проверяем очень часто в течение первых 5 секунд (на случай медленной загрузки)
+    const intervals = [];
+    for (let i = 0; i < 50; i++) {
+      intervals.push(setTimeout(checkTelegram, i * 100));
+    }
     
-    // Останавливаем проверку через 3 секунды
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
-    }, 3000);
+    // Также проверяем при различных событиях
+    const handleLoad = () => checkTelegram();
+    const handleDOMContentLoaded = () => checkTelegram();
+    
+    window.addEventListener('load', handleLoad);
+    document.addEventListener('DOMContentLoaded', handleDOMContentLoaded);
     
     return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
+      intervals.forEach(clearTimeout);
+      window.removeEventListener('load', handleLoad);
+      document.removeEventListener('DOMContentLoaded', handleDOMContentLoaded);
     };
-  }, [isTG]);
+  }, []);
   
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -205,7 +219,7 @@ export default function LoginPage({ onLogin }) {
 
       // Проверяем Telegram WebApp еще раз (на случай, если он загрузился позже)
       const tg = window.Telegram?.WebApp;
-      const isTelegramWebApp = tg != null && (tg.platform !== undefined || tg.version !== undefined || tg.initData !== undefined || tg.initDataUnsafe !== undefined);
+      const isTelegramWebApp = tg != null;
       
       console.log("🔍 DEBUG handleSubmit:", {
         hasTelegram: !!window.Telegram,
@@ -238,66 +252,27 @@ export default function LoginPage({ onLogin }) {
           return;
         } else if (tg?.initData && tg.initData.length > 0) {
           // Если initDataUnsafe недоступен, но есть initData - отправляем на бэкенд
-          const data = await registerOrLogin({
-            init_data: tg.initData,
-            full_name: fullName,
-            phone: phone,
-            position: position || null,
-          });
+          try {
+            const data = await registerOrLogin({
+              init_data: tg.initData,
+              full_name: fullName,
+              phone: phone,
+              position: position || null,
+            });
 
-          if (onLogin) {
-            onLogin(data.user?.role || "user");
-          }
-          return;
-        } else {
-          // Если нет ни tg_id, ни initData - ждем немного и пробуем еще раз
-          console.log("⚠️ Telegram WebApp определен, но данные еще не загружены. Ждем...");
-          
-          // Ждем 500мс и пробуем еще раз
-          setTimeout(async () => {
-            const tgRetry = window.Telegram?.WebApp;
-            const tgUserRetry = tgRetry?.initDataUnsafe?.user;
-            
-            if (tgUserRetry?.id) {
-              const tg_id = String(tgUserRetry.id);
-              try {
-                const data = await registerOrLogin({
-                  tg_id: tg_id,
-                  full_name: fullName,
-                  phone: phone,
-                  position: position || null,
-                });
-                if (onLogin) {
-                  onLogin(data.user?.role || "user");
-                }
-                return;
-              } catch (err) {
-                console.error("❌ Ошибка при повторной попытке:", err);
-                setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
-              }
-            } else if (tgRetry?.initData && tgRetry.initData.length > 0) {
-              try {
-                const data = await registerOrLogin({
-                  init_data: tgRetry.initData,
-                  full_name: fullName,
-                  phone: phone,
-                  position: position || null,
-                });
-                if (onLogin) {
-                  onLogin(data.user?.role || "user");
-                }
-                return;
-              } catch (err) {
-                console.error("❌ Ошибка при повторной попытке с initData:", err);
-                setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
-              }
-            } else {
-              setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
+            if (onLogin) {
+              onLogin(data.user?.role || "user");
             }
-            setLoading(false);
-          }, 500);
-          
-          // Не возвращаемся сразу, чтобы показать загрузку
+            return;
+          } catch (err) {
+            console.error("❌ Ошибка регистрации с initData:", err);
+            setErr(err.response?.data?.detail || "Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
+            return;
+          }
+        } else {
+          // Если нет ни tg_id, ни initData - это странно для Telegram WebApp
+          // Но пробуем отправить запрос - бэкенд вернет понятную ошибку
+          setErr("Не удалось получить данные Telegram. Попробуйте перезагрузить страницу.");
           return;
         }
       } else {
