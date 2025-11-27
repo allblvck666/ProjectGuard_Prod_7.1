@@ -3070,69 +3070,91 @@ async def start_tg_bot():
     _bot_running = True
     print("🤖 Запуск Telegram-бота...")
     
-    # Проверяем, есть ли активный webhook или polling
-    try:
-        webhook_info = await bot.get_webhook_info()
-        if webhook_info.url:
-            print(f"⚠️ Обнаружен активный webhook: {webhook_info.url}")
-            print("🔄 Удаляем webhook...")
-    except Exception as e:
-        print(f"⚠️ Ошибка проверки webhook: {e}")
+    # Определяем, используем ли мы webhook или polling
+    # Для production (на Render) используем webhook, для локальной разработки - polling
+    use_webhook = os.getenv("RENDER_SERVICE_URL") or os.getenv("DATABASE_URL")
     
-    # Удаляем webhook несколько раз для надежности
-    for attempt in range(5):
+    if use_webhook:
+        # Используем webhook для production
+        webhook_url = f"{os.getenv('RENDER_SERVICE_URL', 'https://projectguard-prod-7-1.onrender.com')}/api/telegram/webhook"
+        print(f"🌐 Используем webhook: {webhook_url}")
+        
         try:
-            result = await bot.delete_webhook(drop_pending_updates=True)
-            if result:
-                print(f"✅ Webhook удален (попытка {attempt + 1})")
-            else:
-                print(f"ℹ️ Webhook не был установлен (попытка {attempt + 1})")
-            break
+            # Устанавливаем webhook
+            await bot.set_webhook(
+                url=webhook_url,
+                allowed_updates=["message", "callback_query"],
+                drop_pending_updates=True
+            )
+            print("✅ Webhook установлен успешно")
+            print("🤖 Telegram-бот запущен через webhook (inline кнопки активны)")
         except Exception as e:
-            print(f"⚠️ Ошибка удаления webhook (попытка {attempt + 1}): {e}")
-            if attempt < 4:
-                await asyncio.sleep(3)
-    
-    # Ждем перед запуском polling
-    await asyncio.sleep(2)
-    
-    # Запускаем polling с обработкой конфликтов
-    max_retries = 3
-    retry_delay = 10
-    
-    for attempt in range(max_retries):
-        try:
-            print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-            # Запускаем polling в отдельной задаче, чтобы не блокировать
-            await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
-            print("✅ Telegram-бот запущен (inline кнопки активны)")
-            break
-        except Exception as e:
-            error_str = str(e).lower()
-            if "conflict" in error_str or "terminated by other" in error_str:
-                print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
-                print(f"💡 Возможно, бот запущен в другом месте (локально или на другом сервере)")
-                if attempt < max_retries - 1:
-                    # Пытаемся снова удалить webhook и подождать дольше
-                    try:
-                        await bot.delete_webhook(drop_pending_updates=True)
-                        print(f"⏳ Ждем {retry_delay} секунд перед следующей попыткой...")
-                        await asyncio.sleep(retry_delay)
-                    except:
-                        await asyncio.sleep(retry_delay)
+            print(f"❌ Ошибка установки webhook: {e}")
+            _bot_running = False
+            return
+    else:
+        # Используем polling для локальной разработки
+        print("🔄 Используем polling для локальной разработки...")
+        
+        # Удаляем webhook несколько раз для надежности
+        for attempt in range(5):
+            try:
+                result = await bot.delete_webhook(drop_pending_updates=True)
+                if result:
+                    print(f"✅ Webhook удален (попытка {attempt + 1})")
+                break
+            except Exception as e:
+                print(f"⚠️ Ошибка удаления webhook (попытка {attempt + 1}): {e}")
+                if attempt < 4:
+                    await asyncio.sleep(3)
+        
+        # Ждем перед запуском polling
+        await asyncio.sleep(2)
+        
+        # Запускаем polling с обработкой конфликтов
+        max_retries = 3
+        retry_delay = 10
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
+                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+                print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
+                break
+            except Exception as e:
+                error_str = str(e).lower()
+                if "conflict" in error_str or "terminated by other" in error_str:
+                    print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        try:
+                            await bot.delete_webhook(drop_pending_updates=True)
+                            print(f"⏳ Ждем {retry_delay} секунд перед следующей попыткой...")
+                            await asyncio.sleep(retry_delay)
+                        except:
+                            await asyncio.sleep(retry_delay)
+                    else:
+                        print("❌ Не удалось запустить бота после всех попыток")
+                        _bot_running = False
+                        return
                 else:
-                    print("❌ Не удалось запустить бота после всех попыток")
-                    print("💡 Проверьте:")
-                    print("   1. Не запущен ли файл bot.py локально")
-                    print("   2. Нет ли других сервисов на Render с этим токеном")
-                    print("   3. Не установлен ли webhook вручную через API")
+                    print(f"❌ Ошибка запуска Telegram-бота: {e}")
                     _bot_running = False
                     return
-            else:
-                print(f"❌ Ошибка запуска Telegram-бота: {e}")
-                _bot_running = False
-                return
 
+
+# === Webhook endpoint для Telegram ===
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Endpoint для получения обновлений от Telegram через webhook"""
+    try:
+        update_data = await request.json()
+        from aiogram.types import Update
+        update = Update(**update_data)
+        await dp.feed_update(bot, update)
+        return {"ok": True}
+    except Exception as e:
+        print(f"⚠️ Ошибка обработки webhook: {e}")
+        return {"ok": False, "error": str(e)}
 
 # === Подключаем users API ===
 app.include_router(users_router)
