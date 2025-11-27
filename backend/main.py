@@ -537,68 +537,65 @@ async def request_verification_code(data: RequestVerificationCode):
     conn = get_conn()
     cur = conn.cursor()
     
-    # Помечаем старые коды для этого телефона как использованные
-    update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE phone=? AND used=0")
-    cur.execute(update_query, (phone_clean,))
-    
-    # Сохраняем новый код
-    insert_query = _adapt_query("""
-        INSERT INTO verification_codes (phone, code, full_name, expires_at, created_at, used)
-        VALUES (?, ?, ?, ?, ?, 0)
-    """)
-    cur.execute(insert_query, (phone_clean, code, data.full_name, expires_at, created_at))
-    conn.commit()
-    conn.close()
-    
-    # Ищем пользователя с таким номером телефона, чтобы получить tg_id
-    query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
-    cur.execute(query, (phone_clean,))
-    user = cur.fetchone()
-    
-    tg_id_to_save = None
-    if user and user.get("tg_id"):
-        tg_id_to_save = user.get("tg_id")
-        # Нормализуем tg_id
-        from backend.db import normalize_tg_id
-        tg_id_clean = normalize_tg_id(tg_id_to_save)
-        if tg_id_clean and tg_id_clean.isdigit():
-            # Обновляем код, добавляя tg_id
-            update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE phone=? AND code=? AND used=0")
-            cur.execute(update_query, (tg_id_clean, phone_clean, code))
-            conn.commit()
-            tg_id_to_save = tg_id_clean
-            
-            try:
-                # Отправляем код через Telegram
-                msg = (
-                    f"🔐 <b>Код верификации для регистрации</b>\n\n"
-                    f"Ваш код: <code>{code}</code>\n\n"
-                    f"Код действителен 10 минут.\n"
-                    f"Введите его в приложении для завершения регистрации."
-                )
-                await bot.send_message(
-                    chat_id=int(tg_id_clean),
-                    text=msg,
-                    parse_mode="HTML"
-                )
-                conn.close()
-                return {"ok": True, "message": "Код отправлен в Telegram"}
-            except Exception as e:
-                error_msg = str(e).lower()
-                if "chat not found" in error_msg or "chat_not_found" in error_msg:
-                    print(f"⚠️ Chat not found для {tg_id_clean}. Пользователь должен сначала написать /start боту.")
-                    # Сохраняем код без tg_id - он будет отправлен при /start
-                    conn.close()
-                    return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
-                else:
-                    print(f"⚠️ Не удалось отправить код в Telegram: {e}")
-                    conn.close()
-                    return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram"}
-    
-    conn.close()
-    
-    # Если не нашли пользователя с Telegram, код сохранен и будет отправлен при /start
-    return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
+    try:
+        # Помечаем старые коды для этого телефона как использованные
+        update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE phone=? AND used=0")
+        cur.execute(update_query, (phone_clean,))
+        
+        # Сохраняем новый код
+        insert_query = _adapt_query("""
+            INSERT INTO verification_codes (phone, code, full_name, expires_at, created_at, used)
+            VALUES (?, ?, ?, ?, ?, 0)
+        """)
+        cur.execute(insert_query, (phone_clean, code, data.full_name, expires_at, created_at))
+        conn.commit()
+        
+        # Ищем пользователя с таким номером телефона, чтобы получить tg_id
+        query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
+        cur.execute(query, (phone_clean,))
+        user = cur.fetchone()
+        
+        tg_id_to_save = None
+        if user and user.get("tg_id"):
+            tg_id_to_save = user.get("tg_id")
+            # Нормализуем tg_id
+            from backend.db import normalize_tg_id
+            tg_id_clean = normalize_tg_id(tg_id_to_save)
+            if tg_id_clean and tg_id_clean.isdigit():
+                # Обновляем код, добавляя tg_id
+                update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE phone=? AND code=? AND used=0")
+                cur.execute(update_query, (tg_id_clean, phone_clean, code))
+                conn.commit()
+                tg_id_to_save = tg_id_clean
+                
+                try:
+                    # Отправляем код через Telegram
+                    msg = (
+                        f"🔐 <b>Код верификации для регистрации</b>\n\n"
+                        f"Ваш код: <code>{code}</code>\n\n"
+                        f"Код действителен 10 минут.\n"
+                        f"Введите его в приложении для завершения регистрации."
+                    )
+                    await bot.send_message(
+                        chat_id=int(tg_id_clean),
+                        text=msg,
+                        parse_mode="HTML"
+                    )
+                    return {"ok": True, "message": "Код отправлен в Telegram"}
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "chat not found" in error_msg or "chat_not_found" in error_msg:
+                        print(f"⚠️ Chat not found для {tg_id_clean}. Пользователь должен сначала написать /start боту.")
+                        # Сохраняем код без tg_id - он будет отправлен при /start
+                        return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
+                    else:
+                        print(f"⚠️ Не удалось отправить код в Telegram: {e}")
+                        return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram"}
+        
+        # Если не нашли пользователя с Telegram, код сохранен и будет отправлен при /start
+        return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
+    finally:
+        conn.close()
 
 
 @app.post("/api/auth/verify-code")
