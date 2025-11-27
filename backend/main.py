@@ -1594,7 +1594,8 @@ def update_protection(pid: int, payload: ProtectionUpdate):
     cur = conn.cursor()
 
     # проверим, что защита есть и активна
-    cur.execute("SELECT * FROM protections WHERE id = ?", (pid,))
+    query = _adapt_query("SELECT * FROM protections WHERE id = ?")
+    cur.execute(query, (pid,))
     row = cur.fetchone()
     if not row:
         conn.close()
@@ -1647,7 +1648,8 @@ def update_protection(pid: int, payload: ProtectionUpdate):
     )
 
     conn.commit()
-    cur.execute("SELECT * FROM protections WHERE id = ?", (pid,))
+    query = _adapt_query("SELECT * FROM protections WHERE id = ?")
+    cur.execute(query, (pid,))
     updated = cur.fetchone()
     conn.close()
 
@@ -1754,10 +1756,12 @@ def history(protection_id: Optional[int] = None):
 
 # --- продление
 @app.post("/api/protections/{pid}/extend", response_model=ProtectionOut)
-def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manager"):
+def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manager", background_tasks: BackgroundTasks = None):
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -1789,13 +1793,56 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
 
     new_exp = add_days(row["expires_at"], days)
     new_count = extend_count + (1 if actor == "manager" else 0)
-    cur.execute(
-        "UPDATE protections SET expires_at=?, extend_count=? WHERE id=?",
-        (new_exp, new_count, pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
+    cur.execute(update_query, (new_exp, new_count, pid))
     add_history(cur, pid, actor, "extend", {"days": days})
     conn.commit()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    
+    # Отправляем уведомление админам и суперадминам о продлении
+    if background_tasks:
+        def notify_admins_extend_sync():
+            try:
+                # Получаем всех админов и суперадминов
+                admin_conn = get_conn()
+                admin_cur = admin_conn.cursor()
+                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+                admin_cur.execute(admin_query)
+                admins = admin_cur.fetchall()
+                admin_conn.close()
+                
+                manager_name = row.get("manager", "—")
+                sku = row.get("sku", "—")
+                expires_at = new_exp[:10] if new_exp else "—"
+                
+                msg = (
+                    f"🔄 <b>Защита продлена</b>\n\n"
+                    f"👤 Менеджер: {manager_name}\n"
+                    f"📦 SKU: {sku}\n"
+                    f"⏰ Продлено на: {days} дней\n"
+                    f"📅 Новая дата истечения: {expires_at}\n"
+                    f"🆔 ID защиты: {pid}"
+                )
+                
+                # Отправляем уведомления асинхронно
+                async def send_notifications():
+                    for admin in admins:
+                        tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0] if isinstance(admin, (list, tuple)) else None
+                        if tg_id:
+                            try:
+                                tg_id_int = int(str(tg_id).replace("tg-", "").replace("dev-", ""))
+                                await bot.send_message(tg_id_int, msg, parse_mode="HTML")
+                            except Exception as e:
+                                print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
+                
+                asyncio.create_task(send_notifications())
+            except Exception as e:
+                print(f"⚠️ Ошибка при отправке уведомлений о продлении: {e}")
+        
+        background_tasks.add_task(notify_admins_extend_sync)
+    
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     conn.close()
     return row_to_out(row)
 
@@ -1805,7 +1852,9 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
     reason = (data.get("reason") or "").strip()
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -1938,17 +1987,19 @@ def mark_success(pid: int, data: dict = Body(...)):
         )
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
-    cur.execute(
-        "UPDATE protections SET status='success', closed_at=? WHERE id=?",
-        (now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='success', closed_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "manager", "success", {"doc_1c": doc_1c})
     conn.commit()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     conn.close()
     return row_to_out(row)
 
@@ -1961,17 +2012,19 @@ def mark_closed(pid: int, data: dict = Body(...)):
         )
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
-    cur.execute(
-        "UPDATE protections SET status='closed', closed_at=? WHERE id=?",
-        (now_iso(), pid),
-    )
+    update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
+    cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "manager", "close", {"reason": reason})
     conn.commit()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     conn.close()
     return row_to_out(row)
 
@@ -1984,7 +2037,9 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     """
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Not found")
@@ -2697,10 +2752,9 @@ async def send_and_store_tg(cur, protection_id: int, text: str, reply_markup=Non
     Шлёт сообщение всем причастным и сохраняет chat_id/message_id
     """
     # достаём защиту, нам нужен manager
-    row = cur.execute(
-        "SELECT manager FROM protections WHERE id=?",
-        (protection_id,)
-    ).fetchone()
+    query = _adapt_query("SELECT manager FROM protections WHERE id=?")
+    cur.execute(query, (protection_id,))
+    row = cur.fetchone()
     if not row:
         return
 
@@ -2715,10 +2769,8 @@ async def send_and_store_tg(cur, protection_id: int, text: str, reply_markup=Non
                 reply_markup=reply_markup
             )
             # сохраняем
-            cur.execute(
-                "INSERT INTO tg_notifications(protection_id, chat_id, message_id, created_at) VALUES (?,?,?,?)",
-                (protection_id, chat_id, msg.message_id, now_iso())
-            )
+            insert_query = _adapt_query("INSERT INTO tg_notifications(protection_id, chat_id, message_id, created_at) VALUES (?,?,?,?)")
+            cur.execute(insert_query, (protection_id, chat_id, msg.message_id, now_iso()))
         except Exception as e:
             print(f"⚠️ Ошибка отправки в чат {chat_id}: {e}")
     # транзакцию снаружи закроем
@@ -2772,7 +2824,9 @@ async def approve_handler(callback: types.CallbackQuery):
     conn = get_conn()
     cur = conn.cursor()
 
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -2789,10 +2843,9 @@ async def approve_handler(callback: types.CallbackQuery):
     add_history(cur, pid, "admin", "approve", {"source": "tg", "sku": sku_display})
 
     # достаём все связанные tg-сообщения
-    notif_rows = cur.execute(
-        "SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?",
-        (pid,)
-    ).fetchall()
+    query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
+    cur.execute(query, (pid,))
+    notif_rows = cur.fetchall()
 
     conn.commit()
     conn.close()
@@ -2828,7 +2881,9 @@ async def reject_handler(callback: types.CallbackQuery):
     conn = get_conn()
     cur = conn.cursor()
 
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -2881,7 +2936,9 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -2916,7 +2973,9 @@ async def close_expiring_handler(callback: types.CallbackQuery):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -2949,7 +3008,9 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -2985,7 +3046,9 @@ async def admin_extend_custom_handler(callback: types.CallbackQuery):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -3026,7 +3089,9 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await callback.answer("❌ Защита не найдена", show_alert=True)
         conn.close()
@@ -3067,7 +3132,9 @@ async def handle_reject_reason(message: types.Message):
     
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM protections WHERE id=?", (pid,)).fetchone()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
     if not row:
         await message.answer("❌ Защита не найдена")
         conn.close()
@@ -3101,6 +3168,232 @@ async def cmd_start_with_webapp(message: types.Message):
         "Нажми кнопку ниже, чтобы войти в систему:",
         reply_markup=keyboard
     )
+
+# === Команды для управления защитами ===
+@dp.message(F.text.startswith("/protections"))
+async def cmd_protections(message: types.Message):
+    """Список активных защит"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        query = _adapt_query("SELECT id, manager, sku, expires_at, partner, partner_city FROM protections WHERE status='active' ORDER BY expires_at ASC LIMIT 10")
+        cur.execute(query)
+        rows = cur.fetchall()
+        conn.close()
+        
+        if not rows:
+            await message.answer("📋 Активных защит нет")
+            return
+        
+        text = "📋 <b>Активные защиты:</b>\n\n"
+        for r in rows:
+            pid = r.get("id") if isinstance(r, dict) else r[0]
+            manager = r.get("manager", "—") if isinstance(r, dict) else r[1]
+            sku = r.get("sku", "—") if isinstance(r, dict) else r[2]
+            expires = r.get("expires_at", "—")[:10] if isinstance(r, dict) else (r[3][:10] if len(r) > 3 else "—")
+            text += f"🆔 {pid} | {manager}\n📦 {sku}\n⏰ {expires}\n\n"
+        
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+@dp.message(F.text.startswith("/pending"))
+async def cmd_pending(message: types.Message):
+    """Список защит на проверке (только для админов)"""
+    try:
+        # Проверяем, является ли пользователь админом
+        tg_id = message.from_user.id
+        conn = get_conn()
+        cur = conn.cursor()
+        query = _adapt_query("SELECT role FROM users WHERE tg_id=?")
+        cur.execute(query, (str(tg_id),))
+        user = cur.fetchone()
+        
+        if not user or user.get("role") not in ("admin", "superadmin") if isinstance(user, dict) else user[0] not in ("admin", "superadmin"):
+            await message.answer("❌ Доступно только администраторам")
+            conn.close()
+            return
+        
+        query = _adapt_query("SELECT id, manager, sku, partner, partner_city, created_at FROM protections WHERE status='pending' ORDER BY created_at DESC LIMIT 10")
+        cur.execute(query)
+        rows = cur.fetchall()
+        conn.close()
+        
+        if not rows:
+            await message.answer("📋 Защит на проверке нет")
+            return
+        
+        text = "⏳ <b>Защиты на проверке:</b>\n\n"
+        for r in rows:
+            pid = r.get("id") if isinstance(r, dict) else r[0]
+            manager = r.get("manager", "—") if isinstance(r, dict) else r[1]
+            sku = r.get("sku", "—") if isinstance(r, dict) else r[2]
+            partner = r.get("partner", "—") if isinstance(r, dict) else r[3]
+            text += f"🆔 {pid} | {manager}\n📦 {sku}\n🏢 {partner}\n\n"
+        
+        await message.answer(text, parse_mode="HTML")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+@dp.message(F.text.startswith("/extend"))
+async def cmd_extend(message: types.Message):
+    """Продлить защиту: /extend <id> <days>"""
+    try:
+        parts = message.text.split()
+        if len(parts) < 3:
+            await message.answer("Использование: /extend <id> <days>\nПример: /extend 123 10")
+            return
+        
+        pid = int(parts[1])
+        days = int(parts[2])
+        
+        # Проверяем права пользователя
+        tg_id = message.from_user.id
+        conn = get_conn()
+        cur = conn.cursor()
+        query = _adapt_query("SELECT id, role FROM users WHERE tg_id=?")
+        cur.execute(query, (str(tg_id),))
+        user = cur.fetchone()
+        
+        if not user:
+            await message.answer("❌ Пользователь не найден. Зарегистрируйтесь через веб-приложение.")
+            conn.close()
+            return
+        
+        user_id = user.get("id") if isinstance(user, dict) else user[0]
+        user_role = user.get("role") if isinstance(user, dict) else user[1]
+        
+        # Получаем защиту
+        query = _adapt_query("SELECT * FROM protections WHERE id=?")
+        cur.execute(query, (pid,))
+        row = cur.fetchone()
+        
+        if not row:
+            await message.answer(f"❌ Защита #{pid} не найдена")
+            conn.close()
+            return
+        
+        # Проверяем права: автор или админ
+        protection_manager_id = row.get("manager_id") if isinstance(row, dict) else None
+        is_author = user_id == protection_manager_id
+        is_admin = user_role in ("admin", "superadmin")
+        
+        if not is_author and not is_admin:
+            await message.answer("❌ Нет прав на продление этой защиты")
+            conn.close()
+            return
+        
+        # Продлеваем
+        new_exp = add_days(row.get("expires_at") if isinstance(row, dict) else row[12], days)
+        extend_count = (row.get("extend_count") or 0) if isinstance(row, dict) else (row[14] or 0)
+        new_count = extend_count + (1 if not is_admin else 0)
+        
+        update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
+        cur.execute(update_query, (new_exp, new_count, pid))
+        add_history(cur, pid, "admin" if is_admin else "manager", "extend", {"days": days, "source": "tg"})
+        conn.commit()
+        conn.close()
+        
+        await message.answer(f"✅ Защита #{pid} продлена на {days} дней\n📅 Новая дата: {new_exp[:10]}")
+        
+        # Отправляем уведомление админам
+        async def notify_admins():
+            try:
+                admin_conn = get_conn()
+                admin_cur = admin_conn.cursor()
+                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+                admin_cur.execute(admin_query)
+                admins = admin_cur.fetchall()
+                admin_conn.close()
+                
+                manager_name = row.get("manager", "—") if isinstance(row, dict) else row[1]
+                sku = row.get("sku", "—") if isinstance(row, dict) else row[4]
+                
+                msg = (
+                    f"🔄 <b>Защита продлена через бота</b>\n\n"
+                    f"👤 Менеджер: {manager_name}\n"
+                    f"📦 SKU: {sku}\n"
+                    f"⏰ Продлено на: {days} дней\n"
+                    f"📅 Новая дата: {new_exp[:10]}\n"
+                    f"🆔 ID: {pid}"
+                )
+                
+                for admin in admins:
+                    admin_tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0]
+                    if admin_tg_id and str(admin_tg_id) != str(tg_id):
+                        try:
+                            admin_tg_id_int = int(str(admin_tg_id).replace("tg-", "").replace("dev-", ""))
+                            await bot.send_message(admin_tg_id_int, msg, parse_mode="HTML")
+                        except:
+                            pass
+            except:
+                pass
+        
+        asyncio.create_task(notify_admins())
+        
+    except ValueError:
+        await message.answer("❌ Неверный формат. Используйте: /extend <id> <days>")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+@dp.message(F.text.startswith("/close"))
+async def cmd_close(message: types.Message):
+    """Закрыть защиту: /close <id> <reason>"""
+    try:
+        parts = message.text.split(maxsplit=2)
+        if len(parts) < 2:
+            await message.answer("Использование: /close <id> [причина]\nПример: /close 123 Проект завершен")
+            return
+        
+        pid = int(parts[1])
+        reason = parts[2] if len(parts) > 2 else "Закрыто через бота"
+        
+        # Проверяем права
+        tg_id = message.from_user.id
+        conn = get_conn()
+        cur = conn.cursor()
+        query = _adapt_query("SELECT id, role FROM users WHERE tg_id=?")
+        cur.execute(query, (str(tg_id),))
+        user = cur.fetchone()
+        
+        if not user:
+            await message.answer("❌ Пользователь не найден")
+            conn.close()
+            return
+        
+        user_id = user.get("id") if isinstance(user, dict) else user[0]
+        user_role = user.get("role") if isinstance(user, dict) else user[1]
+        
+        query = _adapt_query("SELECT * FROM protections WHERE id=?")
+        cur.execute(query, (pid,))
+        row = cur.fetchone()
+        
+        if not row:
+            await message.answer(f"❌ Защита #{pid} не найдена")
+            conn.close()
+            return
+        
+        protection_manager_id = row.get("manager_id") if isinstance(row, dict) else None
+        is_author = user_id == protection_manager_id
+        is_admin = user_role in ("admin", "superadmin")
+        
+        if not is_author and not is_admin:
+            await message.answer("❌ Нет прав на закрытие этой защиты")
+            conn.close()
+            return
+        
+        update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
+        cur.execute(update_query, (now_iso(), pid))
+        add_history(cur, pid, "admin" if is_admin else "manager", "close", {"reason": reason, "source": "tg"})
+        conn.commit()
+        conn.close()
+        
+        await message.answer(f"✅ Защита #{pid} закрыта\n📝 Причина: {reason}")
+        
+    except ValueError:
+        await message.answer("❌ Неверный формат. Используйте: /close <id> [причина]")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
     
 
