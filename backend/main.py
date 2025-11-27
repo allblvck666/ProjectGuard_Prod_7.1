@@ -1981,7 +1981,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             pairs.append((normalize_sku(sku_display), total_area))
 
     cur.execute("""
-        SELECT manager, partner, sku, area_m2, expires_at
+        SELECT id, manager, manager_id, partner, partner_city, client, sku, area_m2, 
+               expires_at, object_city, address, last4, comment
         FROM protections
         WHERE status='active'
     """)
@@ -2000,9 +2001,10 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             if min_a <= float(row["area_m2"]) <= max_a:
                 # Получаем информацию о создателе защиты
                 creator_name = "—"
-                if "manager_id" in row.keys() and row["manager_id"]:
+                manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
+                if manager_id:
                     creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
-                    cur.execute(creator_query, (row["manager_id"],))
+                    cur.execute(creator_query, (manager_id,))
                     creator_row = cur.fetchone()
                     if creator_row:
                         creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
@@ -3196,12 +3198,8 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         conn.close()
         raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
     
-    add_history(cur, new_id, "manager", "create_pending", {"reason": payload.comment})
-    conn.commit()
-    conn.close()
-
     # === Telegram уведомление админу ===
-    # Получаем информацию о пользователе, который создал защиту
+    # Получаем информацию о пользователе, который создал защиту (ДО закрытия соединения)
     user_name = "—"
     if current_user_id:
         user_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
@@ -3209,6 +3207,10 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         user_row = cur.fetchone()
         if user_row:
             user_name = user_row.get("full_name") or user_row.get("first_name") or "—"
+    
+    add_history(cur, new_id, "manager", "create_pending", {"reason": payload.comment})
+    conn.commit()
+    conn.close()
     
     if background_tasks:
         background_tasks.add_task(
