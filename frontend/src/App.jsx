@@ -227,17 +227,39 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
         justifyContent: "center",
         zIndex: 9999,
         padding: 16,
+        overflowY: "auto",
       }}
       onClick={onClose}
     >
       <div
         className="card"
-        style={{ width: "100%", maxWidth: 420 }}
+        style={{ 
+          width: "100%", 
+          maxWidth: 420,
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden"
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div style={{ margin: "12px 0" }}>{children}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <h3 style={{ marginTop: 0, flexShrink: 0 }}>{title}</h3>
+        <div style={{ 
+          margin: "12px 0", 
+          flex: 1,
+          overflowY: "auto",
+          minHeight: 0,
+          WebkitOverflowScrolling: "touch"
+        }}>
+          {children}
+        </div>
+        <div style={{ 
+          display: "flex", 
+          gap: 8, 
+          justifyContent: "flex-end",
+          flexShrink: 0,
+          marginTop: 12
+        }}>
           <button className="btn secondary" onClick={onClose}>
             Отмена
           </button>

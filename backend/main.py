@@ -3785,10 +3785,9 @@ async def reject_handler(callback: types.CallbackQuery):
     cur.execute(update_query, (now_iso(), pid))
     add_history(cur, pid, "admin", "reject", {"source": "tg"})
 
-    notif_rows = cur.execute(
-        "SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?",
-        (pid,)
-    ).fetchall()
+    notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
+    cur.execute(notif_query, (pid,))
+    notif_rows = cur.fetchall()
 
     conn.commit()
     conn.close()
