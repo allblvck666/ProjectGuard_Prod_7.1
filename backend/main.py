@@ -3795,11 +3795,16 @@ async def handle_reject_reason(message: types.Message):
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
+# URL для Telegram WebApp - должен быть HTTPS и доступен публично
 WEBAPP_URL = FRONTEND_URL
+print(f"🌐 WebApp URL: {WEBAPP_URL}")
 
 @dp.message(F.text == "/start")
 async def cmd_start_with_webapp(message: types.Message):
-    # Обновляем tg_id в базе данных при каждом /start
+    """
+    Команда /start - обновляет данные пользователя и показывает кнопку для входа в WebApp.
+    Telegram ID теперь получается автоматически из WebApp, коды верификации не нужны.
+    """
     tg_id = message.from_user.id
     username = message.from_user.username or ""
     first_name = message.from_user.first_name or ""
@@ -3807,6 +3812,7 @@ async def cmd_start_with_webapp(message: types.Message):
     try:
         conn = get_conn()
         cur = conn.cursor()
+        
         # Проверяем, есть ли пользователь с таким tg_id
         query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
         cur.execute(query, (str(tg_id),))
@@ -3822,6 +3828,7 @@ async def cmd_start_with_webapp(message: types.Message):
             print(f"✅ Обновлен tg_id {tg_id} для пользователя {user.get('id')}")
         else:
             # Если пользователя нет, создаем нового с ролью manager
+            # Роль будет обновлена при регистрации через WebApp на основе телефона
             cur.execute(
                 _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
                 (str(tg_id), username, first_name, "manager", now_iso())
@@ -3829,71 +3836,48 @@ async def cmd_start_with_webapp(message: types.Message):
             conn.commit()
             print(f"✅ Создан новый пользователь с tg_id {tg_id}")
         
-        # Проверяем, есть ли активные коды верификации для этого tg_id или по имени
-        # Сначала ищем по tg_id
-        query = _adapt_query("""
-            SELECT * FROM verification_codes 
-            WHERE (tg_id=? OR tg_id IS NULL) AND used=0 AND expires_at > ?
-            ORDER BY created_at DESC LIMIT 5
-        """)
-        cur.execute(query, (str(tg_id), now_iso()))
-        code_records = cur.fetchall()
-        
-        # Если не нашли по tg_id, ищем по имени пользователя
-        if not code_records and first_name:
-            query = _adapt_query("""
-                SELECT * FROM verification_codes 
-                WHERE full_name LIKE ? AND used=0 AND expires_at > ?
-                ORDER BY created_at DESC LIMIT 5
-            """)
-            cur.execute(query, (f"%{first_name}%", now_iso()))
-            code_records = cur.fetchall()
-        
-        # Если не нашли, ищем все активные коды (для суперадмина может быть полезно)
-        if not code_records:
-            query = _adapt_query("""
-                SELECT * FROM verification_codes 
-                WHERE used=0 AND expires_at > ?
-                ORDER BY created_at DESC LIMIT 5
-            """)
-            cur.execute(query, (now_iso(),))
-            code_records = cur.fetchall()
-        
         conn.close()
-        
-        # Если есть активные коды, отправляем самый свежий
-        if code_records:
-            code_record = code_records[0]  # Берем самый свежий
-            code = code_record.get("code")
-            
-            # Обновляем код, добавляя tg_id для будущих поисков
-            if not code_record.get("tg_id"):
-                update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE id=?")
-                cur.execute(update_query, (str(tg_id), code_record.get("id")))
-                conn.commit()
-            
-            msg = (
-                f"🔐 <b>Ваш код верификации</b>\n\n"
-                f"Код: <code>{code}</code>\n\n"
-                f"Введите этот код в приложении для завершения регистрации.\n"
-                f"Код действителен до {code_record.get('expires_at', '')[:16]}"
-            )
-            await message.answer(msg, parse_mode="HTML")
         
     except Exception as e:
         print(f"⚠️ Ошибка обновления tg_id при /start: {e}")
     
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🚪 Войти в систему", web_app=WebAppInfo(url=WEBAPP_URL))]
-        ]
-    )
+    # Проверяем, что URL правильный (должен быть HTTPS)
+    webapp_url = WEBAPP_URL
+    if not webapp_url.startswith("https://"):
+        print(f"⚠️ ВНИМАНИЕ: WebApp URL должен быть HTTPS! Текущий URL: {webapp_url}")
+        # Пробуем исправить
+        if webapp_url.startswith("http://"):
+            webapp_url = webapp_url.replace("http://", "https://")
+        else:
+            webapp_url = f"https://{webapp_url}"
+        print(f"✅ Исправленный URL: {webapp_url}")
+    
+    print(f"🌐 Отправка кнопки WebApp с URL: {webapp_url}")
+    
+    # Создаем кнопку для открытия WebApp
+    try:
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🚪 Войти в систему", web_app=WebAppInfo(url=webapp_url))]
+            ]
+        )
 
-    await message.answer(
-        "Привет 👋\n\nЭто Aquafloor Guard — система защиты проектов.\n"
-        "Нажми кнопку ниже, чтобы войти в систему:",
-        reply_markup=keyboard
-    )
+        await message.answer(
+            "Привет 👋\n\n"
+            "Это Aquafloor Guard — система защиты проектов.\n\n"
+            "Нажми кнопку ниже, чтобы войти в систему.\n"
+            "Ваш Telegram ID определяется автоматически при входе.",
+            reply_markup=keyboard
+        )
+        print(f"✅ Кнопка WebApp отправлена пользователю {tg_id}")
+    except Exception as e:
+        print(f"❌ Ошибка создания кнопки WebApp: {e}")
+        await message.answer(
+            f"❌ Ошибка создания кнопки входа.\n\n"
+            f"URL: {webapp_url}\n"
+            f"Ошибка: {str(e)}\n\n"
+            f"Попробуйте открыть приложение по ссылке:\n{webapp_url}"
+        )
 
 # === Команды для управления защитами ===
 @dp.message(F.text.startswith("/protections"))
