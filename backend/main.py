@@ -1930,9 +1930,17 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             if normalize_sku(row["sku"]) != sku_code:
                 continue
             if min_a <= float(row["area_m2"]) <= max_a:
+                # Получаем информацию о создателе защиты
+                creator_name = "—"
+                if "manager_id" in row.keys() and row["manager_id"]:
+                    creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+                    cur.execute(creator_query, (row["manager_id"],))
+                    creator_row = cur.fetchone()
+                    if creator_row:
+                        creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
+                
                 # Отправляем уведомление всем админам и суперадминам о похожей защите (только тем, у кого включены уведомления)
-                admins = cur.execute(
-                    _adapt_query("""
+                admin_query = _adapt_query("""
                     SELECT tg_id, full_name, first_name 
                     FROM users 
                     WHERE role IN ('admin', 'superadmin') 
@@ -1940,19 +1948,23 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                       AND tg_id != ''
                       AND (receive_notifications IS NULL OR receive_notifications = 1)
                     """)
-                ).fetchall()
+                cur.execute(admin_query)
+                admins = cur.fetchall()
                 
                 duplicate_msg = (
                     f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                    f"<b>Существующая защита:</b>\n"
                     f"👤 Менеджер: {row['manager']}\n"
+                    f"👤 Создатель: {creator_name}\n"
                     f"🏢 Партнёр: {row['partner'] or '—'}\n"
                     f"❗️Артикул: {row['sku']}\n"
                     f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
                     f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
-                    f"👤 Пытается создать: {payload.manager or '—'}\n"
+                    f"<b>Попытка создать:</b>\n"
+                    f"👤 Пользователь: {payload.manager or '—'}\n"
                     f"📦 SKU: {sku_display}\n"
                     f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
-                    f"💬 Пользователь должен обратиться к коллеге перед созданием."
+                    f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                 )
                 
                 # Отправляем уведомления асинхронно
@@ -1987,20 +1999,29 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     status_code=409,
                     detail={
                         "msg": (
-                            "⚠️ Похожая активная защита уже существует:\n"
+                            "⚠️ Похожая активная защита уже существует:\n\n"
                             f"👤 Менеджер: {row['manager']}\n"
+                            f"👤 Создатель: {creator_name}\n"
                             f"🏢 Партнёр: {row['partner'] or '—'}\n"
                             f"❗️Артикул: {row['sku']}\n"
                             f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
                             f"⏰ Истекает: {row['expires_at']}\n\n"
-                            "💬 Обратись к коллеге, прежде чем ставить новую защиту."
+                            "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
                         )
                     }
                 )
 
+    # ===== Проверка минимальной площади (50 м²) =====
+    if total_area < 50:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
+        )
+    
     # ===== TTL по суммарной площади =====
     ttl_days = 5
-    if total_area > 0:
+    if total_area >= 50:
         if total_area < 100:
             ttl_days = 5
         elif total_area < 250:
@@ -2980,10 +3001,25 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         sku_display = (payload.sku or "").strip()
         total_area = float(payload.area_m2 or 0)
 
+    # === Проверка минимальной площади (50 м²) ===
+    if total_area < 50:
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
+        )
+    
     # === TTL ===
     ttl_days = 5
-    if total_area > 100:
-        ttl_days = 10 if total_area < 250 else (15 if total_area < 500 else 30)
+    if total_area >= 50:
+        if total_area < 100:
+            ttl_days = 5
+        elif total_area < 250:
+            ttl_days = 10
+        elif total_area < 500:
+            ttl_days = 15
+        else:
+            ttl_days = 30
     expires = add_days(created, ttl_days)
 
     # === Запись в базу ===
@@ -4081,12 +4117,34 @@ async def cmd_start_with_webapp(message: types.Message):
             ]
         )
 
+        instruction_text = (
+            "👋 <b>Добро пожаловать в Aquafloor Guard!</b>\n\n"
+            "📋 <b>Инструкция по использованию:</b>\n\n"
+            "🛡️ <b>Как ставится защита:</b>\n"
+            "• Минимальная площадь: <b>50 м²</b> (защита менее 50 м² запрещена)\n"
+            "• От 50 до 100 м² — срок защиты: <b>5 дней</b>\n"
+            "• От 100 до 250 м² — срок защиты: <b>10 дней</b>\n"
+            "• От 250 до 500 м² — срок защиты: <b>15 дней</b>\n"
+            "• От 500 м² и более — срок защиты: <b>30 дней</b>\n\n"
+            "⏰ <b>Что происходит за 2 дня до истечения:</b>\n"
+            "• Вы получите уведомление в Telegram\n"
+            "• В уведомлении будут доступны кнопки:\n"
+            "  ✅ Продлить на 10 дней\n"
+            "  ✅ Продлить на 30 дней\n"
+            "  ✅ Успешно (1С) — отметить как успешную с указанием номера документа из 1С\n"
+            "  🔒 Закрыть защиту — закрыть с указанием причины\n\n"
+            "💡 <b>Важно:</b>\n"
+            "• Если защита истекает без действий, она автоматически закрывается\n"
+            "• Менеджер может продлить защиту максимум 2 раза\n"
+            "• Для дополнительных продлений обратитесь к администратору\n\n"
+            "🚪 Нажмите кнопку ниже, чтобы войти в систему.\n"
+            "Ваш Telegram ID определяется автоматически при входе."
+        )
+        
         await message.answer(
-            "Привет 👋\n\n"
-            "Это Aquafloor Guard — система защиты проектов.\n\n"
-            "Нажми кнопку ниже, чтобы войти в систему.\n"
-            "Ваш Telegram ID определяется автоматически при входе.",
-            reply_markup=keyboard
+            instruction_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
         )
         print(f"✅ Кнопка WebApp отправлена пользователю {tg_id}")
     except Exception as e:
