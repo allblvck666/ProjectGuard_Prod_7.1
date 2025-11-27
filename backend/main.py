@@ -2544,7 +2544,7 @@ def mark_closed(pid: int, data: dict = Body(...)):
     return row_to_out(row)
 
 @app.delete("/api/protections/{pid}")
-def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user), hard_delete: bool = False):
+def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user), hard_delete: bool = False, background_tasks: BackgroundTasks = None):
     """
     Мягкое удаление: статус -> 'deleted' + запись в историю.
     Полное удаление (hard_delete=True): удаляет защиту и всю историю (только для админа/суперадмина).
@@ -2603,26 +2603,34 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                 f"💬 Причина удаления: {reason_text}\n"
             )
             
-            # Отправляем уведомление асинхронно
+            # Отправляем уведомление асинхронно через BackgroundTasks
             async def send_delete_notification():
                 try:
-                    await bot.send_message(
-                        int(author_row["tg_id"]),
-                        msg,
-                        parse_mode="HTML"
-                    )
-                    print(f"📩 Уведомление об удалении защиты отправлено автору {author_row['tg_id']}")
+                    from backend.db import normalize_tg_id
+                    tg_id_clean = normalize_tg_id(author_row["tg_id"])
+                    if tg_id_clean and tg_id_clean.isdigit():
+                        await bot.send_message(
+                            int(tg_id_clean),
+                            msg,
+                            parse_mode="HTML"
+                        )
+                        print(f"📩 Уведомление об удалении защиты отправлено автору {tg_id_clean}")
                 except Exception as e:
-                    print(f"⚠️ Ошибка отправки уведомления автору {author_row['tg_id']}: {e}")
+                    print(f"⚠️ Ошибка отправки уведомления автору {author_row.get('tg_id', 'unknown')}: {e}")
             
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    loop.create_task(send_delete_notification())
-                else:
-                    asyncio.run(send_delete_notification())
-            except:
-                asyncio.create_task(send_delete_notification())
+            if background_tasks:
+                background_tasks.add_task(send_delete_notification)
+            else:
+                # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                try:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(send_delete_notification())
+                    else:
+                        loop.run_until_complete(send_delete_notification())
+                except Exception as e:
+                    print(f"⚠️ Не удалось отправить уведомление об удалении: {e}")
     
     if hard_delete:
         # Полное удаление: удаляем защиту и всю историю

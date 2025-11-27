@@ -1981,6 +1981,7 @@ if (isTG && (!ready || loading)) {
 
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
   if (route === "home") {
+    // Используем full_name, которое может быть установлено админом, иначе first_name
     const userName = auth.user?.full_name || auth.user?.first_name || "Пользователь";
     const currentRole = auth.role || auth.user?.role || role;
     const isAdmin = currentRole === "admin" || currentRole === "superadmin";
@@ -1997,13 +1998,13 @@ if (isTG && (!ready || loading)) {
 
   return (
     <div className="container">
+        <ThemeToggle />
         <div className="home-header">
           <div style={{ flex: 1, minWidth: 0 }}>
             <h1 className="home-greeting">Привет, {userName} 👋</h1>
             <p className="home-subtitle">Выберите раздел для работы</p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <ThemeToggle />
             <button
               className="btn secondary" 
               onClick={handleLogout}
@@ -2163,6 +2164,7 @@ if (isTG && (!ready || loading)) {
   if (route === "settings") {
     return (
       <div className="container" style={{ position: "relative", minHeight: "100vh" }}>
+        <ThemeToggle />
         <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
           <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
             ← Назад
@@ -2170,7 +2172,6 @@ if (isTG && (!ready || loading)) {
           <h1 style={{ margin: 0, fontWeight: 700 }}>
             ⚙️ Настройки
           </h1>
-          <ThemeToggle />
         </div>
         {/* Фиксированная кнопка "назад" на мобильной версии */}
         <button 

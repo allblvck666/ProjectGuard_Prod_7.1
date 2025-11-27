@@ -561,6 +561,7 @@ def init_db():
                 updated_at TEXT,
                 extra TEXT,
                 receive_extend_notifications INTEGER DEFAULT 0,
+                receive_notifications INTEGER DEFAULT 1,
                 manager_ids TEXT DEFAULT '[]'
             )
             """
@@ -596,6 +597,7 @@ def init_db():
                 updated_at TEXT,
                 extra TEXT,
                 receive_extend_notifications INTEGER DEFAULT 0,
+                receive_notifications INTEGER DEFAULT 1,
                 manager_ids TEXT DEFAULT '[]'
             )
             """
@@ -629,6 +631,7 @@ def init_db():
         "updated_at": "TEXT",
         "extra": "TEXT",
         "receive_extend_notifications": "INTEGER DEFAULT 0",
+        "receive_notifications": "INTEGER DEFAULT 1",  # Новая колонка для настройки уведомлений
         "manager_ids": "TEXT DEFAULT '[]'"
     }
     
