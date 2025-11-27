@@ -9,7 +9,72 @@ function normalizePhone(phone) {
 }
 
 export default function LoginPage({ onLogin }) {
-  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
+  // Более надежная проверка Telegram WebApp
+  const [isTG, setIsTG] = useState(false);
+  
+  // Проверяем Telegram WebApp при загрузке и периодически
+  useEffect(() => {
+    const checkTelegram = () => {
+      if (typeof window === "undefined") return false;
+      
+      // Проверяем наличие Telegram WebApp
+      const hasTelegram = window.Telegram?.WebApp != null;
+      
+      if (hasTelegram) {
+        const tg = window.Telegram.WebApp;
+        // Дополнительные проверки
+        const hasPlatform = tg.platform !== undefined;
+        const hasVersion = tg.version !== undefined;
+        const hasInitData = tg.initData !== undefined || tg.initDataUnsafe !== undefined;
+        
+        console.log("🔍 DEBUG checkTelegram:", {
+          hasTelegram,
+          hasPlatform,
+          hasVersion,
+          hasInitData,
+          platform: tg.platform,
+          version: tg.version,
+          initDataLength: tg.initData?.length || 0,
+          hasInitDataUnsafe: !!tg.initDataUnsafe,
+          hasUser: !!tg.initDataUnsafe?.user,
+          userId: tg.initDataUnsafe?.user?.id
+        });
+        
+        // Если есть хотя бы одна из этих проверок - это Telegram WebApp
+        if (hasPlatform || hasVersion || hasInitData) {
+          console.log("✅ Определен как Telegram WebApp");
+          setIsTG(true);
+          return true;
+        }
+      }
+      
+      console.log("❌ Не определен как Telegram WebApp");
+      setIsTG(false);
+      return false;
+    };
+    
+    // Проверяем сразу
+    checkTelegram();
+    
+    // Проверяем периодически (на случай, если Telegram загружается асинхронно)
+    const interval = setInterval(() => {
+      if (!isTG) {
+        checkTelegram();
+      } else {
+        clearInterval(interval);
+      }
+    }, 100);
+    
+    // Останавливаем проверку через 3 секунды
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+    }, 3000);
+    
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [isTG]);
   
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -35,39 +100,47 @@ export default function LoginPage({ onLogin }) {
     tg.ready();
     tg.expand();
 
-    // Ждем немного, чтобы WebApp инициализировался
+    // Функция для проверки и получения данных пользователя
     const checkUser = () => {
-      const tgUser = tg?.initDataUnsafe?.user;
+      // Пробуем получить из initDataUnsafe
+      let tgUser = tg?.initDataUnsafe?.user;
       
-      if (!tgUser) {
-        setTelegramLoading(false);
+      // Если нет, пробуем получить из initData (будет парситься на бэкенде)
+      const hasInitData = tg?.initData && tg.initData.length > 0;
+      
+      if (!tgUser && !hasInitData) {
+        // Пробуем еще раз через небольшую задержку
+        setTimeout(checkUser, 500);
         return;
       }
 
-      // Заполняем форму данными из Telegram
-      if (tgUser.first_name || tgUser.last_name) {
-        setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+      // Заполняем форму данными из Telegram (если есть)
+      if (tgUser) {
+        if (tgUser.first_name || tgUser.last_name) {
+          setFullName(`${tgUser.first_name || ""} ${tgUser.last_name || ""}`.trim());
+        }
+        
+        // Если есть номер телефона в Telegram - заполняем его
+        if (tgUser.phone_number) {
+          setPhone(tgUser.phone_number);
+        }
+
+        // Если есть все данные - пытаемся автоматически залогиниться
+        if (tgUser.id && (tgUser.first_name || tgUser.last_name || tgUser.phone_number)) {
+          setTelegramLoading(true);
+          handleTelegramAutoLogin(tgUser);
+          return;
+        }
       }
       
-      // Если есть номер телефона в Telegram - заполняем его
-      if (tgUser.phone_number) {
-        setPhone(tgUser.phone_number);
-      }
-
-      // Если есть все данные - пытаемся автоматически залогиниться
-      if (tgUser.id && (tgUser.first_name || tgUser.last_name || tgUser.phone_number)) {
-        setTelegramLoading(true);
-        handleTelegramAutoLogin(tgUser);
-      } else {
-        setTelegramLoading(false);
-      }
+      setTelegramLoading(false);
     };
 
-    // Проверяем сразу и через небольшую задержку
+    // Проверяем сразу и через небольшие задержки
     checkUser();
-    const timeout = setTimeout(checkUser, 500);
-    
-    return () => clearTimeout(timeout);
+    setTimeout(checkUser, 300);
+    setTimeout(checkUser, 800);
+    setTimeout(checkUser, 1500);
   }, [isTG]);
 
   const handleTelegramAutoLogin = async (tgUser) => {
@@ -130,9 +203,22 @@ export default function LoginPage({ onLogin }) {
     try {
       setLoading(true);
 
-      // Если это Telegram WebApp - используем tg_id напрямую или initData
-      if (isTG) {
-        const tg = window.Telegram?.WebApp;
+      // Проверяем Telegram WebApp еще раз (на случай, если он загрузился позже)
+      const tg = window.Telegram?.WebApp;
+      const isTelegramWebApp = tg != null && (tg.platform !== undefined || tg.version !== undefined || tg.initData !== undefined || tg.initDataUnsafe !== undefined);
+      
+      console.log("🔍 DEBUG handleSubmit:", {
+        hasTelegram: !!window.Telegram,
+        hasWebApp: !!tg,
+        platform: tg?.platform,
+        version: tg?.version,
+        hasInitData: !!tg?.initData,
+        hasInitDataUnsafe: !!tg?.initDataUnsafe,
+        isTelegramWebApp,
+        tgUser: tg?.initDataUnsafe?.user
+      });
+      
+      if (isTelegramWebApp) {
         const tgUser = tg?.initDataUnsafe?.user;
         
         if (tgUser?.id) {
@@ -150,7 +236,7 @@ export default function LoginPage({ onLogin }) {
             onLogin(data.user?.role || "user");
           }
           return;
-        } else if (tg?.initData) {
+        } else if (tg?.initData && tg.initData.length > 0) {
           // Если initDataUnsafe недоступен, но есть initData - отправляем на бэкенд
           const data = await registerOrLogin({
             init_data: tg.initData,
@@ -164,7 +250,54 @@ export default function LoginPage({ onLogin }) {
           }
           return;
         } else {
-          setErr("Не удалось получить данные Telegram. Убедитесь, что вы открыли приложение через Telegram.");
+          // Если нет ни tg_id, ни initData - ждем немного и пробуем еще раз
+          console.log("⚠️ Telegram WebApp определен, но данные еще не загружены. Ждем...");
+          
+          // Ждем 500мс и пробуем еще раз
+          setTimeout(async () => {
+            const tgRetry = window.Telegram?.WebApp;
+            const tgUserRetry = tgRetry?.initDataUnsafe?.user;
+            
+            if (tgUserRetry?.id) {
+              const tg_id = String(tgUserRetry.id);
+              try {
+                const data = await registerOrLogin({
+                  tg_id: tg_id,
+                  full_name: fullName,
+                  phone: phone,
+                  position: position || null,
+                });
+                if (onLogin) {
+                  onLogin(data.user?.role || "user");
+                }
+                return;
+              } catch (err) {
+                console.error("❌ Ошибка при повторной попытке:", err);
+                setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
+              }
+            } else if (tgRetry?.initData && tgRetry.initData.length > 0) {
+              try {
+                const data = await registerOrLogin({
+                  init_data: tgRetry.initData,
+                  full_name: fullName,
+                  phone: phone,
+                  position: position || null,
+                });
+                if (onLogin) {
+                  onLogin(data.user?.role || "user");
+                }
+                return;
+              } catch (err) {
+                console.error("❌ Ошибка при повторной попытке с initData:", err);
+                setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
+              }
+            } else {
+              setErr("Не удалось получить Telegram ID. Попробуйте перезагрузить страницу.");
+            }
+            setLoading(false);
+          }, 500);
+          
+          // Не возвращаемся сразу, чтобы показать загрузку
           return;
         }
       } else {
@@ -228,6 +361,11 @@ export default function LoginPage({ onLogin }) {
         {isTG && (
           <p className="small" style={{ opacity: 0.6, margin: "8px 0 0 0", fontSize: 12 }}>
             Ваш Telegram ID определяется автоматически
+          </p>
+        )}
+        {!isTG && (
+          <p className="small" style={{ opacity: 0.5, margin: "8px 0 0 0", fontSize: 11, color: "#ffa500" }}>
+            ⚠️ Приложение должно быть открыто через Telegram бота
           </p>
         )}
       </div>
@@ -311,9 +449,21 @@ export default function LoginPage({ onLogin }) {
         </button>
 
         {!isTG && (
-          <p style={{ fontSize: 12, opacity: 0.6, margin: 0, textAlign: "center" }}>
-            Откройте приложение через Telegram бота для авторизации
-          </p>
+          <div style={{ 
+            fontSize: 12, 
+            opacity: 0.7, 
+            margin: "16px 0 0 0", 
+            textAlign: "center",
+            padding: "12px",
+            background: "rgba(255, 165, 0, 0.1)",
+            borderRadius: "8px",
+            border: "1px solid rgba(255, 165, 0, 0.3)"
+          }}>
+            <p style={{ margin: "0 0 8px 0" }}>⚠️ Приложение должно быть открыто через Telegram бота</p>
+            <p style={{ margin: 0, fontSize: 11, opacity: 0.8 }}>
+              Найдите бота в Telegram и нажмите кнопку "Войти в систему"
+            </p>
+          </div>
         )}
       </form>
     </div>
