@@ -450,11 +450,12 @@ class UserRegister(BaseModel):
 
 class RegisterOrLogin(BaseModel):
     """Модель для единого эндпоинта регистрации/входа"""
-    tg_id: Optional[str] = None  # Опциональное, получается через код
+    tg_id: Optional[str] = None  # Опциональное, получается через код или init_data
     full_name: str
     phone: str
     position: Optional[str] = None  # Должность
     verification_code: Optional[str] = None  # Код для получения tg_id
+    init_data: Optional[str] = None  # Telegram WebApp initData для парсинга tg_id
 
 class RequestVerificationCode(BaseModel):
     """Запрос одноразового кода для получения Telegram ID"""
@@ -691,13 +692,51 @@ async def verify_code(data: VerifyCode):
     return {"ok": True, "tg_id": tg_id_clean}
 
 
+def parse_telegram_init_data(init_data: str) -> Optional[str]:
+    """
+    Парсит Telegram WebApp initData и извлекает user.id
+    initData имеет формат: key1=value1&key2=value2&user=%7B%22id%22%3A123456%7D
+    """
+    try:
+        from urllib.parse import unquote, parse_qs
+        import json
+        
+        # Парсим query string
+        params = parse_qs(init_data)
+        
+        # Ищем параметр 'user'
+        if 'user' in params:
+            user_str = params['user'][0]
+            # Декодируем URL-encoded JSON
+            user_json = unquote(user_str)
+            user_data = json.loads(user_json)
+            if 'id' in user_data:
+                return str(user_data['id'])
+        
+        return None
+    except Exception as e:
+        print(f"⚠️ Ошибка парсинга initData: {e}")
+        return None
+
 @app.post("/api/auth/register_or_login")
 async def register_or_login(data: RegisterOrLogin):
     """
     Единый эндпоинт для регистрации/входа по Telegram данным.
     Использует UPSERT логику: если пользователь с таким tg_id есть - обновляет, иначе создает.
-    Теперь поддерживает получение tg_id через код верификации.
+    Поддерживает получение tg_id через:
+    1. Прямое указание tg_id
+    2. Парсинг initData из Telegram WebApp
+    3. Код верификации (fallback)
     """
+    # Если передан init_data, парсим его для получения tg_id
+    if data.init_data and not data.tg_id:
+        parsed_tg_id = parse_telegram_init_data(data.init_data)
+        if parsed_tg_id:
+            data.tg_id = parsed_tg_id
+            print(f"✅ Получен tg_id из initData: {data.tg_id}")
+        else:
+            print(f"⚠️ Не удалось распарсить initData")
+    
     # Если передан код верификации, сначала верифицируем его
     if data.verification_code and not data.tg_id:
         verify_data = VerifyCode(phone=data.phone, code=data.verification_code)
@@ -705,7 +744,7 @@ async def register_or_login(data: RegisterOrLogin):
         data.tg_id = verify_result["tg_id"]
     
     if not data.tg_id:
-        raise HTTPException(status_code=400, detail="tg_id is required. Используйте код верификации или укажите tg_id")
+        raise HTTPException(status_code=400, detail="Не удалось получить Telegram ID. Убедитесь, что вы открыли приложение через Telegram.")
     
     # Валидация обязательных полей
     if not data.full_name or not data.phone:
