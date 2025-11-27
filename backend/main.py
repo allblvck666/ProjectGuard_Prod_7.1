@@ -814,7 +814,7 @@ async def telegram_auth(request: Request):
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
                     # Обновляем tg_id на правильный
-                        cur.execute(
+                    cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
                     )
@@ -880,14 +880,14 @@ async def telegram_auth(request: Request):
             existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-                        cur.execute(
+                    cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
-                    (str(tg_id), username, first_name, existing_user["id"])
+                        (str(tg_id), username, first_name, existing_user["id"])
                     )
                     conn.commit()
-                row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-                print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
-                break
+                    row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+                    print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
+                    break
         
         # Если пользователь все еще не найден, создаем нового
         if not row:
@@ -1178,7 +1178,7 @@ class ManagerUpdate(BaseModel):
 @app.get("/api/admin/managers")
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
-        if not USE_POSTGRES:
+    if not USE_POSTGRES:
         conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
@@ -1309,7 +1309,7 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
     except (sqlite3.IntegrityError, Exception) as e:
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
-            if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
+        if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
             conn.close()
             raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
@@ -1649,8 +1649,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'active', %s, %s, NULL, 0, 0, %s)
             RETURNING id
         """
-        else:
-    insert_sql = _adapt_query("""
+    else:
+        insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -1678,8 +1678,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     if USE_POSTGRES:
         result = cur.fetchone()
         new_id = result["id"] if result else None
-        else:
-    new_id = cur.lastrowid
+    else:
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -2165,28 +2165,28 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
                     try:
                         result = await bot.send_message(
-                        chat_id=tg_id_int,
-                        text=msg,
-                        parse_mode="HTML",
-                        reply_markup=kb.as_markup()
-                    )
-                except Exception as send_error:
-                    # Если не получилось с int, пробуем со строкой
-                    error_msg = str(send_error).lower()
-                    if "chat not found" in error_msg or "chat_not_found" in error_msg:
-                        print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
-                        # Пробуем использовать строку вместо int
-                        try:
-                            result = await bot.send_message(
-                                chat_id=str(tg_id_int),
-                                text=msg,
-                                parse_mode="HTML",
-                                reply_markup=kb.as_markup()
-                            )
-                        except Exception as e2:
-                            raise send_error  # Возвращаем исходную ошибку
-                    else:
-                        raise send_error
+                            chat_id=tg_id_int,
+                            text=msg,
+                            parse_mode="HTML",
+                            reply_markup=kb.as_markup()
+                        )
+                    except Exception as send_error:
+                        # Если не получилось с int, пробуем со строкой
+                        error_msg = str(send_error).lower()
+                        if "chat not found" in error_msg or "chat_not_found" in error_msg:
+                            print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
+                            # Пробуем использовать строку вместо int
+                            try:
+                                result = await bot.send_message(
+                                    chat_id=str(tg_id_int),
+                                    text=msg,
+                                    parse_mode="HTML",
+                                    reply_markup=kb.as_markup()
+                                )
+                            except Exception as e2:
+                                raise send_error  # Возвращаем исходную ошибку
+                        else:
+                            raise send_error
                 sent_count += 1
                 admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
                 print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
@@ -2195,11 +2195,11 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
-                    else:
-                        print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
-                        print(f"🔍 Тип ошибки: {type(e).__name__}")
-                        import traceback
-                traceback.print_exc()
+                else:
+                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                    print(f"🔍 Тип ошибки: {type(e).__name__}")
+                    import traceback
+                    traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
@@ -2592,7 +2592,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -3740,7 +3740,7 @@ async def start_tg_bot():
                 await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-    except Exception as e:
+            except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -3753,7 +3753,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-        _bot_running = False
+                        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
