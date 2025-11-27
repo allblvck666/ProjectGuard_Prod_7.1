@@ -552,8 +552,6 @@ async def request_verification_code(data: RequestVerificationCode):
     
     # Ищем пользователя с таким номером телефона, чтобы получить tg_id
     query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
-    conn = get_conn()
-    cur = conn.cursor()
     cur.execute(query, (phone_clean,))
     user = cur.fetchone()
     
@@ -586,15 +584,21 @@ async def request_verification_code(data: RequestVerificationCode):
                 conn.close()
                 return {"ok": True, "message": "Код отправлен в Telegram"}
             except Exception as e:
-                print(f"⚠️ Не удалось отправить код в Telegram: {e}")
-                conn.close()
-                return {"ok": True, "message": f"Код создан, но не удалось отправить в Telegram. Напишите /start боту, чтобы получить код.", "code": code}
+                error_msg = str(e).lower()
+                if "chat not found" in error_msg or "chat_not_found" in error_msg:
+                    print(f"⚠️ Chat not found для {tg_id_clean}. Пользователь должен сначала написать /start боту.")
+                    # Сохраняем код без tg_id - он будет отправлен при /start
+                    conn.close()
+                    return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
+                else:
+                    print(f"⚠️ Не удалось отправить код в Telegram: {e}")
+                    conn.close()
+                    return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram"}
     
     conn.close()
     
-    # Если не нашли пользователя с Telegram, возвращаем код напрямую (для тестирования)
-    # В продакшене лучше не возвращать код, а требовать, чтобы пользователь сначала написал /start боту
-    return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram", "code": code}
+    # Если не нашли пользователя с Telegram, код сохранен и будет отправлен при /start
+    return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
 
 
 @app.post("/api/auth/verify-code")
@@ -3764,21 +3768,42 @@ async def cmd_start_with_webapp(message: types.Message):
             conn.commit()
             print(f"✅ Создан новый пользователь с tg_id {tg_id}")
         
-        # Проверяем, есть ли активные коды верификации для этого tg_id
-        # Ищем коды, которые были созданы, но еще не использованы
+        # Проверяем, есть ли активные коды верификации для этого tg_id или по имени
+        # Сначала ищем по tg_id
         query = _adapt_query("""
             SELECT * FROM verification_codes 
-            WHERE tg_id=? AND used=0 AND expires_at > ?
-            ORDER BY created_at DESC LIMIT 1
+            WHERE (tg_id=? OR tg_id IS NULL) AND used=0 AND expires_at > ?
+            ORDER BY created_at DESC LIMIT 5
         """)
         cur.execute(query, (str(tg_id), now_iso()))
-        code_record = cur.fetchone()
+        code_records = cur.fetchall()
+        
+        # Если не нашли по tg_id, ищем по имени пользователя
+        if not code_records and first_name:
+            query = _adapt_query("""
+                SELECT * FROM verification_codes 
+                WHERE full_name LIKE ? AND used=0 AND expires_at > ?
+                ORDER BY created_at DESC LIMIT 5
+            """)
+            cur.execute(query, (f"%{first_name}%", now_iso()))
+            code_records = cur.fetchall()
         
         conn.close()
         
-        # Если есть активный код, отправляем его пользователю
-        if code_record:
+        # Если есть активные коды, отправляем самый свежий
+        if code_records:
+            code_record = code_records[0]  # Берем самый свежий
             code = code_record.get("code")
+            
+            # Обновляем код, добавляя tg_id для будущих поисков
+            if not code_record.get("tg_id"):
+                conn = get_conn()
+                cur = conn.cursor()
+                update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE id=?")
+                cur.execute(update_query, (str(tg_id), code_record.get("id")))
+                conn.commit()
+                conn.close()
+            
             msg = (
                 f"🔐 <b>Ваш код верификации</b>\n\n"
                 f"Код: <code>{code}</code>\n\n"
