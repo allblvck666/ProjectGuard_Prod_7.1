@@ -765,13 +765,14 @@ async def register_or_login(data: RegisterOrLogin):
         
         # Используем upsert_user для создания или обновления
         # Роль будет определена внутри upsert_user по телефону
+        # is_active=1 гарантирует, что удаленные пользователи будут активированы при повторной регистрации
         user = upsert_user({
             "tg_id": normalized_tg_id,
             "full_name": data.full_name,
             "phone": data.phone,
             "position": data.position,
             "role": role,  # Определяем роль по телефону (для новых пользователей)
-            "is_active": 1,
+            "is_active": 1,  # Активируем пользователя при регистрации/повторной регистрации
         })
         
         # После upsert проверяем, что роль правильная (на случай обновления существующего пользователя)
@@ -1388,9 +1389,18 @@ def admin_delete_user(user_id: int, admin_user=Depends(get_admin_user)):
     if target_user["role"] == "superadmin":
         conn = get_conn()
         cur = conn.cursor()
-        superadmin_count = cur.execute(
-            "SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1"
-        ).fetchone()[0]
+        query = _adapt_query("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1")
+        cur.execute(query)
+        result = cur.fetchone()
+        # Обрабатываем результат для SQLite (Row) и PostgreSQL (tuple)
+        if result:
+            try:
+                # Пробуем получить по индексу (PostgreSQL tuple или SQLite Row)
+                superadmin_count = result[0] if isinstance(result, (tuple, list)) else result.get(0, 0)
+            except (TypeError, IndexError, AttributeError):
+                superadmin_count = 0
+        else:
+            superadmin_count = 0
         conn.close()
         if superadmin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last superadmin")

@@ -1462,6 +1462,21 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [route, managerFilter, statusFilter, search]); // Загружаем при смене route и фильтров
 
+  // Обработчик события выхода
+  useEffect(() => {
+    const handleLogout = () => {
+      localStorage.clear();
+      setAuth({ token: "", role: "", user: null });
+      setTokenValid(false);
+      // Не устанавливаем route, чтобы показалась страница логина
+    };
+
+    window.addEventListener("auth:logout", handleLogout);
+    return () => {
+      window.removeEventListener("auth:logout", handleLogout);
+    };
+  }, []);
+
   const onAreaChange = (skuObj, value) =>
     setSelectedSkus((prev) =>
       prev.map((s) =>
@@ -1820,10 +1835,10 @@ if (isTG && (!ready || loading)) {
     const handleLogout = () => {
       if (window.confirm("Вы уверены, что хотите выйти из аккаунта?")) {
         localStorage.clear();
-        window.dispatchEvent(new CustomEvent("auth:logout"));
         setAuth({ token: "", role: "", user: null });
         setTokenValid(false);
-        setRoute("home");
+        window.dispatchEvent(new CustomEvent("auth:logout"));
+        // Не устанавливаем route, чтобы показалась страница логина
       }
     };
 

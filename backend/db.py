@@ -376,8 +376,14 @@ def upsert_user(data: dict):
         update_fields.append(f"updated_at = {placeholder}")
         update_values.append(now)
         
-        # Если is_active был 0, можно снова сделать 1
-        if "is_active" not in data and user_dict.get("is_active", 1) == 0:
+        # Если is_active был 0, можно снова сделать 1 (при повторной регистрации)
+        # Если в data явно указан is_active=1, активируем пользователя
+        if "is_active" in data and data["is_active"] == 1:
+            update_fields.append(f"is_active = {placeholder}")
+            update_values.append(1)
+        elif "is_active" not in data and user_dict.get("is_active", 1) == 0:
+            # Если пользователь был удален (is_active=0), но при регистрации не указан is_active,
+            # активируем его автоматически (повторная регистрация)
             update_fields.append(f"is_active = {placeholder}")
             update_values.append(1)
         
