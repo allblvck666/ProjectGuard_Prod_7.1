@@ -631,7 +631,7 @@ async def register(data: UserRegister):
 async def login(data: UserLogin):
     """
     Универсальный вход:
-    - По email/password
+        - По email/password
     - По Telegram данным (telegram_id, username, first_name)
     - По телефону/имени (phone, full_name) - создает пользователя, если его нет
     """
@@ -808,7 +808,7 @@ async def telegram_auth(request: Request):
         # (например, dev-79207455960) и обновляем его tg_id
         if not user:
             # Ищем пользователя с неправильными форматами tg_id для главного админа
-            wrong_tg_ids = ["dev-79207455960", "79207455960", "tg-79207455960"]
+            wrong_tg_ids = ["dev-79207455960", "79207455960", "tg-79207455960", "dev-426188469", "tg-426188469"]
             for wrong_id in wrong_tg_ids:
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
@@ -821,6 +821,24 @@ async def telegram_auth(request: Request):
                     user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
                     print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
                     break
+            
+            # Если не нашли по tg_id, ищем по email или phone (если есть)
+            if not user:
+                # Ищем пользователя с ролью superadmin или admin, у которого неправильный tg_id
+                superadmin_users = cur.execute(_adapt_query("SELECT * FROM users WHERE role IN ('superadmin', 'admin')")).fetchall()
+                for existing_user in superadmin_users:
+                    existing_tg_id = existing_user.get("tg_id", "")
+                    # Если tg_id содержит неправильный формат (dev- или tg- префикс с неправильным числом)
+                    if existing_tg_id and ("dev-" in existing_tg_id or "tg-" in existing_tg_id or existing_tg_id == "79207455960"):
+                        # Обновляем tg_id на правильный
+                        cur.execute(
+                            _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
+                            (str(tg_id), username, first_name, "superadmin", existing_user["id"])
+                        )
+                        conn.commit()
+                        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+                        print(f"✅ Обновлен tg_id пользователя {existing_user['id']} с {existing_tg_id} на {tg_id}")
+                        break
         
         # Если пользователь все еще не найден, создаем нового
         if not user:
@@ -854,12 +872,30 @@ async def telegram_auth(request: Request):
     # --- Остальные пользователи ---
     row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
     if not row:
-        cur.execute(
-            _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
-            (str(tg_id), username, first_name, "manager", now_iso())
-        )
-        conn.commit()
-        row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+        # Если пользователя с правильным tg_id нет, ищем пользователя с неправильным tg_id
+        # (например, dev-79207455960 для главного админа) и обновляем его tg_id
+        wrong_tg_ids = [f"dev-{tg_id}", f"tg-{tg_id}", str(tg_id)]
+        for wrong_id in wrong_tg_ids:
+            existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
+            if existing_user:
+                # Обновляем tg_id на правильный
+                cur.execute(
+                    _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
+                    (str(tg_id), username, first_name, existing_user["id"])
+                )
+                conn.commit()
+                row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
+                print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
+                break
+        
+        # Если пользователь все еще не найден, создаем нового
+        if not row:
+            cur.execute(
+                _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
+                (str(tg_id), username, first_name, "manager", now_iso())
+            )
+            conn.commit()
+            row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
 
         role = row["role"]
     token = create_access_token(dict(row))
@@ -875,6 +911,43 @@ async def telegram_auth(request: Request):
             "role": role,
         }
     }
+
+
+# ===== Обновление tg_id текущего пользователя =====
+@app.post("/api/auth/update-tg-id")
+def update_my_tg_id(data: dict = Body(...), user=Depends(get_current_user)):
+    """Обновляет tg_id текущего пользователя"""
+    new_tg_id = data.get("tg_id") or data.get("id")
+    if not new_tg_id:
+        raise HTTPException(status_code=400, detail="tg_id is required")
+    
+    from backend.db import normalize_tg_id
+    tg_id_normalized = normalize_tg_id(new_tg_id)
+    if not tg_id_normalized:
+        raise HTTPException(status_code=400, detail="Invalid tg_id format")
+    
+    tg_id_str = str(int(tg_id_normalized))
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Проверяем, не занят ли этот tg_id другим пользователем
+    existing = cur.execute(_adapt_query("SELECT id FROM users WHERE tg_id=? AND id!=?"), (tg_id_str, user["id"])).fetchone()
+    if existing:
+        conn.close()
+        raise HTTPException(status_code=409, detail="This tg_id is already used by another user")
+    
+    # Обновляем tg_id
+    cur.execute(
+        _adapt_query("UPDATE users SET tg_id=? WHERE id=?"),
+        (tg_id_str, user["id"])
+    )
+    conn.commit()
+    conn.close()
+    
+    print(f"✅ Пользователь {user['id']} обновил свой tg_id на {tg_id_str}")
+    
+    return {"ok": True, "message": f"tg_id обновлен на {tg_id_str}"}
 
 
 # ===== DEV-авторизация без проверки Telegram =====
@@ -2790,7 +2863,7 @@ dp = Dispatcher()
 def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
     """
     Возвращает список tg_id:
-    - менеджер (users.role='manager' и first_name=manager_name)
+        - менеджер (users.role='manager' и first_name=manager_name)
     - его ассистенты (users.role='assistant' и manager_id = id менеджера)
     - админы той же группы (если у менеджера есть group_tag)
     """
