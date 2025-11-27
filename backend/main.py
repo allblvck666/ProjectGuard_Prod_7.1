@@ -718,6 +718,25 @@ def parse_telegram_init_data(init_data: str) -> Optional[str]:
         print(f"⚠️ Ошибка парсинга initData: {e}")
         return None
 
+@app.post("/api/admin/clear-all-users")
+def admin_clear_all_users(admin_user=Depends(get_superadmin_user)):
+    """
+    Очистить всех пользователей (только для superadmin).
+    Удаляет всех пользователей, кроме текущего суперадмина.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    # Удаляем всех пользователей, кроме текущего суперадмина
+    delete_query = _adapt_query("DELETE FROM users WHERE id != ?")
+    cur.execute(delete_query, (admin_user["id"],))
+    deleted_count = cur.rowcount
+    conn.commit()
+    conn.close()
+    
+    return {"ok": True, "message": f"Удалено {deleted_count} пользователей. Все должны зарегистрироваться заново."}
+
+
 @app.post("/api/auth/register_or_login")
 async def register_or_login(data: RegisterOrLogin):
     """
@@ -749,6 +768,40 @@ async def register_or_login(data: RegisterOrLogin):
     # Валидация обязательных полей
     if not data.full_name or not data.phone:
         raise HTTPException(status_code=400, detail="full_name and phone are required")
+    
+    # Проверяем, не заблокирован ли пользователь (is_active=0)
+    # Ищем пользователя по tg_id или телефону
+    conn = get_conn()
+    cur = conn.cursor()
+    from backend.db import normalize_tg_id
+    normalized_tg_id = normalize_tg_id(data.tg_id)
+    
+    # Проверяем по tg_id
+    if normalized_tg_id:
+        query = _adapt_query("SELECT id, is_active, full_name FROM users WHERE tg_id = ?")
+        cur.execute(query, (normalized_tg_id,))
+        existing_user = cur.fetchone()
+        if existing_user and existing_user.get("is_active", 1) == 0:
+            conn.close()
+            raise HTTPException(
+                status_code=403,
+                detail="Ваш аккаунт заблокирован. Обратитесь к администратору для восстановления доступа."
+            )
+    
+    # Проверяем по телефону
+    import re
+    phone_clean = re.sub(r'\D', '', str(data.phone))
+    phone_query = _adapt_query("SELECT id, is_active FROM users WHERE phone = ?")
+    cur.execute(phone_query, (phone_clean,))
+    existing_by_phone = cur.fetchone()
+    if existing_by_phone and existing_by_phone.get("is_active", 1) == 0:
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="Аккаунт с этим номером телефона заблокирован. Обратитесь к администратору для восстановления доступа."
+        )
+    
+    conn.close()
     
     # Определяем роль: суперадмин по номеру телефона, иначе user
     import re
@@ -1375,8 +1428,13 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
 
 
 @app.delete("/api/admin/users/{user_id}")
-def admin_delete_user(user_id: int, admin_user=Depends(get_admin_user)):
-    """Удалить пользователя (soft-delete: is_active=0)"""
+def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depends(get_admin_user)):
+    """
+    Удалить пользователя.
+    hard_delete=False: soft-delete (is_active=0) - пользователь может снова зарегистрироваться.
+    hard_delete=True: полное удаление - пользователь удаляется из базы, но может зарегистрироваться заново.
+    Если is_active=0 (заблокирован), пользователь не может зарегистрироваться - будет ошибка "нет доступа".
+    """
     # Нельзя удалить самого себя
     if user_id == admin_user["id"]:
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
@@ -1405,10 +1463,19 @@ def admin_delete_user(user_id: int, admin_user=Depends(get_admin_user)):
         if superadmin_count <= 1:
             raise HTTPException(status_code=400, detail="Cannot delete the last superadmin")
     
-    # Soft delete: is_active = 0
-    update_user(user_id, {"is_active": 0})
-    
-    return {"ok": True, "message": "User deleted"}
+    if hard_delete:
+        # Полное удаление: удаляем пользователя из базы
+        conn = get_conn()
+        cur = conn.cursor()
+        delete_query = _adapt_query("DELETE FROM users WHERE id=?")
+        cur.execute(delete_query, (user_id,))
+        conn.commit()
+        conn.close()
+        return {"ok": True, "message": "User permanently deleted"}
+    else:
+        # Soft delete: is_active = 0 (блокировка)
+        update_user(user_id, {"is_active": 0})
+        return {"ok": True, "message": "User blocked (can register again)"}
 
 
 # ===== Managers CRUD =====
@@ -1573,12 +1640,16 @@ def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(get_admin_u
         raise HTTPException(status_code=400, detail="Имя не может быть пустым")
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM managers WHERE id=?", (mid,)).fetchone()
+    query = _adapt_query("SELECT * FROM managers WHERE id=?")
+    cur.execute(query, (mid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Manager not found")
     old_name = row["name"]
-    exists = cur.execute("SELECT 1 FROM managers WHERE name=? AND id<>?", (new_name, mid)).fetchone()
+    exists_query = _adapt_query("SELECT 1 FROM managers WHERE name=? AND id<>?")
+    cur.execute(exists_query, (new_name, mid))
+    exists = cur.fetchone()
     if exists:
         conn.close()
         raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
@@ -1591,31 +1662,65 @@ def admin_rename_manager(mid: int, data: ManagerUpdate, user=Depends(get_admin_u
     return {"ok": True}
 
 @app.delete("/api/admin/managers/{mid}")
-def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, user=Depends(get_admin_user)):
+def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delete: bool = False, user=Depends(get_admin_user)):
+    """
+    Удаление менеджера.
+    hard_delete=True: полностью удаляет менеджера и все связанные защиты (историю).
+    hard_delete=False: удаляет менеджера, переводя защиты на другого менеджера (если указан transfer_to).
+    """
     conn = get_conn()
     cur = conn.cursor()
-    row = cur.execute("SELECT * FROM managers WHERE id=?", (mid,)).fetchone()
+    query = _adapt_query("SELECT * FROM managers WHERE id=?")
+    cur.execute(query, (mid,))
+    row = cur.fetchone()
     if not row:
         conn.close()
         raise HTTPException(status_code=404, detail="Manager not found")
     name = row["name"]
-    cnt = cur.execute("SELECT COUNT(*) AS c FROM protections WHERE manager=?", (name,)).fetchone()["c"] or 0
-    if cnt > 0:
-        if not transfer_to:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
-        row_to = cur.execute("SELECT * FROM managers WHERE id=?", (transfer_to,)).fetchone()
-        if not row_to:
-            conn.close()
-            raise HTTPException(status_code=404, detail="transfer_to manager not found")
-        new_name = row_to["name"]
-        update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
-        cur.execute(update_query, (new_name, name))
+    count_query = _adapt_query("SELECT COUNT(*) AS c FROM protections WHERE manager=?")
+    cur.execute(count_query, (name,))
+    cnt_result = cur.fetchone()
+    cnt = cnt_result["c"] if cnt_result else 0
+    
+    if hard_delete:
+        # Полное удаление: удаляем менеджера и все связанные защиты с историей
+        if cnt > 0:
+            # Получаем все ID защит этого менеджера
+            protections_query = _adapt_query("SELECT id FROM protections WHERE manager=?")
+            cur.execute(protections_query, (name,))
+            protection_ids = [r["id"] for r in cur.fetchall()]
+            
+            # Удаляем историю для всех защит
+            if protection_ids:
+                placeholders = ",".join(["?"] * len(protection_ids))
+                history_delete_query = _adapt_query(f"DELETE FROM history WHERE protection_id IN ({placeholders})")
+                cur.execute(history_delete_query, protection_ids)
+            
+            # Удаляем все защиты этого менеджера
+            protections_delete_query = _adapt_query("DELETE FROM protections WHERE manager=?")
+            cur.execute(protections_delete_query, (name,))
+    else:
+        # Мягкое удаление: переводим защиты на другого менеджера
+        if cnt > 0:
+            if not transfer_to:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+            query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
+            cur.execute(query_to, (transfer_to,))
+            row_to = cur.fetchone()
+            if not row_to:
+                conn.close()
+                raise HTTPException(status_code=404, detail="transfer_to manager not found")
+            new_name = row_to["name"]
+            update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
+            cur.execute(update_query, (new_name, name))
+    
+    # Удаляем менеджера
     delete_query = _adapt_query("DELETE FROM managers WHERE id=?")
     cur.execute(delete_query, (mid,))
     conn.commit()
     conn.close()
-    return {"ok": True}
+    return {"ok": True, "message": "Менеджер полностью удален" if hard_delete else "Менеджер удален"}
 
 
 # === PATCH: обновление имени и Telegram-списка ===
@@ -2536,9 +2641,10 @@ def mark_closed(pid: int, data: dict = Body(...)):
     return row_to_out(row)
 
 @app.delete("/api/protections/{pid}")
-def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user)):
+def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user), hard_delete: bool = False):
     """
     Мягкое удаление: статус -> 'deleted' + запись в историю.
+    Полное удаление (hard_delete=True): удаляет защиту и всю историю (только для админа/суперадмина).
     Удалить может только автор защиты (по manager_id) или админ/суперадмин.
     При удалении админом отправляется уведомление автору с причиной.
     """
@@ -2567,16 +2673,27 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
             detail="Удалить защиту может только её автор или администратор"
         )
     
+    # Полное удаление доступно только админу/суперадмину
+    if hard_delete and not is_admin:
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="Полное удаление доступно только администратору"
+        )
+    
     # Если удаляет админ - отправляем уведомление автору
     if is_admin and not is_author and protection_manager_id:
         # Получаем данные автора
-        author_row = cur.execute("SELECT tg_id, full_name, first_name FROM users WHERE id=?", (protection_manager_id,)).fetchone()
+        author_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=?")
+        cur.execute(author_query, (protection_manager_id,))
+        author_row = cur.fetchone()
         if author_row and ("tg_id" in author_row.keys() and author_row["tg_id"]):
             reason_text = reason or "не указана"
             sku_value = row["sku"] if "sku" in row.keys() else "—"
             manager_value = row["manager"] if "manager" in row.keys() else "—"
+            delete_type = "полностью удалена" if hard_delete else "удалена"
             msg = (
-                f"⚠️ <b>Ваша защита была удалена администратором</b>\n\n"
+                f"⚠️ <b>Ваша защита была {delete_type} администратором</b>\n\n"
                 f"🆔 Защита: #{pid}\n"
                 f"📦 SKU: {sku_value}\n"
                 f"👤 Менеджер: {manager_value}\n"
@@ -2604,13 +2721,22 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
             except:
                 asyncio.create_task(send_delete_notification())
     
-    actor = "admin" if is_admin else "manager"
-    update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
+    if hard_delete:
+        # Полное удаление: удаляем защиту и всю историю
+        history_delete_query = _adapt_query("DELETE FROM history WHERE protection_id=?")
+        cur.execute(history_delete_query, (pid,))
+        protection_delete_query = _adapt_query("DELETE FROM protections WHERE id=?")
+        cur.execute(protection_delete_query, (pid,))
+    else:
+        # Мягкое удаление: статус -> 'deleted'
+        actor = "admin" if is_admin else "manager"
+        update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
+        cur.execute(update_query, (now_iso(), pid))
+        add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
+    
     conn.commit()
     conn.close()
-    return {"ok": True}
+    return {"ok": True, "message": "Защита полностью удалена" if hard_delete else "Защита удалена"}
 
 # --- админ: запросы на продление
 @app.get("/api/admin/extend-requests")

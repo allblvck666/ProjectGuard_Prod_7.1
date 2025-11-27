@@ -281,43 +281,104 @@ function CreateProtectionPage({
 
       <div className="card" style={{ marginTop: 16 }}>
         <div className="row">
-          <select
-            className="select"
-            value={form.manager}
-            onChange={(e) => setForm({ ...form, manager: e.target.value })}
-          >
-            <option value="">Выберите менеджера…</option>
-            {Array.isArray(managers) &&
-              managers.map((m) => (
-                <option
-                  key={m.id}
-                  value={m.first_name || m.name || m.username}
-                >
-                  {m.first_name || m.name || m.username}
-                </option>
-              ))}
-          </select>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Менеджер <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <select
+              className="select"
+              value={form.manager}
+              onChange={(e) => setForm({ ...form, manager: e.target.value })}
+            >
+              <option value="">Выберите менеджера…</option>
+              {Array.isArray(managers) &&
+                managers.map((m) => (
+                  <option
+                    key={m.id}
+                    value={m.first_name || m.name || m.username}
+                  >
+                    {m.first_name || m.name || m.username}
+                  </option>
+                ))}
+            </select>
+            {!form.manager && errorFields.includes("manager") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Выберите менеджера
+              </span>
+            )}
+          </label>
 
-          <input
-            className={errorClass("partner")}
-            placeholder="Партнёр (дилер)"
-            value={form.partner}
-            onChange={(e) => setForm({ ...form, partner: e.target.value })}
-          />
-          <input
-            className={errorClass("partner_city")}
-            placeholder="Город партнёра"
-            value={form.partner_city}
-            onChange={(e) =>
-              setForm({ ...form, partner_city: e.target.value })
-            }
-          />
-          <input
-            className={errorClass("client")}
-            placeholder="Клиент / организация"
-            value={form.client}
-            onChange={(e) => setForm({ ...form, client: e.target.value })}
-          />
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Партнёр (дилер) <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <input
+              className={errorClass("partner")}
+              placeholder="Партнёр (дилер)"
+              value={form.partner}
+              onChange={(e) => setForm({ ...form, partner: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+            {errorFields.includes("partner") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Заполните поле "Партнёр (дилер)"
+              </span>
+            )}
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Город партнёра <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <input
+              className={errorClass("partner_city")}
+              placeholder="Город партнёра"
+              value={form.partner_city}
+              onChange={(e) =>
+                setForm({ ...form, partner_city: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+            {errorFields.includes("partner_city") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Заполните поле "Город партнёра"
+              </span>
+            )}
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Клиент / организация <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <input
+              className={errorClass("client")}
+              placeholder="Клиент / организация"
+              value={form.client}
+              onChange={(e) => setForm({ ...form, client: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+            {errorFields.includes("client") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Заполните поле "Клиент / организация"
+              </span>
+            )}
+          </label>
 
           <div className="mode-toggle">
             <div
@@ -343,40 +404,106 @@ function CreateProtectionPage({
           />
 
           {!perSkuMode && (
-            <input
-              className="input"
-              placeholder="Единый метраж (м²)"
-              value={form.area_m2}
-              onChange={(e) => setForm({ ...form, area_m2: e.target.value })}
-            />
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span style={{ fontSize: 14, opacity: 0.8 }}>
+                Единый метраж (м²) <span style={{ color: "#ef4444" }}>*</span>
+              </span>
+              <input
+                className="input"
+                placeholder="Единый метраж (м²)"
+                value={form.area_m2}
+                onChange={(e) => setForm({ ...form, area_m2: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                    if (nextInput) nextInput.focus();
+                  }
+                }}
+              />
+            </label>
           )}
 
-          <input
-            className={errorClass("last4")}
-            placeholder="Последние 4 цифры телефона"
-            value={form.last4}
-            onChange={(e) => setForm({ ...form, last4: e.target.value })}
-          />
-          <input
-            className={errorClass("object_city")}
-            placeholder="Город объекта"
-            value={form.object_city}
-            onChange={(e) =>
-              setForm({ ...form, object_city: e.target.value })
-            }
-          />
-          <input
-            className="input"
-            placeholder="Адрес объекта"
-            value={form.address}
-            onChange={(e) => setForm({ ...form, address: e.target.value })}
-          />
-          <input
-            className="input"
-            placeholder="Комментарий"
-            value={form.comment}
-            onChange={(e) => setForm({ ...form, comment: e.target.value })}
-          />
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Последние 4 цифры телефона <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <input
+              className={errorClass("last4")}
+              placeholder="Последние 4 цифры телефона"
+              value={form.last4}
+              onChange={(e) => setForm({ ...form, last4: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+            {errorFields.includes("last4") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Заполните поле "Последние 4 цифры телефона" (4 цифры)
+              </span>
+            )}
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>
+              Город объекта <span style={{ color: "#ef4444" }}>*</span>
+            </span>
+            <input
+              className={errorClass("object_city")}
+              placeholder="Город объекта"
+              value={form.object_city}
+              onChange={(e) =>
+                setForm({ ...form, object_city: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+            {errorFields.includes("object_city") && (
+              <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
+                ⚠️ Заполните поле "Город объекта"
+              </span>
+            )}
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Адрес объекта</span>
+            <input
+              className="input"
+              placeholder="Адрес объекта"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("input");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span style={{ fontSize: 14, opacity: 0.8 }}>Комментарий</span>
+            <input
+              className="input"
+              placeholder="Комментарий"
+              value={form.comment}
+              onChange={(e) => setForm({ ...form, comment: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const nextInput = e.target.parentElement?.nextElementSibling?.querySelector("button");
+                  if (nextInput) nextInput.focus();
+                }
+              }}
+            />
+          </label>
 
           <button className="btn" onClick={submit}>
             Добавить защиту

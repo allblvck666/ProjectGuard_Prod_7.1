@@ -226,7 +226,12 @@ function UsersTable() {
     try {
       const response = await api.patch(`/api/admin/users/${userId}`, data);
       setEditUser(null);
-      await loadUsers(); // Перезагружаем список пользователей
+      // Обновляем локально без полной перезагрузки
+      if (response.data?.user) {
+        setUsers(prevUsers => prevUsers.map(user => 
+          user.id === userId ? { ...user, ...response.data.user } : user
+        ));
+      }
       return response.data;
     } catch (e) {
       console.error("Ошибка обновления:", e);
@@ -240,7 +245,15 @@ function UsersTable() {
     const newStatus = u.is_active === 1 ? 0 : 1;
     const action = newStatus === 1 ? "разблокировать" : "заблокировать";
     if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} пользователя ${u.email || u.full_name || u.id}?`)) return;
-    await updateUser(u.id, { is_active: newStatus });
+    try {
+      await updateUser(u.id, { is_active: newStatus });
+      // Обновляем локально
+      setUsers(prevUsers => prevUsers.map(user => 
+        user.id === u.id ? { ...user, is_active: newStatus } : user
+      ));
+    } catch (e) {
+      // Ошибка уже обработана в updateUser
+    }
   };
 
   const changeRole = async (u, newRole) => {
@@ -250,27 +263,56 @@ function UsersTable() {
     }
     try {
       const response = await api.patch(`/api/admin/users/${u.id}`, { role: newRole });
-      // Успешно обновлено - перезагружаем список
-      await loadUsers();
+      // Обновляем локально без перезагрузки всей страницы
+      setUsers(prevUsers => prevUsers.map(user => 
+        user.id === u.id ? { ...user, role: newRole } : user
+      ));
       alert(`✅ Роль изменена на "${newRole}"`);
     } catch (e) {
       console.error("Ошибка изменения роли:", e);
       const errorMsg = e.response?.data?.detail || "Ошибка при изменении роли";
       alert(`❌ ${errorMsg}`);
-      // Перезагружаем список, чтобы сбросить select
+      // Перезагружаем список только при ошибке
       await loadUsers();
     }
   };
 
-  const deleteUser = async (u) => {
-    if (!window.confirm(`Удалить пользователя ${u.email || u.full_name || u.id}?`)) return;
+  const deleteUser = async (u, hardDelete = false) => {
+    const deleteType = hardDelete ? "полностью удалить" : "удалить";
+    const confirmMsg = hardDelete
+      ? `🗑️ Полностью удалить пользователя ${u.email || u.full_name || u.id}? Это действие нельзя отменить!`
+      : `🗑️ Удалить (заблокировать) пользователя ${u.email || u.full_name || u.id}?`;
+    if (!window.confirm(confirmMsg)) return;
     try {
-      await api.delete(`/api/admin/users/${u.id}`);
-      await loadUsers();
-      alert("✅ Пользователь удалён");
+      await api.delete(`/api/admin/users/${u.id}`, {
+        params: { hard_delete: hardDelete },
+      });
+      // Удаляем локально без перезагрузки
+      if (hardDelete) {
+        setUsers(prevUsers => prevUsers.filter(user => user.id !== u.id));
+      } else {
+        // Soft delete - обновляем статус
+        setUsers(prevUsers => prevUsers.map(user => 
+          user.id === u.id ? { ...user, is_active: 0 } : user
+        ));
+      }
+      alert(`✅ Пользователь ${deleteType}`);
     } catch (e) {
       console.error("Ошибка удаления:", e);
       alert(e.response?.data?.detail || "Ошибка при удалении");
+    }
+  };
+
+  const clearAllUsers = async () => {
+    if (!window.confirm("⚠️ ВНИМАНИЕ! Вы собираетесь удалить ВСЕХ пользователей, кроме себя. Все должны будут зарегистрироваться заново. Продолжить?")) return;
+    if (!window.confirm("⚠️ Это действие нельзя отменить! Вы уверены?")) return;
+    try {
+      await api.post("/api/admin/clear-all-users");
+      await loadUsers();
+      alert("✅ Все пользователи удалены. Они должны зарегистрироваться заново.");
+    } catch (e) {
+      console.error("Ошибка очистки:", e);
+      alert(e.response?.data?.detail || "Ошибка при очистке пользователей");
     }
   };
 
@@ -323,11 +365,14 @@ function UsersTable() {
     
     try {
       await updateUser(u.id, { manager_ids: JSON.stringify(managerIds) });
-      await loadUsers(); // Перезагружаем список для обновления UI
+      // Обновляем локально без полной перезагрузки
+      setUsers(prevUsers => prevUsers.map(user => 
+        user.id === u.id ? { ...user, manager_ids: JSON.stringify(managerIds) } : user
+      ));
     } catch (e) {
       console.error("Ошибка изменения менеджера:", e);
       alert(e.response?.data?.detail || "Ошибка при изменении менеджера");
-      await loadUsers(); // Перезагружаем даже при ошибке
+      await loadUsers(); // Перезагружаем только при ошибке
     }
   };
 
@@ -381,8 +426,18 @@ function UsersTable() {
             <option value="inactive">Заблокированные</option>
           </select>
           <button className="admin-btn-secondary" onClick={loadUsers} disabled={loading}>
-        🔄 Обновить
-      </button>
+            🔄 Обновить
+          </button>
+          {isSuperadmin && (
+            <button 
+              className="admin-btn-danger" 
+              onClick={clearAllUsers}
+              style={{ background: "#dc2626" }}
+              title="Очистить всех пользователей (кроме себя)"
+            >
+              🗑️ Очистить всех
+            </button>
+          )}
         </div>
       </div>
 
@@ -561,6 +616,74 @@ function UsersTable() {
                               );
                             })}
                           </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%" }}>
+                            <input
+                              className="admin-input"
+                              placeholder="Новое имя пользователя"
+                              value={editUser?.id === u.id ? (editUser?.full_name || "") : ""}
+                              onChange={(e) => {
+                                if (!editUser || editUser.id !== u.id) {
+                                  setEditUser({ id: u.id, full_name: u.full_name || "" });
+                                } else {
+                                  setEditUser({ ...editUser, full_name: e.target.value });
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && editUser?.id === u.id) {
+                                  e.preventDefault();
+                                  const newName = editUser.full_name?.trim();
+                                  if (newName && newName !== u.full_name) {
+                                    updateUser(u.id, { full_name: newName }).then(() => {
+                                      setEditUser(null);
+                                    });
+                                  }
+                                }
+                              }}
+                              style={{ width: "100%" }}
+                            />
+                            {editUser?.id === u.id && (
+                              <div style={{ display: "flex", gap: 8 }}>
+                                <button
+                                  className="admin-btn-success"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const newName = editUser.full_name?.trim();
+                                    if (newName && newName !== u.full_name) {
+                                      updateUser(u.id, { full_name: newName }).then(() => {
+                                        setEditUser(null);
+                                      });
+                                    }
+                                  }}
+                                  style={{ flex: 1 }}
+                                >
+                                  💾 Сохранить
+                                </button>
+                                <button
+                                  className="admin-btn-secondary"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditUser(null);
+                                  }}
+                                  style={{ flex: 1 }}
+                                >
+                                  Отмена
+                                </button>
+                              </div>
+                            )}
+                            {(!editUser || editUser.id !== u.id) && (
+                              <button
+                                className="admin-btn-secondary"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditUser({ id: u.id, full_name: u.full_name || "" });
+                                }}
+                                style={{ width: "100%" }}
+                              >
+                                ✏️ Переименовать
+                              </button>
+                            )}
+                          </div>
                           <button
                             className="admin-btn-secondary"
                             onClick={(e) => {
@@ -570,15 +693,29 @@ function UsersTable() {
                           >
                             {u.is_active === 1 ? "🚫 Заблокировать" : "✅ Разблокировать"}
                           </button>
-                          <button
-                            className="admin-btn-danger"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              deleteUser(u);
-                            }}
-                          >
-                            🗑️ Удалить
-                          </button>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
+                            <button
+                              className="admin-btn-danger"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteUser(u, false);
+                              }}
+                              style={{ flex: 1 }}
+                            >
+                              🗑️ Заблокировать
+                            </button>
+                            <button
+                              className="admin-btn-danger"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteUser(u, true);
+                              }}
+                              style={{ flex: 1, background: "#dc2626" }}
+                              title="Полностью удалить пользователя"
+                            >
+                              🗑️ Полностью
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -836,11 +973,22 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                                   className="admin-btn-danger" 
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    adminDeleteProtection(p);
+                                    adminDeleteProtection(p, false);
                                   }}
                                   style={{ fontSize: 12, padding: "6px 12px" }}
                                 >
                                   🗑️ Удалить
+                                </button>
+                                <button 
+                                  className="admin-btn-danger" 
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    adminDeleteProtection(p, true);
+                                  }}
+                                  style={{ fontSize: 12, padding: "6px 12px", background: "#dc2626" }}
+                                  title="Полностью удалить защиту и всю историю"
+                                >
+                                  🗑️ Полностью
                                 </button>
                               </div>
                             </div>
@@ -1369,12 +1517,25 @@ export default function AdminPage({ onBack }) {
   };
   const cancelRemove = () => setRemove(null);
 
-  const confirmRemove = async () => {
+  const confirmRemove = async (hardDelete = false) => {
     const params = {};
-    if (transferTo) params.transfer_to = transferTo;
-    await api.delete(`/api/admin/managers/${remove.id}`, { params });
-    setRemove(null);
-    await loadManagers();
+    if (!hardDelete && transferTo) {
+      params.transfer_to = transferTo;
+    } else if (!hardDelete && remove.total > 0) {
+      alert("⚠️ Нужно выбрать менеджера для перевода всех защит или использовать полное удаление");
+      return;
+    }
+    if (hardDelete) {
+      params.hard_delete = true;
+    }
+    try {
+      await api.delete(`/api/admin/managers/${remove.id}`, { params });
+      setRemove(null);
+      await loadManagers();
+      alert(hardDelete ? "✅ Менеджер полностью удален" : "✅ Менеджер удален");
+    } catch (e) {
+      alert(e.response?.data?.detail || "Ошибка удаления");
+    }
   };
 
   const loadRequests = async () => {
@@ -1455,18 +1616,29 @@ export default function AdminPage({ onBack }) {
     }
   };
 
-  const adminDeleteProtection = async (prot) => {
+  const adminDeleteProtection = async (prot, hardDelete = false) => {
+    const deleteType = hardDelete ? "полностью удалить" : "удалить";
+    const confirmMsg = hardDelete
+      ? `🗑️ Полностью удалить защиту #${prot.id} и всю её историю? Это действие нельзя отменить!`
+      : `🗑️ Удалить защиту #${prot.id}?`;
+    if (!window.confirm(confirmMsg)) return;
+    
     const reason = prompt(
       "Причина удаления защиты:",
       "Удалена администратором"
     );
     if (reason === null) return;
+    
     try {
       await api.delete(`/api/protections/${prot.id}`, {
-        params: { reason: reason || "Удалена администратором" },
+        params: { 
+          reason: reason || "Удалена администратором",
+          hard_delete: hardDelete 
+        },
       });
       await loadManagerProtections(openedManagerId);
       await loadManagers();
+      alert(`✅ Защита ${deleteType}`);
     } catch (e) {
       alert(e.response?.data?.detail || "Не удалось удалить");
     }
@@ -1631,7 +1803,7 @@ export default function AdminPage({ onBack }) {
         <Confirm
           title="Удалить менеджера"
           okText="Удалить"
-          onOk={confirmRemove}
+          onOk={() => confirmRemove(false)}
           onCancel={cancelRemove}
           disabled={false}
         >
@@ -1640,7 +1812,7 @@ export default function AdminPage({ onBack }) {
             {remove.total > 0 ? (
               <>
                 <br />
-                У него есть <b>{remove.total}</b> защит(ы). Выберите, кому их перевести, или удаление не будет выполнено.
+                У него есть <b>{remove.total}</b> защит(ы). Выберите, кому их перевести, или используйте полное удаление.
                 <div style={{ marginTop: 10 }}>
                   <select
                     className="admin-select"
@@ -1657,11 +1829,37 @@ export default function AdminPage({ onBack }) {
                       ))}
                   </select>
                 </div>
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="admin-btn-danger"
+                    onClick={() => {
+                      if (window.confirm("⚠️ Полностью удалить менеджера и ВСЕ его защиты с историей? Это действие нельзя отменить!")) {
+                        confirmRemove(true);
+                      }
+                    }}
+                    style={{ width: "100%", background: "#dc2626" }}
+                  >
+                    🗑️ Полностью удалить менеджера и все защиты
+                  </button>
+                </div>
               </>
             ) : (
               <>
                 <br />
                 У него нет защит — можно удалять.
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="admin-btn-danger"
+                    onClick={() => {
+                      if (window.confirm("⚠️ Полностью удалить менеджера? Это действие нельзя отменить!")) {
+                        confirmRemove(true);
+                      }
+                    }}
+                    style={{ width: "100%", background: "#dc2626" }}
+                  >
+                    🗑️ Полностью удалить
+                  </button>
+                </div>
               </>
             )}
           </div>
