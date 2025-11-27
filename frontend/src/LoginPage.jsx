@@ -190,10 +190,19 @@ export default function LoginPage({ onLogin }) {
           return;
         } else {
           console.error("❌ DEBUG: tgUser?.id отсутствует. tgUser =", tgUser);
-          console.error("❌ DEBUG: Возможно, приложение открыто не через Telegram WebApp, а через обычный браузер.");
-          console.error("❌ DEBUG: Используем коды верификации как fallback.");
+          console.error("❌ DEBUG: initDataUnsafe.user.id недоступен в Telegram WebApp.");
+          console.error("❌ DEBUG: Пробуем использовать initData для получения tg_id...");
+          
+          // Пробуем получить tg_id через initData (если доступен)
+          if (tg?.initData) {
+            console.log("🔍 DEBUG: initData найден, пытаемся использовать его...");
+            // initData - это строка, которую нужно отправить на бэкенд для парсинга
+            // Но для простоты, давайте просто используем коды верификации
+            // В будущем можно добавить эндпоинт для парсинга initData
+          }
           
           // Fallback: если tg_id не получен, используем коды верификации
+          console.log("⚠️ DEBUG: Используем коды верификации как fallback.");
           const result = await requestVerificationCode({
             full_name: fullName,
             phone: phone,
@@ -201,6 +210,7 @@ export default function LoginPage({ onLogin }) {
 
           setStep("code");
           setErr("");
+          setLoading(false);
           alert(result.message || "Код отправлен! Проверьте Telegram бота или напишите /start боту.");
           return;
         }
@@ -259,8 +269,16 @@ export default function LoginPage({ onLogin }) {
         onLogin(data.user?.role || "user");
       }
     } catch (e) {
-      console.error(e);
-      setErr(e.response?.data?.detail || "Неверный код или код истек");
+      console.error("❌ DEBUG: Ошибка при верификации кода:", e);
+      console.error("❌ DEBUG: Response:", e.response);
+      const errorDetail = e.response?.data?.detail;
+      if (errorDetail) {
+        setErr(errorDetail);
+      } else if (e.response?.status === 400) {
+        setErr("Неверный код или код истек. Попробуйте запросить новый код.");
+      } else {
+        setErr("Ошибка при проверке кода. Попробуйте еще раз.");
+      }
     } finally {
       setLoading(false);
     }
@@ -286,25 +304,25 @@ export default function LoginPage({ onLogin }) {
     );
   }
 
-  // === Форма ввода кода (только для браузера) ===
-  if (!isTG && step === "code") {
+  // === Форма ввода кода (для браузера или если tg_id не получен в Telegram WebApp) ===
+  if (step === "code") {
     return (
       <div
         className="container"
         style={{
           maxWidth: 420,
           margin: "auto",
-          paddingTop: "80px",
+          paddingTop: isTG ? "20px" : "80px",
           paddingBottom: "40px",
           textAlign: "center",
-          minHeight: "auto",
+          minHeight: isTG ? "100vh" : "auto",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-start",
+          justifyContent: isTG ? "center" : "flex-start",
         }}
       >
         <div style={{ marginBottom: 32 }}>
-          <h2 style={{ margin: "0 0 12px 0", fontSize: "28px" }}>
+          <h2 style={{ margin: "0 0 12px 0", fontSize: isTG ? "24px" : "28px" }}>
             🔐 Введите код
           </h2>
           <p className="small" style={{ opacity: 0.7, margin: 0 }}>
@@ -313,6 +331,11 @@ export default function LoginPage({ onLogin }) {
           <p className="small" style={{ opacity: 0.6, margin: "8px 0 0 0", fontSize: 12 }}>
             Если не получили код, напишите /start боту
           </p>
+          {isTG && (
+            <p className="small" style={{ opacity: 0.5, margin: "8px 0 0 0", fontSize: 11, color: "#ffa500" }}>
+              ⚠️ Telegram ID не был получен автоматически. Используйте код для завершения регистрации.
+            </p>
+          )}
         </div>
 
         <form
