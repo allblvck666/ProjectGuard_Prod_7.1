@@ -1800,7 +1800,7 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
     
     # Отправляем уведомление админам и суперадминам о продлении
     if background_tasks:
-        def notify_admins_extend_sync():
+        async def notify_admins_extend():
             try:
                 # Получаем всех админов и суперадминов
                 admin_conn = get_conn()
@@ -1823,22 +1823,19 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
                     f"🆔 ID защиты: {pid}"
                 )
                 
-                # Отправляем уведомления асинхронно
-                async def send_notifications():
-                    for admin in admins:
-                        tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0] if isinstance(admin, (list, tuple)) else None
-                        if tg_id:
-                            try:
-                                tg_id_int = int(str(tg_id).replace("tg-", "").replace("dev-", ""))
-                                await bot.send_message(tg_id_int, msg, parse_mode="HTML")
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
-                
-                asyncio.create_task(send_notifications())
+                # Отправляем уведомления
+                for admin in admins:
+                    tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0] if isinstance(admin, (list, tuple)) else None
+                    if tg_id:
+                        try:
+                            tg_id_int = int(str(tg_id).replace("tg-", "").replace("dev-", ""))
+                            await bot.send_message(tg_id_int, msg, parse_mode="HTML")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки уведомления админу {tg_id}: {e}")
             except Exception as e:
                 print(f"⚠️ Ошибка при отправке уведомлений о продлении: {e}")
         
-        background_tasks.add_task(notify_admins_extend_sync)
+        background_tasks.add_task(notify_admins_extend)
     
     query = _adapt_query("SELECT * FROM protections WHERE id=?")
     cur.execute(query, (pid,))
@@ -1871,15 +1868,15 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
     )
     
     # Отправляем уведомление всем админам и суперадминам
-    admins = cur.execute(
-        """
+    admin_query = _adapt_query("""
         SELECT tg_id, full_name, first_name 
         FROM users 
         WHERE role IN ('admin', 'superadmin') 
           AND tg_id IS NOT NULL 
           AND tg_id != ''
-        """
-    ).fetchall()
+    """)
+    cur.execute(admin_query)
+    admins = cur.fetchall()
     
     # Получаем extend_count для информативности
     extend_count = row["extend_count"] if "extend_count" in row.keys() else 0
