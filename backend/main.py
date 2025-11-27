@@ -1057,10 +1057,22 @@ def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_adm
     if data.role and data.role != "superadmin":
         conn = get_conn()
         cur = conn.cursor()
-        query = _adapt_query("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1")
+        query = _adapt_query("SELECT COUNT(*) AS cnt FROM users WHERE role = 'superadmin' AND is_active = 1")
         cur.execute(query)
         result = cur.fetchone()
-        superadmin_count = result[0] if result else 0
+        # Обрабатываем результат для SQLite (Row) и PostgreSQL (tuple)
+        if result:
+            try:
+                # Пробуем получить по имени колонки (SQLite Row)
+                superadmin_count = result['cnt'] if 'cnt' in result else result.get('cnt', 0)
+            except (TypeError, KeyError):
+                # Если не работает, пробуем по индексу (PostgreSQL tuple)
+                try:
+                    superadmin_count = result[0] if len(result) > 0 else 0
+                except (TypeError, IndexError):
+                    superadmin_count = 0
+        else:
+            superadmin_count = 0
         target_user = get_user_by_id(user_id)
         if target_user and target_user["role"] == "superadmin" and superadmin_count <= 1:
             conn.close()
