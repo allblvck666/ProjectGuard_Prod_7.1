@@ -3064,14 +3064,52 @@ async def start_tg_bot():
         return
     
     _bot_running = True
-    print("🤖 Telegram-бот запущен (inline кнопки активны)")
-    try:
-        # Останавливаем предыдущие обновления перед запуском polling
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
-    except Exception as e:
-        print(f"Ошибка запуска Telegram-бота: {e}")
-        _bot_running = False
+    print("🤖 Запуск Telegram-бота...")
+    
+    # Удаляем webhook несколько раз для надежности
+    for attempt in range(3):
+        try:
+            await bot.delete_webhook(drop_pending_updates=True)
+            print(f"✅ Webhook удален (попытка {attempt + 1})")
+            break
+        except Exception as e:
+            print(f"⚠️ Ошибка удаления webhook (попытка {attempt + 1}): {e}")
+            if attempt < 2:
+                await asyncio.sleep(2)
+    
+    # Ждем немного перед запуском polling
+    await asyncio.sleep(1)
+    
+    # Запускаем polling с обработкой конфликтов
+    max_retries = 5
+    retry_delay = 5
+    
+    for attempt in range(max_retries):
+        try:
+            print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
+            await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+            print("✅ Telegram-бот запущен (inline кнопки активны)")
+            break
+        except Exception as e:
+            error_str = str(e).lower()
+            if "conflict" in error_str or "terminated by other" in error_str:
+                print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
+                if attempt < max_retries - 1:
+                    # Пытаемся снова удалить webhook и подождать
+                    try:
+                        await bot.delete_webhook(drop_pending_updates=True)
+                        await asyncio.sleep(retry_delay)
+                    except:
+                        await asyncio.sleep(retry_delay)
+                else:
+                    print("❌ Не удалось запустить бота: конфликт с другим экземпляром")
+                    print("💡 Решение: убедитесь, что бот не запущен локально или на другом сервере")
+                    _bot_running = False
+                    return
+            else:
+                print(f"❌ Ошибка запуска Telegram-бота: {e}")
+                _bot_running = False
+                return
 
 
 # === Подключаем users API ===
