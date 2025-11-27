@@ -3692,6 +3692,18 @@ async def admin_extend_handler(callback: types.CallbackQuery):
     cur.execute(update_query, (new_exp, now_iso(), pid))
     add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
     
+    # Удаляем запрос на продление из истории, чтобы он пропал из админки
+    delete_extend_request_query = _adapt_query("""
+        DELETE FROM history 
+        WHERE protection_id=? AND action='extend_request'
+        AND id = (
+            SELECT id FROM history 
+            WHERE protection_id=? AND action='extend_request'
+            ORDER BY at DESC LIMIT 1
+        )
+    """)
+    cur.execute(delete_extend_request_query, (pid, pid))
+    
     # Отправляем уведомление менеджеру
     manager_name = row.get("manager", "")
     if manager_name:
@@ -3810,6 +3822,19 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
     # В реальном приложении можно использовать FSM (Finite State Machine)
     # Для простоты - просто записываем в историю с причиной "не указана"
     add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": "не указана"})
+    
+    # Удаляем запрос на продление из истории, чтобы он пропал из админки
+    delete_extend_request_query = _adapt_query("""
+        DELETE FROM history 
+        WHERE protection_id=? AND action='extend_request'
+        AND id = (
+            SELECT id FROM history 
+            WHERE protection_id=? AND action='extend_request'
+            ORDER BY at DESC LIMIT 1
+        )
+    """)
+    cur.execute(delete_extend_request_query, (pid, pid))
+    
     conn.commit()
     conn.close()
 
@@ -3839,6 +3864,19 @@ async def handle_reject_reason(message: types.Message):
         return
     
     add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": reason})
+    
+    # Удаляем запрос на продление из истории, чтобы он пропал из админки
+    delete_extend_request_query = _adapt_query("""
+        DELETE FROM history 
+        WHERE protection_id=? AND action='extend_request'
+        AND id = (
+            SELECT id FROM history 
+            WHERE protection_id=? AND action='extend_request'
+            ORDER BY at DESC LIMIT 1
+        )
+    """)
+    cur.execute(delete_extend_request_query, (pid, pid))
+    
     conn.commit()
     conn.close()
     

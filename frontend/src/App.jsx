@@ -703,20 +703,127 @@ function ActiveProtectionsPage({
 
                 {expanded[it.id] && (
                   <div className="details">
-                    {it.partner && (
-                      <div className="small">
-                        🏢 {it.partner} — {it.partner_city}
+                    {/* Основная информация */}
+                    <div style={{ 
+                      marginBottom: 12, 
+                      padding: 12, 
+                      background: "rgba(102, 126, 234, 0.1)", 
+                      borderRadius: 12, 
+                      border: "1px solid rgba(102, 126, 234, 0.2)" 
+                    }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, opacity: 0.9, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        📋 Основная информация
+                      </div>
+                      {it.client && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>👤 Клиент:</b> {it.client}
+                        </div>
+                      )}
+                      {it.sku && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>📦 Артикул:</b> {it.sku}
+                        </div>
+                      )}
+                      {it.area_m2 && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>📏 Площадь:</b> {it.area_m2} м²
+                        </div>
+                      )}
+                      {it.manager && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>👨‍💼 Менеджер:</b> {it.manager}
+                        </div>
+                      )}
+                      {it.created_at && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>📅 Создано:</b> {new Date(it.created_at).toLocaleString("ru-RU", { 
+                            day: "2-digit", 
+                            month: "2-digit", 
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </div>
+                      )}
+                      {it.expires_at && (
+                        <div className="small" style={{ marginBottom: 6 }}>
+                          <b>⏰ Истекает:</b> {new Date(it.expires_at).toLocaleString("ru-RU", { 
+                            day: "2-digit", 
+                            month: "2-digit", 
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit"
+                          })}
+                        </div>
+                      )}
+                      {typeof it.extend_count === "number" && it.extend_count > 0 && (
+                        <div className="small">
+                          <b>🔄 Продлений:</b> {it.extend_count}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Партнёр и объект */}
+                    {(it.partner || it.partner_city || it.object_city || it.address) && (
+                      <div style={{ 
+                        marginBottom: 12, 
+                        padding: 12, 
+                        background: "rgba(34, 197, 94, 0.1)", 
+                        borderRadius: 12, 
+                        border: "1px solid rgba(34, 197, 94, 0.2)" 
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, opacity: 0.9, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          🏢 Партнёр и объект
+                        </div>
+                        {it.partner && (
+                          <div className="small" style={{ marginBottom: 6 }}>
+                            <b>🏢 Партнёр:</b> {it.partner}
+                          </div>
+                        )}
+                        {it.partner_city && (
+                          <div className="small" style={{ marginBottom: 6 }}>
+                            <b>🌆 Город партнёра:</b> {it.partner_city}
+                          </div>
+                        )}
+                        {it.object_city && (
+                          <div className="small" style={{ marginBottom: 6 }}>
+                            <b>📍 Город объекта:</b> {it.object_city}
+                          </div>
+                        )}
+                        {it.address && (
+                          <div className="small">
+                            <b>🚚 Адрес:</b> {it.address}
+                          </div>
+                        )}
                       </div>
                     )}
-                    {it.object_city && (
-                      <div className="small">📍 {it.object_city}</div>
+
+                    {/* Дополнительная информация */}
+                    {(it.last4 || it.comment) && (
+                      <div style={{ 
+                        marginBottom: 12, 
+                        padding: 12, 
+                        background: "rgba(251, 191, 36, 0.1)", 
+                        borderRadius: 12, 
+                        border: "1px solid rgba(251, 191, 36, 0.2)" 
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, opacity: 0.9, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                          ℹ️ Дополнительная информация
+                        </div>
+                        {it.last4 && (
+                          <div className="small" style={{ marginBottom: 6 }}>
+                            <b>🔢 Последние 4 цифры:</b> {it.last4}
+                          </div>
+                        )}
+                        {it.comment && (
+                          <div className="small">
+                            <b>💬 Комментарий:</b> {it.comment}
+                          </div>
+                        )}
+                      </div>
                     )}
-                    {it.address && (
-                      <div className="small">🚚 {it.address}</div>
-                    )}
-                    {it.comment && (
-                      <div className="small">💬 {it.comment}</div>
-                    )}
+
+                    {/* Статус и причины */}
                     {it.close_reason && (
                       <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(255, 85, 85, 0.1)", borderRadius: 8, border: "1px solid rgba(255, 85, 85, 0.2)" }}>
                         🔒 <b>Причина закрытия:</b> {it.close_reason}
