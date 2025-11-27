@@ -814,11 +814,11 @@ async def telegram_auth(request: Request):
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
                     # Обновляем tg_id на правильный
-        cur.execute(
+                    cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-        )
-        conn.commit()
+                    )
+                    conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
@@ -884,11 +884,11 @@ async def telegram_auth(request: Request):
             existing_user = cur.fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-        cur.execute(
-                        _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
+                cur.execute(
+                    _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                         (str(tg_id), username, first_name, existing_user["id"])
-        )
-        conn.commit()
+                    )
+                conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
                 row = cur.fetchone()
@@ -1185,7 +1185,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1316,8 +1316,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
     conn.close()
@@ -1656,7 +1656,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-    insert_sql = _adapt_query("""
+        insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -1685,7 +1685,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -2171,7 +2171,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
                 result = None
                 try:
-                result = await bot.send_message(
+                    result = await bot.send_message(
                         chat_id=tg_id_int,
                         text=msg,
                     parse_mode="HTML",
@@ -2196,17 +2196,17 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                         raise send_error
                 
                 if result:
-                sent_count += 1
-                admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                    sent_count += 1
+                    admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
-                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
-                print(f"🔍 Тип ошибки: {type(e).__name__}")
+                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                    print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
                 traceback.print_exc()
         
@@ -2601,7 +2601,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), background_
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -3748,10 +3748,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-    except Exception as e:
+            except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -3764,7 +3764,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-        _bot_running = False
+                        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
