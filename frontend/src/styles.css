@@ -24,14 +24,14 @@
     --bg: #f8fafc;
     --card: #ffffff;
     --bg-card: rgba(0, 0, 0, 0.02);
-    --muted: rgba(0, 0, 0, 0.6);
-    --text: #1e293b;
+    --muted: rgba(0, 0, 0, 0.75); /* Увеличена контрастность для лучшей читаемости */
+    --text: #0f172a; /* Более темный текст для лучшей читаемости на всех устройствах */
     --accent: #667eea;
     --accent-light: #764ba2;
     --success: #22c55e;
     --danger: #ef4444;
     --warning: #f59e0b;
-    --border: rgba(0, 0, 0, 0.1);
+    --border: rgba(0, 0, 0, 0.15); /* Более заметная граница */
     --shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
   }
   
@@ -189,30 +189,126 @@
   }
   
   body.light-theme .input::placeholder {
-    color: rgba(0, 0, 0, 0.4);
+    color: rgba(0, 0, 0, 0.5); /* Увеличена контрастность placeholder */
+  }
+  
+  /* Улучшение контрастности текста в светлой теме */
+  body.light-theme label span,
+  body.light-theme .small,
+  body.light-theme h1,
+  body.light-theme h2,
+  body.light-theme h3,
+  body.light-theme p {
+    color: #0f172a !important; /* Явно темный цвет для лучшей читаемости */
+  }
+  
+  /* Улучшение контрастности для меток с opacity */
+  body.light-theme label span[style*="opacity"] {
+    color: #0f172a !important;
+    opacity: 0.9 !important; /* Увеличена непрозрачность */
+  }
+  
+  /* Улучшение контрастности для заголовков */
+  body.light-theme .header h1,
+  body.light-theme .header h2 {
+    color: #0f172a !important;
+    font-weight: 700;
+  }
+  
+  /* Улучшение контрастности для кнопок в светлой теме */
+  body.light-theme .btn {
+    font-weight: 600; /* Более жирный шрифт для лучшей читаемости */
+  }
+  
+  /* Улучшение контрастности для активных тегов */
+  body.light-theme .tag.active {
+    color: #ffffff !important;
+    font-weight: 600;
+  }
+  
+  /* Улучшение контрастности для неактивных тегов */
+  body.light-theme .tag:not(.active) {
+    color: #0f172a !important;
+    font-weight: 500;
+  }
+  
+  /* Дополнительные улучшения контрастности для мобильных устройств */
+  @media (max-width: 768px) {
+    body.light-theme {
+      /* Усиление контрастности на мобильных */
+      --text: #0a0f1a; /* Еще более темный текст для мобильных */
+      --muted: rgba(0, 0, 0, 0.8); /* Более контрастный muted */
+    }
+    
+    body.light-theme .btn.secondary {
+      background: rgba(0, 0, 0, 0.12) !important; /* Еще более контрастный фон */
+      color: #0a0f1a !important; /* Еще более темный текст */
+      border: 2px solid rgba(0, 0, 0, 0.25) !important; /* Более толстая граница */
+      font-weight: 700 !important; /* Еще более жирный шрифт */
+    }
+    
+    body.light-theme .tag {
+      background: rgba(0, 0, 0, 0.12) !important;
+      border: 2px solid rgba(0, 0, 0, 0.25) !important;
+      color: #0a0f1a !important;
+      font-weight: 600 !important;
+    }
+    
+    body.light-theme label span {
+      color: #0a0f1a !important;
+      opacity: 1 !important; /* Полная непрозрачность на мобильных */
+      font-weight: 600 !important;
+    }
+    
+    body.light-theme .input,
+    body.light-theme .select {
+      color: #0a0f1a !important;
+      font-weight: 500;
+    }
+    
+    body.light-theme .input::placeholder {
+      color: rgba(0, 0, 0, 0.6) !important; /* Более контрастный placeholder */
+    }
   }
   
   /* Стили для светлой темы - кнопки */
   body.light-theme .btn.secondary {
-    background: rgba(0, 0, 0, 0.05);
-    color: var(--text);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.08); /* Увеличена контрастность */
+    color: #0f172a; /* Явно темный цвет для лучшей читаемости */
+    border: 1px solid rgba(0, 0, 0, 0.2); /* Более заметная граница */
+    font-weight: 600; /* Более жирный шрифт для лучшей читаемости */
   }
   
   body.light-theme .btn.secondary:hover {
-    background: rgba(0, 0, 0, 0.08);
-    border-color: rgba(0, 0, 0, 0.15);
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.25);
+    color: #0f172a;
+  }
+  
+  body.light-theme .btn.secondary:active {
+    background: rgba(0, 0, 0, 0.15);
+    color: #0f172a;
   }
   
   /* Стили для светлой темы - теги */
   body.light-theme .tag {
-    background: rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.08); /* Увеличена контрастность */
+    border: 1px solid rgba(0, 0, 0, 0.2); /* Более заметная граница */
+    color: #0f172a; /* Явно темный цвет для лучшей читаемости */
+    font-weight: 500; /* Более жирный шрифт */
   }
   
   body.light-theme .tag:hover {
-    background: rgba(0, 0, 0, 0.08);
-    border-color: rgba(0, 0, 0, 0.15);
+    background: rgba(0, 0, 0, 0.12);
+    border-color: rgba(0, 0, 0, 0.25);
+    color: #0f172a;
+  }
+  
+  body.light-theme .tag.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #ffffff;
+    border-color: transparent;
+    font-weight: 600;
   }
   
   /* Стили для светлой темы - toolbar */
@@ -233,8 +329,8 @@
   
   /* Стили для светлой темы - mode-toggle */
   body.light-theme .mode-toggle {
-    background: rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.08); /* Увеличена контрастность */
+    border: 1px solid rgba(0, 0, 0, 0.2); /* Более заметная граница */
   }
   
   * {

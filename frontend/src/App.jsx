@@ -227,39 +227,17 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
         justifyContent: "center",
         zIndex: 9999,
         padding: 16,
-        overflowY: "auto",
       }}
       onClick={onClose}
     >
       <div
         className="card"
-        style={{ 
-          width: "100%", 
-          maxWidth: 420,
-          maxHeight: "90vh",
-          display: "flex",
-          flexDirection: "column",
-          overflow: "hidden"
-        }}
+        style={{ width: "100%", maxWidth: 420 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0, flexShrink: 0 }}>{title}</h3>
-        <div style={{ 
-          margin: "12px 0", 
-          flex: 1,
-          overflowY: "auto",
-          minHeight: 0,
-          WebkitOverflowScrolling: "touch"
-        }}>
-          {children}
-        </div>
-        <div style={{ 
-          display: "flex", 
-          gap: 8, 
-          justifyContent: "flex-end",
-          flexShrink: 0,
-          marginTop: 12
-        }}>
+        <h3 style={{ marginTop: 0 }}>{title}</h3>
+        <div style={{ margin: "12px 0" }}>{children}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button className="btn secondary" onClick={onClose}>
             Отмена
           </button>
@@ -383,11 +361,11 @@ function CreateProtectionPage({
           </label>
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             <span style={{ fontSize: 14, opacity: 0.8 }}>
-              Клиент / организация <span style={{ color: "#ef4444" }}>*</span>
+              Имя клиент / организация (конечник) <span style={{ color: "#ef4444" }}>*</span>
             </span>
             <input
               className={errorClass("client")}
-              placeholder="Клиент / организация"
+              placeholder="Имя клиент / организация (конечник)"
               value={form.client}
               onChange={(e) => setForm({ ...form, client: e.target.value })}
               onKeyDown={(e) => {
@@ -400,7 +378,7 @@ function CreateProtectionPage({
             />
             {errorFields.includes("client") && (
               <span style={{ fontSize: 12, color: "#ef4444", marginTop: -4 }}>
-                ⚠️ Заполните поле "Клиент / организация"
+                ⚠️ Заполните поле "Имя клиент / организация (конечник)"
               </span>
             )}
           </label>
@@ -823,7 +801,7 @@ function ActiveProtectionsPage({
               >
                 <div className="line" onClick={() => toggleExpand(it.id)}>
                   <div>
-                    <b>{it.client || "—"}</b> — {it.sku || "—"}{" "}
+                    <b>{it.partner || "—"}</b> — {it.sku || "—"}{" "}
                     {it.area_m2 ? `(${it.area_m2} м²)` : ""}
                     <div className="small">
                       Осталось: {it.days_left} дн | Менеджер: {it.manager}
@@ -1271,7 +1249,7 @@ function ArchivePage({
               <div key={it.id} className="item">
                 <div className="line" onClick={() => toggleExpand(it.id)}>
                   <div>
-                    <b>{it.client || "—"}</b> — {it.sku || "—"}{" "}
+                    <b>{it.partner || "—"}</b> — {it.sku || "—"}{" "}
                     {it.area_m2 ? `(${it.area_m2} м²)` : ""}
                     <div className="small">
                       {statusText} | Менеджер: {it.manager}
