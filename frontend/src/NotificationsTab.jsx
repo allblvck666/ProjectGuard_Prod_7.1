@@ -17,10 +17,8 @@ export default function NotificationsTab() {
     try {
       const res = await fetch(`${API}/api/admin/managers`);
       const data = await res.json();
-      console.log("📨 Ответ от сервера:", data);
       setManagers(data);
     } catch (e) {
-      console.error("❌ Ошибка загрузки менеджеров:", e);
       alert("Ошибка загрузки менеджеров");
     } finally {
       setLoading(false);

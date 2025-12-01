@@ -4,8 +4,6 @@ import axios from "axios";
 // 🔥 ЕДИНЫЙ ИСТОЧНИК API
 export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-console.log("API_BASE =", API_BASE);
-
 // 🔥 axios создаём с единым URL
 export const api = axios.create({
   baseURL: API_BASE,
@@ -24,13 +22,16 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Обработка сетевых ошибок
     if (error.code === "ERR_NETWORK" || error.message?.includes("Network Error")) {
-      console.error("❌ Network Error - проверьте CORS и URL бэкенда:", error.config?.url);
+      // В production не логируем, но можно добавить отправку в сервис мониторинга
+      if (import.meta.env.DEV) {
+        console.error("❌ Network Error:", error.config?.url);
+      }
     }
     
     // Обработка 401 - неавторизован
     if (error.response?.status === 401) {
-      console.warn("▲ 401 от API:", error.config?.url);
       // Очищаем невалидный токен и данные пользователя
       localStorage.removeItem("jwt_token");
       localStorage.removeItem("role");
@@ -40,6 +41,14 @@ api.interceptors.response.use(
       if (!window.location.pathname.includes("login") && !window.location.hash.includes("login")) {
         // Используем событие для уведомления App.jsx о необходимости показать LoginPage
         window.dispatchEvent(new CustomEvent("auth:logout"));
+      }
+    }
+    
+    // Обработка других ошибок (500, 400 и т.д.)
+    if (error.response?.status >= 500) {
+      // Серверная ошибка - можно показать уведомление пользователю
+      if (import.meta.env.DEV) {
+        console.error("❌ Server Error:", error.response?.data);
       }
     }
     

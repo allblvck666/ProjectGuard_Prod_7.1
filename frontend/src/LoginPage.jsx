@@ -105,32 +105,16 @@ export default function LoginPage({ onLogin }) {
           tg.ready();
           tg.expand();
         } catch (e) {
-          console.log("⚠️ Ошибка инициализации WebApp:", e);
+          // Ошибка инициализации WebApp - игнорируем в production
         }
-        
-        console.log("✅ Telegram WebApp обнаружен:", {
-          platform: tg.platform,
-          version: tg.version,
-          hasInitData: !!tg.initData,
-          hasInitDataUnsafe: !!tg.initDataUnsafe,
-          hasUser: !!tg.initDataUnsafe?.user,
-          userId: tg.initDataUnsafe?.user?.id,
-          initDataLength: tg.initData?.length || 0
-        });
         
         setIsTG(true);
         return true;
       } else if (hasTelegramObject || isTelegramUserAgent || hasTelegramInReferrer) {
         // Если есть признаки Telegram, но WebApp еще не загружен - ждем
-        console.log("⏳ Признаки Telegram обнаружены, ждем загрузки WebApp...", {
-          hasTelegramObject,
-          isTelegramUserAgent,
-          hasTelegramInReferrer
-        });
         // Не устанавливаем isTG в false, чтобы не показывать ошибку
         return false;
       } else {
-        console.log("❌ Telegram WebApp не обнаружен");
         setIsTG(false);
         return false;
       }
@@ -238,17 +222,6 @@ export default function LoginPage({ onLogin }) {
       // Проверяем Telegram WebApp еще раз (на случай, если он загрузился позже)
       const tg = window.Telegram?.WebApp;
       const isTelegramWebApp = tg != null;
-      
-      console.log("🔍 DEBUG handleSubmit:", {
-        hasTelegram: !!window.Telegram,
-        hasWebApp: !!tg,
-        platform: tg?.platform,
-        version: tg?.version,
-        hasInitData: !!tg?.initData,
-        hasInitDataUnsafe: !!tg?.initDataUnsafe,
-        isTelegramWebApp,
-        tgUser: tg?.initDataUnsafe?.user
-      });
       
       if (isTelegramWebApp) {
         const tgUser = tg?.initDataUnsafe?.user;

@@ -6,8 +6,6 @@ import "./styles.css";
 // 🎨 ПРЕМИУМ ДИЗАЙН АДМИНКИ
 // ==============================
 
-console.log("🔥 AdminPage loaded");
-
 /* ===== Универсальная строка с отступами ===== */
 function Row({ children, gap = 8, wrap = true }) {
   return (

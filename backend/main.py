@@ -3271,9 +3271,10 @@ async def check_expiring_protections():
             conn = get_conn()
             cur = conn.cursor()
             now = datetime.utcnow()
+            now_iso_str = now.isoformat()
             two_days = (now + timedelta(days=2)).isoformat()
 
-            # Проверяем только активные защиты, которым осталось <= 2 дней
+            # Проверяем только активные защиты, которым осталось <= 2 дней, но еще не истекли
             # и для которых еще не отправлялось напоминание
             query = _adapt_query("""
                 SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id, p.partner, p.partner_city,
@@ -3282,10 +3283,11 @@ async def check_expiring_protections():
                 FROM protections p
                 LEFT JOIN users u ON u.id = p.manager_id
                 WHERE p.status='active' 
+                  AND p.expires_at >= ?
                   AND p.expires_at <= ?
                   AND (p.reminder_2days_sent IS NULL OR p.reminder_2days_sent = 0)
             """)
-            cur.execute(query, (two_days,))
+            cur.execute(query, (now_iso_str, two_days))
             rows = cur.fetchall()
 
             for r in rows:
@@ -4097,24 +4099,9 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
         parse_mode="HTML"
     )
     
-    # Сохраняем состояние ожидания причины
-    # В реальном приложении можно использовать FSM (Finite State Machine)
-    # Для простоты - просто записываем в историю с причиной "не указана"
-    add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": "не указана"})
+    # НЕ удаляем запрос сразу - удалим только после получения причины в handle_reply_message
+    # НЕ записываем в историю сразу - запишем только после получения причины
     
-    # Удаляем запрос на продление из истории, чтобы он пропал из админки
-    delete_extend_request_query = _adapt_query("""
-        DELETE FROM history 
-        WHERE protection_id=? AND action='extend_request'
-        AND id = (
-            SELECT id FROM history 
-            WHERE protection_id=? AND action='extend_request'
-            ORDER BY at DESC LIMIT 1
-        )
-    """)
-    cur.execute(delete_extend_request_query, (pid, pid))
-    
-    conn.commit()
     conn.close()
 
 @dp.message(F.text & F.reply_to_message)
@@ -4144,6 +4131,12 @@ async def handle_reply_message(message: types.Message):
     # Определяем тип действия по тексту сообщения
     if "Отклонение запроса на продление" in reply_text:
         # Обработка отклонения запроса на продление
+        if not user_text or not user_text.strip():
+            await message.answer("❌ Нужно указать причину отклонения")
+            conn.close()
+            return
+        
+        # Записываем в историю с реальной причиной
         add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": user_text})
         
         # Удаляем запрос на продление из истории, чтобы он пропал из админки
@@ -4157,6 +4150,35 @@ async def handle_reply_message(message: types.Message):
             )
         """)
         cur.execute(delete_extend_request_query, (pid, pid))
+        
+        # Отправляем уведомление менеджеру
+        manager_name = row.get("manager", "")
+        if manager_name:
+            # Ищем менеджера по имени
+            manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+            cur.execute(manager_query, (manager_name, manager_name))
+            manager_user = cur.fetchone()
+            
+            if manager_user and manager_user.get("tg_id"):
+                tg_id = manager_user.get("tg_id")
+                from backend.db import normalize_tg_id
+                tg_id_clean = normalize_tg_id(tg_id)
+                
+                if tg_id_clean and tg_id_clean.isdigit():
+                    try:
+                        msg = (
+                            f"🚫 <b>Запрос на продление отклонен</b>\n\n"
+                            f"Защита: <b>#{pid}</b>\n"
+                            f"📦 SKU: {row.get('sku', '—')}\n"
+                            f"💬 Причина: {user_text}"
+                        )
+                        await bot.send_message(
+                            chat_id=int(tg_id_clean),
+                            text=msg,
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
         
         conn.commit()
         conn.close()

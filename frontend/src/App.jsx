@@ -3,10 +3,10 @@ import axios from "axios";
 import { api, fetchMe, adminUsersAPI } from "./api";
 
 // Ленивая загрузка AdminPage - загружается только когда нужен
-import { lazy, Suspense, memo } from "react";
+import { lazy, Suspense, memo, useMemo, useEffect } from "react";
 const AdminPage = lazy(() => import("./AdminPage.jsx"));
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import "./App.css";
 import LoginPage from "./LoginPage";
 import ThemeToggle from "./ThemeToggle";
@@ -216,28 +216,45 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
 
 /* === Простая модалка === */
 function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
+  // Предотвращаем прокрутку body при открытом модальном окне
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, []);
+
   return (
     <div
+      className="modal-overlay"
+      onClick={onClose}
       style={{
         position: "fixed",
         inset: 0,
-        background: "rgba(0,0,0,.5)",
+        background: "rgba(0,0,0,.85)",
         display: "flex",
-        alignItems: "center",
+        alignItems: window.innerWidth <= 768 ? "flex-end" : "center",
         justifyContent: "center",
         zIndex: 9999,
-        padding: 16,
+        padding: window.innerWidth <= 768 ? "12px" : "16px",
+        backdropFilter: "blur(20px) saturate(180%)",
+        WebkitBackdropFilter: "blur(20px) saturate(180%)",
       }}
-      onClick={onClose}
     >
       <div
-        className="card"
-        style={{ width: "100%", maxWidth: 420 }}
+        className="modal-content"
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          maxHeight: window.innerWidth <= 768 ? "85vh" : "90vh",
+          overflowY: "auto",
+          borderRadius: window.innerWidth <= 768 ? "24px 24px 0 0" : "24px",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0 }}>{title}</h3>
-        <div style={{ margin: "12px 0" }}>{children}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16 }}>{title}</h3>
+        <div style={{ margin: "12px 0", maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>{children}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
           <button className="btn secondary" onClick={onClose}>
             Отмена
           </button>
@@ -663,54 +680,42 @@ function ActiveProtectionsPage({
   // Защиты привязываются к manager_id пользователя, который их создал
   const currentUserId = auth.user?.id || auth.user?.user_id;
   
-  // Фильтруем защиты (данные уже приходят с status="active" из API)
-  console.log("📋 ActiveProtectionsPage: items.length =", items?.length || 0, "currentUserId =", currentUserId);
-  console.log("📋 ActiveProtectionsPage: items (первые 3) =", Array.isArray(items) ? items.slice(0, 3).map(it => ({ id: it.id, status: it.status, client: it.client, manager_id: it.manager_id })) : "не массив");
-  
-  // Начинаем с всех items (они уже должны быть активными)
-  let filteredItems = Array.isArray(items) ? items : [];
-  console.log("📋 ActiveProtectionsPage: filteredItems.length (начальное) =", filteredItems.length);
-  
-  // Фильтруем по вкладке "Мои защиты" или "Все защиты"
-  if (activeTab === "my") {
-    // Мои защиты - фильтруем по manager_id из защиты
-    // Защиты, где manager_id соответствует manager_id текущего пользователя
-    const beforeMyFilter = filteredItems.length;
-    filteredItems = filteredItems.filter(it => {
-      // Если у защиты есть manager_id, сравниваем с manager_id пользователя
-      if (it.manager_id && currentUserId) {
-        const matches = it.manager_id === currentUserId;
-        if (!matches) {
-          console.log("⚠️ Защита не принадлежит пользователю:", it.id, "manager_id защиты:", it.manager_id, "currentUserId:", currentUserId);
-        }
-        return matches;
-      }
-      // Fallback: если manager_id нет, используем имя менеджера
+  // Оптимизированная фильтрация с useMemo
+  const filteredItems = useMemo(() => {
+    // Начинаем с всех items (они уже должны быть активными)
+    let result = Array.isArray(items) ? items : [];
+    
+    // Фильтруем по вкладке "Мои защиты" или "Все защиты"
+    if (activeTab === "my") {
+      // Мои защиты - фильтруем по manager_id из защиты
       const currentUserManager = auth.user?.full_name || auth.user?.first_name || "";
-      return it.manager === currentUserManager;
-    });
-    console.log("📋 ActiveProtectionsPage: после фильтра 'Мои защиты':", filteredItems.length, "(было:", beforeMyFilter + ")");
-  }
-  
-  // Фильтруем по поиску
-  if (search) {
-    const beforeSearch = filteredItems.length;
-    filteredItems = filteredItems.filter(it => 
-      (it.client || "").toLowerCase().includes(search.toLowerCase()) ||
-      (it.partner || "").toLowerCase().includes(search.toLowerCase()) ||
-      (it.sku || "").toLowerCase().includes(search.toLowerCase())
-    );
-    console.log("📋 ActiveProtectionsPage: после поиска:", filteredItems.length, "(было:", beforeSearch + ")");
-  }
-  
-  // Фильтруем по менеджеру (только для вкладки "Все защиты")
-  if (managerFilter && activeTab === "all") {
-    const beforeManager = filteredItems.length;
-    filteredItems = filteredItems.filter(it => it.manager === managerFilter);
-    console.log("📋 ActiveProtectionsPage: после фильтра по менеджеру:", filteredItems.length, "(было:", beforeManager + ")");
-  }
-  
-  console.log("📋 ActiveProtectionsPage: итоговый filteredItems.length =", filteredItems.length);
+      result = result.filter(it => {
+        // Если у защиты есть manager_id, сравниваем с manager_id пользователя
+        if (it.manager_id && currentUserId) {
+          return it.manager_id === currentUserId;
+        }
+        // Fallback: если manager_id нет, используем имя менеджера
+        return it.manager === currentUserManager;
+      });
+    }
+    
+    // Фильтруем по поиску
+    if (search) {
+      const searchLower = search.toLowerCase();
+      result = result.filter(it => 
+        (it.client || "").toLowerCase().includes(searchLower) ||
+        (it.partner || "").toLowerCase().includes(searchLower) ||
+        (it.sku || "").toLowerCase().includes(searchLower)
+      );
+    }
+    
+    // Фильтруем по менеджеру (только для вкладки "Все защиты")
+    if (managerFilter && activeTab === "all") {
+      result = result.filter(it => it.manager === managerFilter);
+    }
+    
+    return result;
+  }, [items, activeTab, search, managerFilter, currentUserId, auth.user]);
 
   return (
     <div className="container">
