@@ -1719,7 +1719,8 @@ function App() {
       setEditModal({ open: false, id: null });
       await load();
     } catch (err) {
-      alert("Ошибка при редактировании защиты");
+      const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при редактировании защиты";
+      alert("❌ " + userMessage);
     }
   };
 
@@ -1772,8 +1773,17 @@ function App() {
         setItems(list.data || []);
       }
     } catch (err) {
+      // Используем понятное сообщение из interceptor, если есть
+      const errorMessage = err.userMessage || err.response?.data?.detail || "Ошибка загрузки данных";
       if (route === "archive" || route === "active") {
         setItems([]);
+      }
+      // Показываем ошибку только если это не первая загрузка или если это критическая ошибка
+      if (err.response?.status >= 500 || err.code === "ERR_NETWORK") {
+        // Критическая ошибка - показываем пользователю
+        if (import.meta.env.DEV) {
+          console.error("Ошибка загрузки:", errorMessage);
+        }
       }
     } finally {
       setLoading(false);
@@ -1935,9 +1945,25 @@ function App() {
       setPerSkuMode(false);
       await load();
     } catch (err) {
+      // Используем понятное сообщение из interceptor
+      const userMessage = err.userMessage;
       const detail = err.response?.data?.detail;
 
-      if (typeof detail === "string") {
+      if (err.response?.status === 409 && detail?.msg) {
+        // Конфликт - похожая защита
+        const msg = detail.msg;
+        const similarProtection = detail?.similar_protection || null;
+        const similarInfo = {
+          message: msg,
+          similarProtection: similarProtection
+        };
+        setSimilarProtectionModal({
+          open: true,
+          similarInfo,
+          payload,
+          requestReason: ""
+        });
+      } else if (typeof detail === "string") {
         alert("⚠️ " + detail);
       } else if (detail?.msg) {
         const conflictMsg = detail.msg;
@@ -1955,13 +1981,14 @@ function App() {
             alert("✅ Отправлено админу на проверку.");
             await load();
           } catch (subErr) {
-            alert("❌ Ошибка при отправке админу.");
+            const subUserMessage = subErr.userMessage || subErr.response?.data?.detail || "Ошибка при отправке админу";
+            alert("❌ " + subUserMessage);
           }
         } else {
           alert("⚠️ Защита не создана (отменено пользователем).");
         }
       } else if (err.response?.status === 400) {
-        const msg = detail || "Ошибка данных защиты";
+        const msg = userMessage || detail || "Ошибка данных защиты";
         alert("⚠️ " + msg);
         const possibleFields = [
           "partner",
@@ -1975,26 +2002,9 @@ function App() {
           String(msg).toLowerCase().includes(f.toLowerCase())
         );
         if (matched.length > 0) setErrorFields(matched);
-      } else if (
-        err.response?.status === 409 &&
-        err.response?.data?.detail?.msg
-      ) {
-        // Парсим информацию о похожей защите из сообщения
-        const msg = err.response.data.detail.msg;
-        // Извлекаем полную информацию о похожей защите из detail
-        const similarProtection = err.response?.data?.detail?.similar_protection || null;
-        const similarInfo = {
-          message: msg,
-          similarProtection: similarProtection
-        };
-        setSimilarProtectionModal({
-          open: true,
-          similarInfo,
-          payload,
-          requestReason: ""
-        });
       } else {
-        alert("❌ Ошибка: не удалось создать защиту");
+        const finalMessage = userMessage || detail || "Не удалось создать защиту. Попробуйте позже.";
+        alert("❌ " + finalMessage);
       }
     }
   };
@@ -2004,6 +2014,7 @@ function App() {
       await api.post(`/api/protections/${id}/extend?days=${days}`);
       await load();
     } catch (err) {
+      const userMessage = err.userMessage;
       const det = err.response?.data?.detail;
 
       if (err.response?.status === 403 && (det?.needs_admin || det?.msg)) {
@@ -2012,11 +2023,12 @@ function App() {
           open: true,
           id,
           reason: "",
-            days,
+          days,
           message: det?.msg || "Лимит продлений. Введите причину продления:"
-          });
+        });
       } else {
-        alert("Не удалось продлить.");
+        const finalMessage = userMessage || det?.msg || det || "Не удалось продлить защиту";
+        alert("⚠️ " + finalMessage);
       }
     }
   };
@@ -2036,7 +2048,8 @@ function App() {
       setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" });
       await load();
     } catch (err) {
-      alert("Ошибка при отправке запроса на продление.");
+      const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса на продление";
+      alert("❌ " + userMessage);
     }
   };
 
@@ -2055,7 +2068,8 @@ function App() {
       setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" });
       await load();
     } catch (err) {
-      alert("❌ Ошибка при отправке запроса администратору.");
+      const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса администратору";
+      alert("❌ " + userMessage);
     }
   };
 
@@ -2074,7 +2088,8 @@ function App() {
       setCloseModal({ open: false, id: null, reason: "" });
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Не удалось закрыть защиту");
+      const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось закрыть защиту";
+      alert("❌ " + userMessage);
     }
   };
 
@@ -2086,7 +2101,8 @@ function App() {
       setSuccessModal({ open: false, id: null, doc: "" });
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Не удалось отметить как успешную");
+      const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось отметить как успешную";
+      alert("❌ " + userMessage);
     }
   };
 
@@ -2098,7 +2114,8 @@ function App() {
       setDeleteModal({ open: false, id: null, reason: "" });
       await load();
     } catch (e) {
-      alert(e.response?.data?.detail || "Не удалось удалить защиту");
+      const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось удалить защиту";
+      alert("❌ " + userMessage);
     }
   };
 

@@ -267,7 +267,39 @@
     }
     
     body.light-theme .input::placeholder {
-      color: rgba(0, 0, 0, 0.6) !important; /* Более контрастный placeholder */
+      color: rgba(0, 0, 0, 0.7) !important; /* Еще более контрастный placeholder */
+      font-weight: 400;
+      opacity: 1 !important;
+    }
+    
+    /* Дополнительное улучшение контрастности для всех текстовых элементов */
+    body.light-theme * {
+      text-shadow: none; /* Убираем тени для лучшей читаемости */
+    }
+    
+    body.light-theme .card,
+    body.light-theme .item {
+      color: #0a0f1a !important;
+    }
+  }
+  
+  /* Улучшение читаемости для всех устройств с высоким DPI */
+  @media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+  }
+  
+  /* Улучшение для устройств с низким разрешением */
+  @media (max-width: 360px) {
+    html {
+      font-size: 18px;
+    }
+    
+    body {
+      line-height: 1.8;
     }
   }
   
@@ -337,18 +369,92 @@
     box-sizing: border-box;
   }
   
+  /* Базовые настройки для максимальной читаемости */
+  html {
+    font-size: 16px; /* Базовый размер для rem */
+    -webkit-text-size-adjust: 100%; /* Предотвращает авто-масштабирование на iOS */
+    -moz-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  
   body {
     margin: 0;
     background: linear-gradient(180deg, #0a0e1a 0%, #0f172a 50%, #1a1f3a 100%);
     background-attachment: fixed;
     color: var(--tg-text);
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    /* Улучшенный стек шрифтов с fallback для всех устройств и браузеров */
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", 
+                 "Segoe UI", "Segoe UI Variable", Roboto, "Helvetica Neue", 
+                 "Helvetica", Arial, "Noto Sans", "Liberation Sans", sans-serif,
+                 "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    font-size: 1rem; /* 16px по умолчанию */
+    line-height: 1.6; /* Улучшенная читаемость */
+    font-weight: 400;
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility; /* Лучшая читаемость текста */
     /* Telegram WebApp оптимизация */
     overscroll-behavior-y: contain;
     -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Минимальный размер шрифта для всех элементов */
+  * {
+    font-size: inherit;
+  }
+  
+  /* Улучшение читаемости для всех текстовых элементов */
+  p, span, div, label, a, button, input, select, textarea {
+    font-size: clamp(0.875rem, 2vw, 1rem); /* Адаптивный размер: минимум 14px, максимум 16px */
+    line-height: 1.6;
+    letter-spacing: 0.01em; /* Небольшой межбуквенный интервал для лучшей читаемости */
+  }
+  
+  /* Улучшение контрастности для всех текстов */
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.01em; /* Немного сжатый для заголовков */
+    color: var(--text);
+  }
+  
+  h1 {
+    font-size: clamp(1.5rem, 4vw, 2rem); /* 24px - 32px */
+  }
+  
+  h2 {
+    font-size: clamp(1.25rem, 3vw, 1.5rem); /* 20px - 24px */
+  }
+  
+  h3 {
+    font-size: clamp(1.125rem, 2.5vw, 1.25rem); /* 18px - 20px */
+  }
+  
+  /* Поддержка системных настроек доступности */
+  @media (prefers-contrast: high) {
+    body {
+      --text: #ffffff;
+      --muted: rgba(255, 255, 255, 0.9);
+    }
+    
+    body.light-theme {
+      --text: #000000;
+      --muted: rgba(0, 0, 0, 0.9);
+    }
+    
+    .card, .item {
+      border-width: 2px;
+    }
+  }
+  
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
   
   /* Фон для мобильного приложения - ПРЕМИУМ ДИЗАЙН */
@@ -444,6 +550,16 @@
   }
 
   @media (max-width: 768px) {
+    /* Увеличение базового размера шрифта на мобильных для лучшей читаемости */
+    html {
+      font-size: 17px; /* Немного больше на мобильных */
+    }
+    
+    body {
+      font-size: 1rem;
+      line-height: 1.7; /* Улучшенная читаемость на мобильных */
+    }
+    
     .container {
       padding: 0 16px 100px; /* Увеличено для фиксированной кнопки */
       max-width: 100%;
@@ -452,9 +568,11 @@
     
     /* Улучшение полей в форме на мобильной версии */
     .input, .select {
-      font-size: 16px !important; /* Предотвращает зум на iOS */
+      font-size: 1rem !important; /* 17px на мобильных, предотвращает зум на iOS */
       padding: 14px 16px !important;
       min-height: 48px !important;
+      font-weight: 400;
+      line-height: 1.6;
     }
     
     .card {
@@ -463,6 +581,58 @@
     
     .row {
       gap: 12px;
+    }
+    
+    /* Улучшение читаемости текста на мобильных */
+    p, span, div, label, a {
+      font-size: 1rem; /* 17px на мобильных */
+      line-height: 1.7;
+    }
+    
+    /* Улучшение контрастности на мобильных */
+    .item, .card {
+      color: var(--text);
+    }
+    
+    /* Улучшение читаемости кнопок на мобильных */
+    .btn {
+      font-size: 1rem !important; /* 17px на мобильных */
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+  }
+  
+  /* Дополнительные улучшения для очень маленьких экранов */
+  @media (max-width: 480px) {
+    html {
+      font-size: 18px; /* Еще больше на очень маленьких экранах */
+    }
+    
+    body {
+      line-height: 1.8;
+    }
+    
+    .input, .select, .btn, p, span, div, label {
+      font-size: 1rem !important; /* 18px на очень маленьких экранах */
+    }
+  }
+  
+  /* Улучшения для старых браузеров */
+  @supports not (font-size: clamp(1rem, 2vw, 1.5rem)) {
+    .input, .select, .btn, p, span, div, label {
+      font-size: 16px;
+    }
+    
+    @media (max-width: 768px) {
+      .input, .select, .btn, p, span, div, label {
+        font-size: 17px;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .input, .select, .btn, p, span, div, label {
+        font-size: 18px;
+      }
     }
   }
   
@@ -589,10 +759,16 @@
     color: var(--text);
     flex: 1;
     min-width: 150px;
-    font-size: 15px;
+    font-size: clamp(0.9375rem, 2vw, 1rem); /* 15px - 16px, адаптивный */
+    font-weight: 400;
+    line-height: 1.5;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
+    /* Улучшение читаемости текста в полях ввода */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   .input:focus, .select:focus {
@@ -604,7 +780,9 @@
   }
 
   .input::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.6); /* Увеличена контрастность placeholder */
+    font-weight: 400;
+    opacity: 1; /* Убеждаемся, что opacity не переопределяется */
   }
 
   .input.error {
@@ -632,8 +810,11 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    font-size: 15px;
-    letter-spacing: 0.2px;
+    font-size: clamp(0.9375rem, 2vw, 1rem); /* 15px - 16px, адаптивный */
+    letter-spacing: 0.02em; /* Улучшенная читаемость */
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   
   .btn {
@@ -766,8 +947,13 @@
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    font-weight: 500;
-    font-size: 14px;
+    font-weight: 600; /* Увеличена жирность для лучшей читаемости */
+    font-size: clamp(0.8125rem, 1.8vw, 0.875rem); /* 13px - 14px, адаптивный */
+    line-height: 1.5;
+    letter-spacing: 0.01em;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   .tag:hover {
     background: rgba(255, 255, 255, 0.08);
@@ -827,7 +1013,12 @@
     border-top: 1px solid var(--border);
   }
   
-  .small { font-size: 14px; color: var(--muted); }
+  .small { 
+    font-size: clamp(0.8125rem, 1.8vw, 0.875rem); /* 13px - 14px, адаптивный */
+    color: var(--muted);
+    line-height: 1.5;
+    font-weight: 400;
+  }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   
   .selected-skus { 
@@ -925,8 +1116,11 @@
       box-sizing: border-box;
     }
     .header h1 { 
-      font-size: 24px;
+      font-size: clamp(1.25rem, 4vw, 1.5rem) !important; /* 20px - 24px, адаптивный */
       margin: 0;
+      font-weight: 700;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
     }
     .card {
       padding: 16px;
@@ -998,21 +1192,24 @@
 }
 
 .home-greeting {
-  font-size: 28px;
+  font-size: clamp(1.5rem, 5vw, 1.75rem); /* 24px - 28px, адаптивный */
   font-weight: 700;
   background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.8) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin: 0 0 8px 0;
-  letter-spacing: -0.5px;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
 }
 
 .home-subtitle {
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.6);
+  font-size: clamp(0.9375rem, 2.5vw, 1rem); /* 15px - 16px, адаптивный */
+  color: rgba(255, 255, 255, 0.75); /* Увеличена контрастность */
   margin: 0;
   font-weight: 400;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
 }
 
 .home-grid {
@@ -1035,10 +1232,14 @@
     font-size: 48px;
   }
   .home-card-title {
-    font-size: 18px;
+    font-size: clamp(1rem, 3vw, 1.125rem) !important; /* 16px - 18px, адаптивный */
+    font-weight: 700 !important;
+    line-height: 1.4 !important;
   }
   .home-card-subtitle {
-    font-size: 12px;
+    font-size: clamp(0.75rem, 2vw, 0.875rem) !important; /* 12px - 14px, адаптивный */
+    line-height: 1.6 !important;
+    color: rgba(255, 255, 255, 0.75) !important; /* Увеличена контрастность */
   }
 }
 
@@ -1151,26 +1352,26 @@
 }
 
 .home-card-title {
-  font-size: 24px;
+  font-size: clamp(1.25rem, 4vw, 1.5rem); /* 20px - 24px, адаптивный */
   font-weight: 700;
   background: linear-gradient(135deg, #ffffff 0%, rgba(255, 255, 255, 0.9) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
   margin: 0;
-  letter-spacing: -0.4px;
-  line-height: 1.3;
+  letter-spacing: -0.02em;
+  line-height: 1.4;
   position: relative;
   z-index: 1;
 }
 
 .home-card-subtitle {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.65);
+  font-size: clamp(0.8125rem, 2vw, 0.875rem); /* 13px - 14px, адаптивный */
+  color: rgba(255, 255, 255, 0.8); /* Увеличена контрастность */
   margin: 0;
-  line-height: 1.6;
+  line-height: 1.7;
   font-weight: 400;
-  letter-spacing: 0.15px;
+  letter-spacing: 0.02em;
   position: relative;
   z-index: 1;
 }
