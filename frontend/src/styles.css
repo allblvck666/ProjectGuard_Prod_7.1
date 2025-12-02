@@ -1504,17 +1504,21 @@
 @media (max-width: 768px) {
   .modal-overlay {
     padding: 12px;
-    align-items: flex-end; /* Прижимаем модальное окно к низу на мобильных */
+    align-items: center; /* Центрируем модальное окно на мобильных */
+    justify-content: center;
   }
   
   .modal-content {
     width: 100%;
     max-width: 100%;
-    max-height: 85vh; /* Ограничиваем высоту на мобильных */
+    max-height: 90vh; /* Ограничиваем высоту на мобильных */
     padding: 20px 16px;
-    border-radius: 24px 24px 0 0; /* Скругление только сверху */
+    border-radius: 24px; /* Скругление со всех сторон */
     margin: 0;
     box-sizing: border-box;
+    position: relative; /* Убеждаемся, что позиционирование корректное */
+    top: 0; /* Сбрасываем смещение */
+    transform: none; /* Убираем трансформацию, которая может вызывать смещение */
   }
   
   /* Для модального окна запроса на продление делаем еще компактнее */

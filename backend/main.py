@@ -1991,18 +1991,40 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         )
 
     # === ПРОВЕРКА ДУБЛЕЙ по SKU и метражу ±10% (без учёта партнёра) ===
+    # Собираем все артикулы из новой защиты (нормализованные)
+    new_skus_set = set()
     pairs = []
     if skus_in:
         if has_per_sku_areas:
             for it in skus_in:
                 if it.area and it.area > 0:
-                    pairs.append((normalize_sku(it.sku), float(it.area)))
+                    sku_norm = normalize_sku(it.sku)
+                    if sku_norm:
+                        new_skus_set.add(sku_norm)
+                        pairs.append((sku_norm, float(it.area)))
         else:
             for it in skus_in:
-                pairs.append((normalize_sku(it.sku), total_area))
+                sku_norm = normalize_sku(it.sku)
+                if sku_norm:
+                    new_skus_set.add(sku_norm)
+                    pairs.append((sku_norm, total_area))
     else:
         if sku_display and total_area > 0:
-            pairs.append((normalize_sku(sku_display), total_area))
+            # Разбиваем sku_display на отдельные артикулы (если есть " + " или "; ")
+            sku_parts = []
+            if " + " in sku_display:
+                sku_parts = [p.strip() for p in sku_display.split(" + ")]
+            elif "; " in sku_display:
+                # Если формат "SKU1 (type) — area м²; SKU2 (type) — area м²"
+                sku_parts = [p.split(" — ")[0].split(" (")[0].strip() for p in sku_display.split("; ")]
+            else:
+                sku_parts = [sku_display.strip()]
+            
+            for sku_part in sku_parts:
+                sku_norm = normalize_sku(sku_part)
+                if sku_norm:
+                    new_skus_set.add(sku_norm)
+                    pairs.append((sku_norm, total_area))
 
     cur.execute("""
         SELECT id, manager, manager_id, partner, partner_city, client, sku, area_m2, 
@@ -2012,17 +2034,45 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     """)
     active_rows = cur.fetchall()
 
+    # Функция для извлечения артикулов из SKU строки
+    def extract_skus_from_string(sku_str):
+        """Извлекает нормализованные артикулы из строки SKU"""
+        if not sku_str:
+            return set()
+        skus = set()
+        # Разбиваем по " + " или "; "
+        if " + " in sku_str:
+            parts = [p.strip() for p in sku_str.split(" + ")]
+        elif "; " in sku_str:
+            # Если формат "SKU1 (type) — area м²; SKU2 (type) — area м²"
+            parts = [p.split(" — ")[0].split(" (")[0].strip() for p in sku_str.split("; ")]
+        else:
+            parts = [sku_str.strip()]
+        
+        for part in parts:
+            sku_norm = normalize_sku(part)
+            if sku_norm:
+                skus.add(sku_norm)
+        return skus
+
+    # Проверяем каждую пару (артикул, метраж) новой защиты
     for sku_code, area_x in pairs:
         if not sku_code or area_x <= 0:
             continue
         min_a = area_x * 0.9
         max_a = area_x * 1.1
+        
         for row in active_rows:
             if not row["area_m2"]:
                 continue
-            if normalize_sku(row["sku"]) != sku_code:
-                continue
-            if min_a <= float(row["area_m2"]) <= max_a:
+            
+            # Извлекаем артикулы из существующей защиты
+            existing_skus = extract_skus_from_string(row["sku"])
+            
+            # Проверяем пересечение артикулов
+            # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
+            if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
+                if min_a <= float(row["area_m2"]) <= max_a:
                 # Получаем информацию о создателе защиты
                 creator_name = "—"
                 manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
