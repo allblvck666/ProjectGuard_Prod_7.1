@@ -1517,6 +1517,9 @@
     /* Используем min-height для корректной работы flexbox */
     min-height: 100vh;
     min-height: 100dvh;
+    /* Центрируем содержимое */
+    display: flex;
+    flex-direction: column;
   }
   
   .modal-content {
@@ -1524,15 +1527,31 @@
     max-width: 100%;
     max-height: calc(100vh - 32px);
     max-height: calc(100dvh - 32px);
-    padding: 20px 16px;
+    padding: 20px 16px 80px 16px; /* Добавляем padding снизу для кнопок */
     border-radius: 24px;
-    margin: auto 0; /* Центрируем вертикально */
+    margin: auto; /* Центрируем вертикально и горизонтально */
     box-sizing: border-box;
     position: relative;
     /* Убираем все трансформации */
     transform: none !important;
     /* Отключаем анимацию на мобильных */
     animation: fadeIn 0.2s ease !important;
+    /* Убеждаемся, что контент не выходит за границы */
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    /* Фиксируем кнопки внизу */
+    display: flex;
+    flex-direction: column;
+  }
+  
+  /* Кнопки в модальном окне должны быть зафиксированы внизу */
+  .modal-content .btn {
+    position: sticky;
+    bottom: 0;
+    margin-top: auto;
+    padding-top: 16px;
+    background: rgba(15, 23, 42, 0.98);
+    z-index: 10;
   }
   
   /* Для модального окна запроса на продление делаем еще компактнее */

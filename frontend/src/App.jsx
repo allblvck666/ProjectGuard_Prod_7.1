@@ -233,12 +233,14 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
         inset: 0,
         background: "rgba(0,0,0,.85)",
         display: "flex",
-        alignItems: window.innerWidth <= 768 ? "flex-end" : "center",
+        alignItems: "center",
         justifyContent: "center",
         zIndex: 9999,
-        padding: window.innerWidth <= 768 ? "12px" : "16px",
+        padding: window.innerWidth <= 768 ? "16px" : "16px",
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
+        overflowY: "auto",
+        WebkitOverflowScrolling: "touch",
       }}
     >
       <div
@@ -246,15 +248,31 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
         style={{
           width: "100%",
           maxWidth: 420,
-          maxHeight: window.innerWidth <= 768 ? "85vh" : "90vh",
+          maxHeight: window.innerWidth <= 768 ? "calc(100vh - 32px)" : "90vh",
+          maxHeight: window.innerWidth <= 768 ? "calc(100dvh - 32px)" : "90vh",
           overflowY: "auto",
-          borderRadius: window.innerWidth <= 768 ? "24px 24px 0 0" : "24px",
+          borderRadius: "24px",
+          display: "flex",
+          flexDirection: "column",
+          WebkitOverflowScrolling: "touch",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0, marginBottom: 16 }}>{title}</h3>
-        <div style={{ margin: "12px 0", maxHeight: "calc(85vh - 120px)", overflowY: "auto" }}>{children}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16, flexShrink: 0 }}>{title}</h3>
+        <div style={{ margin: "12px 0", flex: "1 1 auto", overflowY: "auto", minHeight: 0 }}>{children}</div>
+        <div style={{ 
+          display: "flex", 
+          gap: 8, 
+          justifyContent: "flex-end", 
+          marginTop: 16, 
+          paddingTop: 16, 
+          borderTop: "1px solid var(--border)",
+          flexShrink: 0,
+          position: "sticky",
+          bottom: 0,
+          background: "inherit",
+          zIndex: 10
+        }}>
           <button className="btn secondary" onClick={onClose}>
             Отмена
           </button>
@@ -1258,6 +1276,9 @@ function ArchivePage({
                     {it.area_m2 ? `(${it.area_m2} м²)` : ""}
                     <div className="small">
                       {statusText} | Менеджер: {it.manager}
+                      {it.action_actor && it.action_at && (
+                        ` | Действие: ${it.action_actor} (${new Date(it.action_at).toLocaleString()})`
+                      )}
                       {it.closed_at && ` | Закрыто: ${new Date(it.closed_at).toLocaleDateString()}`}
                       {it.created_at && ` | Создано: ${new Date(it.created_at).toLocaleDateString()}`}
                     </div>
@@ -1314,6 +1335,11 @@ function ArchivePage({
                     {it.delete_reason && (
                       <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(156, 163, 175, 0.1)", borderRadius: 8, border: "1px solid rgba(156, 163, 175, 0.2)" }}>
                         🗑️ <b>Причина удаления:</b> {it.delete_reason}
+                      </div>
+                    )}
+                    {it.action_actor && it.action_at && (
+                      <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(59, 130, 246, 0.1)", borderRadius: 8, border: "1px solid rgba(59, 130, 246, 0.2)" }}>
+                        👤 <b>Действие выполнено:</b> {it.action_actor} | 📅 {new Date(it.action_at).toLocaleString()}
                       </div>
                     )}
                   </div>

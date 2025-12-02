@@ -1292,6 +1292,7 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                 <thead>
                   <tr>
                     <th>ID защиты</th>
+                    <th>Пользователь</th>
                     <th>Менеджер</th>
                     <th>Партнёр</th>
                     <th>SKU</th>
@@ -1306,6 +1307,9 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                   {requests.map((r) => (
                     <tr key={r.history_id}>
                       <td data-label="ID">#{r.protection_id}</td>
+                      <td data-label="Пользователь" style={{ fontSize: 12, fontWeight: 600 }}>
+                        👤 {r.user_name || r.manager || "—"}
+                      </td>
                       <td data-label="Менеджер">{r.manager}</td>
                       <td data-label="Партнёр">{r.partner}</td>
                       <td data-label="SKU" style={{ fontSize: 12 }}>{r.sku}</td>
@@ -1365,8 +1369,11 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                       <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
                         Защита #{r.protection_id}
                       </div>
+                      <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 4 }}>
+                        👤 <b>Пользователь:</b> {r.user_name || r.manager || "—"}
+                      </div>
                       <div style={{ fontSize: 14, opacity: 0.8 }}>
-                        👤 {r.manager} | 🏢 {r.partner}
+                        👔 {r.manager} | 🏢 {r.partner}
                       </div>
                     </div>
                   </div>
@@ -1490,6 +1497,7 @@ export default function AdminPage({ onBack }) {
   const [requests, setRequests] = useState([]);
   const [loadingReq, setLoadingReq] = useState(false);
   const [extendBusy, setExtendBusy] = useState(0);
+  const [rejectModal, setRejectModal] = useState({ open: false, pid: null, reason: "" });
 
   const loadManagers = async () => {
     setLoadingManagers(true);
@@ -1588,20 +1596,23 @@ export default function AdminPage({ onBack }) {
   };
 
   const doRejectExtendRequest = async (pid) => {
-    const reason = prompt("Укажите причину отклонения запроса на продление:", "");
-    if (reason === null) return; // Пользователь отменил
-    
-    if (!reason.trim()) {
+    // Открываем модальное окно для ввода причины
+    setRejectModal({ open: true, pid, reason: "" });
+  };
+
+  const submitRejectExtendRequest = async () => {
+    if (!rejectModal.reason.trim()) {
       alert("Необходимо указать причину отклонения");
       return;
     }
 
     try {
-      setExtendBusy(pid);
-      await api.post(`/api/admin/protections/${pid}/reject-extend-request`, {
-        reason: reason.trim()
+      setExtendBusy(rejectModal.pid);
+      await api.post(`/api/admin/protections/${rejectModal.pid}/reject-extend-request`, {
+        reason: rejectModal.reason.trim()
       });
       alert("Запрос отклонен. Менеджер получит уведомление в Telegram.");
+      setRejectModal({ open: false, pid: null, reason: "" });
       await loadRequests();
     } catch (e) {
       alert(e.response?.data?.detail || "Не удалось отклонить запрос");
@@ -1821,6 +1832,43 @@ export default function AdminPage({ onBack }) {
             extendBusy={extendBusy}
           />
         )}
+      
+      {/* Модальное окно для ввода причины отклонения */}
+      {rejectModal.open && (
+        <Confirm
+          title="🚫 Отклонить запрос на продление"
+          okText="Отклонить"
+          cancelText="Отмена"
+          onOk={submitRejectExtendRequest}
+          onCancel={() => setRejectModal({ open: false, pid: null, reason: "" })}
+          disabled={!rejectModal.reason.trim()}
+        >
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: "block", marginBottom: 8, color: "rgba(255,255,255,0.9)", fontWeight: 500 }}>
+              💬 Укажите причину отклонения запроса:
+            </label>
+            <textarea
+              className="admin-input"
+              placeholder="Например: недостаточно оснований для продления, защита уже истекла и т.п."
+              value={rejectModal.reason}
+              onChange={(e) => setRejectModal({ ...rejectModal, reason: e.target.value })}
+              style={{
+                minHeight: 100,
+                maxHeight: 200,
+                width: "100%",
+                resize: "vertical",
+                fontFamily: "inherit",
+                fontSize: "16px", // Предотвращаем зум на iOS
+                padding: "12px",
+                boxSizing: "border-box"
+              }}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: "rgba(255,255,255,0.6)" }}>
+              ⚠️ Менеджер получит уведомление в Telegram с указанной причиной
+            </div>
+          </div>
+        </Confirm>
+      )}
       {tab === "pending" && <PendingProtections />}
       </div>
 
