@@ -89,6 +89,7 @@ function Confirm({
 }
 
 /* ===== Вкладка: Пульс компании ===== */
+// Пульс компании с детальной аналитикой
 function PulseTab() {
   const [protections, setProtections] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -734,7 +735,7 @@ function UsersTable() {
     const action = newStatus === 1 ? "разблокировать" : "заблокировать";
     if (!window.confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} пользователя ${u.email || u.full_name || u.id}?`)) return;
     try {
-      await updateUser(u.id, { is_active: newStatus });
+    await updateUser(u.id, { is_active: newStatus });
       // Обновляем локально
       setUsers(prevUsers => prevUsers.map(user => 
         user.id === u.id ? { ...user, is_active: newStatus } : user
@@ -914,8 +915,8 @@ function UsersTable() {
             <option value="inactive">Заблокированные</option>
           </select>
           <button className="admin-btn-secondary" onClick={loadUsers} disabled={loading}>
-            🔄 Обновить
-          </button>
+        🔄 Обновить
+      </button>
           {isSuperadmin && (
             <button 
               className="admin-btn-danger" 
@@ -1000,11 +1001,11 @@ function UsersTable() {
                           {u.email || (u.tg_id ? `TG: ${u.tg_id}` : "—")}
                         </div>
                         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 4 }}>
-                          {u.phone && (
-                            <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.6)" }}>
-                              📞 {u.phone}
-                            </div>
-                          )}
+                        {u.phone && (
+                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.6)" }}>
+                            📞 {u.phone}
+                          </div>
+                        )}
                           {u.created_at && (
                             <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
                               📅 Регистрация: {new Date(u.created_at).toLocaleDateString("ru-RU")}
@@ -1231,10 +1232,10 @@ function UsersTable() {
                             {u.is_active === 1 ? "🚫 Заблокировать" : "✅ Разблокировать"}
                           </button>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
-                            <button
-                              className="admin-btn-danger"
-                              onClick={(e) => {
-                                e.stopPropagation();
+                          <button
+                            className="admin-btn-danger"
+                            onClick={(e) => {
+                              e.stopPropagation();
                                 deleteUser(u, false);
                               }}
                               style={{ flex: 1 }}
@@ -1251,7 +1252,7 @@ function UsersTable() {
                               title="Полностью удалить пользователя"
                             >
                               🗑️ Полностью
-                            </button>
+                          </button>
                           </div>
                         </div>
                       </div>
@@ -1278,7 +1279,7 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
           <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
-            👔 Управление менеджерами
+          👔 Управление менеджерами
           </h2>
           <button
             className="admin-btn-secondary"
@@ -1335,7 +1336,7 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                 <div key={m.id} className="admin-user-card" style={{ width: "100%", boxSizing: "border-box" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
                     <div style={{ flex: 1, minWidth: 200 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                         {isEdit ? (
                           <input
                             className="admin-input"
@@ -1495,7 +1496,7 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                               {p.sku && (
                                 <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.8)", marginBottom: 6, fontWeight: 500 }}>
                                   📦 {p.sku}
-                                </div>
+                              </div>
                               )}
                               {p.partner && (
                                 <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
@@ -1622,52 +1623,52 @@ function PendingProtections() {
           <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
             🔍 Новые защиты (на проверке)
           </h2>
-          <button className="admin-btn-secondary" onClick={load} disabled={loading}>
-            🔄 Обновить
-          </button>
+      <button className="admin-btn-secondary" onClick={load} disabled={loading}>
+        🔄 Обновить
+      </button>
         </div>
       </div>
-      
+
       <div className="admin-card">
-        {loading && (
-          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-            Загрузка…
-          </div>
-        )}
-        
-        {!loading && items.length === 0 && (
-          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-            Нет заявок.
-          </div>
-        )}
-        
-        {!loading && items.length > 0 && (
-          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", marginTop: 16 }}>
-            {items.map((p) => (
-              <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <b style={{ color: "#fff" }}>#{p.id}</b>
-                  <span style={{ fontSize: 12, opacity: 0.6 }}>{p.created_at}</span>
-                </div>
-                <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)", marginBottom: 12 }}>
-                  <div>👤 {p.manager}</div>
-                  <div>🏢 {p.partner} — {p.partner_city}</div>
-                  <div>📦 {p.sku}</div>
-                  <div>📏 {p.area_m2} м²</div>
-                  {p.comment && <div style={{ marginTop: 4 }}>💬 {p.comment}</div>}
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                  <button className="admin-btn-success" onClick={() => approve(p)}>
-                    ✅ Принять
-                  </button>
-                  <button className="admin-btn-danger" onClick={() => reject(p)}>
-                    ❌ Отклонить
-                  </button>
-                </div>
+      {loading && (
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+          Загрузка…
+        </div>
+      )}
+      
+      {!loading && items.length === 0 && (
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+          Нет заявок.
+        </div>
+      )}
+      
+      {!loading && items.length > 0 && (
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", marginTop: 16 }}>
+          {items.map((p) => (
+            <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <b style={{ color: "#fff" }}>#{p.id}</b>
+                <span style={{ fontSize: 12, opacity: 0.6 }}>{p.created_at}</span>
               </div>
-            ))}
-          </div>
-        )}
+              <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)", marginBottom: 12 }}>
+                <div>👤 {p.manager}</div>
+                <div>🏢 {p.partner} — {p.partner_city}</div>
+                <div>📦 {p.sku}</div>
+                <div>📏 {p.area_m2} м²</div>
+                {p.comment && <div style={{ marginTop: 4 }}>💬 {p.comment}</div>}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="admin-btn-success" onClick={() => approve(p)}>
+                  ✅ Принять
+                </button>
+                <button className="admin-btn-danger" onClick={() => reject(p)}>
+                  ❌ Отклонить
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       </div>
     </div>
   );
@@ -1890,9 +1891,9 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
           <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
             ⏰ Запросы на продление
           </h2>
-          <button className="admin-btn-secondary" onClick={loadRequests} disabled={loadingReq}>
-            🔄 Обновить
-          </button>
+        <button className="admin-btn-secondary" onClick={loadRequests} disabled={loadingReq}>
+          🔄 Обновить
+        </button>
         </div>
         {requests.length > 0 && (
           <div style={{ marginTop: 12, fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)" }}>
@@ -2092,12 +2093,12 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                       <div style={{ flex: 1 }}>
                         <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8, color: "#fff" }}>
                           🛡️ Защита #{r.protection_id}
-                        </div>
+                      </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           <div style={{ fontSize: 14, color: "rgba(255, 255, 255, 0.9)", display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 16 }}>👤</span>
                             <span><b>Запросил:</b> {r.user_name || r.manager || "—"}</span>
-                          </div>
+                      </div>
                           <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 14 }}>⏰</span>
                             <span><b>Время запроса:</b> {new Date(r.requested_at).toLocaleString("ru-RU", { 
@@ -2107,11 +2108,11 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                               hour: "2-digit",
                               minute: "2-digit"
                             })}</span>
-                          </div>
+                    </div>
                           <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 14 }}>👔</span>
                             <span><b>Менеджер:</b> {r.manager || "—"}</span>
-                          </div>
+                  </div>
                           <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
                             <span style={{ fontSize: 14 }}>🏢</span>
                             <span><b>Партнёр:</b> {r.partner || "—"}</span>
@@ -2119,8 +2120,8 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                         </div>
                       </div>
                     </div>
-                  </div>
-                  
+                    </div>
+                    
                   <div className="admin-request-card-body" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
                     <div style={{ marginBottom: 12 }}>
                       <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", marginBottom: 6, fontWeight: 600 }}>📦 Артикул (SKU)</div>
@@ -2151,22 +2152,22 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                   
                   <div className="admin-request-card-actions" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        className="admin-btn-success"
-                        onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
-                        disabled={extendBusy === r.protection_id}
-                        style={{ flex: 1 }}
-                      >
-                        ✅ Продлить на {r.days || 10} дн.
-                      </button>
-                      <button
-                        className="admin-btn-secondary"
-                        onClick={() => doAdminExtend(r.protection_id, 10)}
-                        disabled={extendBusy === r.protection_id}
-                        style={{ flex: 1 }}
-                      >
-                        ➕ +10 дн
-                      </button>
+                    <button
+                      className="admin-btn-success"
+                      onClick={() => doAdminExtend(r.protection_id, r.days || 10)}
+                      disabled={extendBusy === r.protection_id}
+                      style={{ flex: 1 }}
+                    >
+                      ✅ Продлить на {r.days || 10} дн.
+                    </button>
+                    <button
+                      className="admin-btn-secondary"
+                      onClick={() => doAdminExtend(r.protection_id, 10)}
+                      disabled={extendBusy === r.protection_id}
+                      style={{ flex: 1 }}
+                    >
+                      ➕ +10 дн
+                    </button>
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
@@ -2307,9 +2308,9 @@ export default function AdminPage({ onBack }) {
       params.hard_delete = true;
     }
     try {
-      await api.delete(`/api/admin/managers/${remove.id}`, { params });
-      setRemove(null);
-      await loadManagers();
+    await api.delete(`/api/admin/managers/${remove.id}`, { params });
+    setRemove(null);
+    await loadManagers();
       alert(hardDelete ? "✅ Менеджер полностью удален" : "✅ Менеджер удален");
     } catch (e) {
       alert(e.response?.data?.detail || "Ошибка удаления");
@@ -2522,8 +2523,8 @@ export default function AdminPage({ onBack }) {
             fontSize: "clamp(22px, 5.5vw, 32px)",
             letterSpacing: "-0.5px"
           }}>
-            👑 Панель администратора
-          </h1>
+          👑 Панель администратора
+        </h1>
           <Breadcrumbs items={getBreadcrumbs()} onNavigate={handleBreadcrumbNavigate} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -2736,7 +2737,7 @@ export default function AdminPage({ onBack }) {
             </div>
           </div>
         </Confirm>
-      )}
+        )}
       {tab === "pending" && <PendingProtections />}
       </div>
 
