@@ -2202,23 +2202,23 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     
                     # Отправляем уведомления асинхронно через BackgroundTasks
                     async def send_duplicate_notifications():
-                    sent_count = 0
-                    for admin in admins:
-                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                        if tg_id:
-                            try:
-                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                if tg_id_int:
-                                    await bot.send_message(
-                                        tg_id_int,
-                                        duplicate_msg,
-                                        parse_mode="HTML"
-                                    )
-                                    sent_count += 1
-                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
-                    
+                        sent_count = 0
+                        for admin in admins:
+                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                            if tg_id:
+                                try:
+                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                    if tg_id_int:
+                                        await bot.send_message(
+                                            tg_id_int,
+                                            duplicate_msg,
+                                            parse_mode="HTML"
+                                        )
+                                        sent_count += 1
+                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                                except Exception as e:
+                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                        
                         if sent_count > 0:
                             print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                     
@@ -2339,7 +2339,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -4503,11 +4503,11 @@ async def handle_reply_message(message: types.Message):
                     except Exception as e:
                         print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
         
-    conn.commit()
-    conn.close()
-    
-    await message.answer(
-        f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
             f"💬 Причина: {user_text}",
             parse_mode="HTML"
         )
