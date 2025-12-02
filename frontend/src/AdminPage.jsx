@@ -88,7 +88,290 @@ function Confirm({
   );
 }
 
-/* ===== ДАШБОРД С СТАТИСТИКОЙ ===== */
+/* ===== Вкладка: Аналитика ===== */
+function AnalyticsTab() {
+  const [protections, setProtections] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [timeRange, setTimeRange] = useState("all"); // all, month, week
+
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const r = await api.get("/api/protections");
+        setProtections(r.data || []);
+      } catch (e) {
+        console.error("Ошибка загрузки защит:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // Фильтрация по времени
+  const getFilteredProtections = () => {
+    const now = new Date();
+    let cutoffDate = new Date(0); // Все данные
+    
+    if (timeRange === "month") {
+      cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === "week") {
+      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    }
+    
+    return protections.filter(p => {
+      const created = new Date(p.created_at);
+      return created >= cutoffDate;
+    });
+  };
+
+  const filtered = getFilteredProtections();
+
+  // Статистика по городам
+  const cityStats = filtered.reduce((acc, p) => {
+    const city = p.partner_city || p.object_city || "Не указан";
+    if (!acc[city]) {
+      acc[city] = { total: 0, active: 0, success: 0, closed: 0 };
+    }
+    acc[city].total++;
+    if (p.status === "active") acc[city].active++;
+    if (p.status === "success") acc[city].success++;
+    if (p.status === "closed") acc[city].closed++;
+    return acc;
+  }, {});
+
+  // Статистика по партнёрам
+  const partnerStats = filtered.reduce((acc, p) => {
+    const partner = p.partner || "Не указан";
+    if (!acc[partner]) {
+      acc[partner] = { total: 0, active: 0, success: 0, closed: 0, city: p.partner_city || p.object_city || "—" };
+    }
+    acc[partner].total++;
+    if (p.status === "active") acc[partner].active++;
+    if (p.status === "success") acc[partner].success++;
+    if (p.status === "closed") acc[partner].closed++;
+    return acc;
+  }, {});
+
+  // Статистика по артикулам
+  const skuStats = filtered.reduce((acc, p) => {
+    const skus = (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean);
+    skus.forEach(sku => {
+      if (!acc[sku]) {
+        acc[sku] = { total: 0, active: 0, success: 0, closed: 0 };
+      }
+      acc[sku].total++;
+      if (p.status === "active") acc[sku].active++;
+      if (p.status === "success") acc[sku].success++;
+      if (p.status === "closed") acc[sku].closed++;
+    });
+    return acc;
+  }, {});
+
+  // Общая статистика
+  const totalStats = {
+    total: filtered.length,
+    active: filtered.filter(p => p.status === "active").length,
+    success: filtered.filter(p => p.status === "success").length,
+    closed: filtered.filter(p => p.status === "closed").length,
+    pending: filtered.filter(p => p.status === "pending").length,
+  };
+
+  const successRate = totalStats.total > 0 
+    ? Math.round((totalStats.success / totalStats.total) * 100) 
+    : 0;
+
+  if (loading) {
+    return (
+      <div className="admin-card">
+        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+          Загрузка аналитики...
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* Фильтр по времени */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+            📊 Аналитика компании
+          </h2>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className={`admin-btn-secondary ${timeRange === "all" ? "active" : ""}`}
+              onClick={() => setTimeRange("all")}
+              style={{ 
+                background: timeRange === "all" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeRange === "all" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              Все время
+            </button>
+            <button
+              className={`admin-btn-secondary ${timeRange === "month" ? "active" : ""}`}
+              onClick={() => setTimeRange("month")}
+              style={{ 
+                background: timeRange === "month" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeRange === "month" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              30 дней
+            </button>
+            <button
+              className={`admin-btn-secondary ${timeRange === "week" ? "active" : ""}`}
+              onClick={() => setTimeRange("week")}
+              style={{ 
+                background: timeRange === "week" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeRange === "week" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              7 дней
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Общая статистика */}
+      <div className="admin-stat-grid" style={{ marginBottom: 24 }}>
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.total}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Всего защит</div>
+        </div>
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>✅</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.active}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Активных</div>
+        </div>
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" }}>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🎯</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.success}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Успешных</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {successRate}% успешности
+          </div>
+        </div>
+        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📊</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.closed}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Закрытых</div>
+        </div>
+      </div>
+
+      {/* Статистика по городам */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
+          🏙️ Статистика по городам
+        </h3>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+          {Object.entries(cityStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 10)
+            .map(([city, stats]) => (
+              <div key={city} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#fff" }}>📍 {city}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      {/* Статистика по партнёрам */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
+          🏢 Статистика по партнёрам (дилерам)
+        </h3>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
+          {Object.entries(partnerStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 15)
+            .map(([partner, stats]) => (
+              <div key={partner} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: "#fff" }}>🏢 {partner}</div>
+                <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 12 }}>📍 {stats.city}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+
+      {/* Статистика по артикулам */}
+      <div className="admin-card">
+        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
+          📦 Топ артикулов
+        </h3>
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
+          {Object.entries(skuStats)
+            .sort((a, b) => b[1].total - a[1].total)
+            .slice(0, 20)
+            .map(([sku, stats]) => (
+              <div key={sku} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
+                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, color: "#fff", wordBreak: "break-word" }}>📦 {sku}</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ===== ДАШБОРД С СТАТИСТИКОЙ (удалён, заменён на Analytics) ===== */
 function DashboardTab() {
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -1643,41 +1926,61 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                         style={{ width: 20, height: 20, cursor: "pointer", marginTop: 2, flexShrink: 0 }}
                       />
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                          Защита #{r.protection_id}
+                        <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 8, color: "#fff" }}>
+                          🛡️ Защита #{r.protection_id}
                         </div>
-                        <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 4 }}>
-                          👤 <b>Пользователь:</b> {r.user_name || r.manager || "—"}
-                        </div>
-                        <div style={{ fontSize: 14, opacity: 0.8 }}>
-                          👔 {r.manager} | 🏢 {r.partner}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ fontSize: 14, color: "rgba(255, 255, 255, 0.9)", display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 16 }}>👤</span>
+                            <span><b>Запросил:</b> {r.user_name || r.manager || "—"}</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 14 }}>⏰</span>
+                            <span><b>Время запроса:</b> {new Date(r.requested_at).toLocaleString("ru-RU", { 
+                              day: "2-digit", 
+                              month: "2-digit", 
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit"
+                            })}</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 14 }}>👔</span>
+                            <span><b>Менеджер:</b> {r.manager || "—"}</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontSize: 14 }}>🏢</span>
+                            <span><b>Партнёр:</b> {r.partner || "—"}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="admin-request-card-body">
+                  <div className="admin-request-card-body" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>SKU</div>
-                      <div style={{ fontSize: 14 }}>{r.sku || "—"}</div>
+                      <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", marginBottom: 6, fontWeight: 600 }}>📦 Артикул (SKU)</div>
+                      <div style={{ fontSize: 15, color: "#fff", fontWeight: 500, wordBreak: "break-word" }}>{r.sku || "—"}</div>
                     </div>
                     
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Запрошено</div>
-                      <div style={{ fontSize: 14 }}>{new Date(r.requested_at).toLocaleString()}</div>
-                    </div>
-                    
-                    <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Дней • Истекает</div>
-                      <div style={{ fontSize: 14 }}>
-                        {r.days} дн. | {r.expires_at}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, marginBottom: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", marginBottom: 6, fontWeight: 600 }}>📅 Запрошено дней</div>
+                        <div style={{ fontSize: 16, color: "#6e8eff", fontWeight: 700 }}>{r.days || 10} дн.</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", marginBottom: 6, fontWeight: 600 }}>⏳ Истекает</div>
+                        <div style={{ fontSize: 14, color: "#fff" }}>{r.expires_at || "—"}</div>
                       </div>
                     </div>
                     
                     {r.reason && (
-                      <div style={{ marginBottom: 12, padding: 12, background: "rgba(255, 255, 255, 0.05)", borderRadius: 8 }}>
-                        <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>💬 Причина продления</div>
-                        <div style={{ fontSize: 14, whiteSpace: "pre-wrap" }}>{r.reason}</div>
+                      <div style={{ marginBottom: 12, padding: 12, background: "rgba(102, 126, 234, 0.1)", borderRadius: 12, border: "1px solid rgba(102, 126, 234, 0.2)" }}>
+                        <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>💬</span>
+                          <span>Причина продления</span>
+                        </div>
+                        <div style={{ fontSize: 14, color: "#fff", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{r.reason}</div>
                       </div>
                     )}
                   </div>
@@ -1733,7 +2036,7 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
 
 /* ===== ГЛАВНЫЙ КОМПОНЕНТ АДМИНКИ ===== */
 export default function AdminPage({ onBack }) {
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState("analytics");
   
   // 🔐 Проверка доступа при монтировании
   useEffect(() => {
@@ -1973,11 +2276,11 @@ export default function AdminPage({ onBack }) {
   }, []);
 
   const back = () => {
-    // Если мы не на дашборде - возвращаемся на дашборд
-    if (tab !== "dashboard") {
-      setTab("dashboard");
+    // Если мы не на аналитике - возвращаемся на аналитику
+    if (tab !== "analytics") {
+      setTab("analytics");
     } else {
-      // Если на дашборде - возвращаемся на главную
+      // Если на аналитике - возвращаемся на главную
       if (onBack) onBack();
       else window.history.back();
     }
@@ -1996,17 +2299,17 @@ export default function AdminPage({ onBack }) {
   
   // Определяем breadcrumbs в зависимости от текущей вкладки
   const getBreadcrumbs = () => {
-    const base = [{ label: "Главная", path: "home" }, { label: "Админка", path: "dashboard" }];
+    const base = [{ label: "Главная", path: "home" }, { label: "Админка", path: "analytics" }];
     
     const tabLabels = {
-      dashboard: "Дашборд",
+      analytics: "Аналитика",
       users: "Пользователи",
       managers: "Менеджеры",
       requests: "Запросы на продление",
       pending: "Проверка защит"
     };
     
-    if (tab !== "dashboard") {
+    if (tab !== "analytics") {
       base.push({ label: tabLabels[tab] || tab, path: tab });
     }
     
@@ -2017,8 +2320,8 @@ export default function AdminPage({ onBack }) {
     if (path === "home") {
       if (onBack) onBack();
       else window.history.back();
-    } else if (path === "dashboard") {
-      setTab("dashboard");
+    } else if (path === "analytics") {
+      setTab("analytics");
     } else {
       setTab(path);
     }
@@ -2035,16 +2338,25 @@ export default function AdminPage({ onBack }) {
         ←
       </button>
       
-      <div className="admin-header">
+      <div className="admin-header" style={{
+        background: "linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%)",
+        padding: "20px 24px",
+        borderRadius: "20px",
+        border: "1px solid rgba(102, 126, 234, 0.2)",
+        marginBottom: 24,
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)"
+      }}>
         <div style={{ flex: 1 }}>
           <h1 style={{ 
             margin: 0, 
-            marginBottom: 8,
+            marginBottom: 12,
             background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
             WebkitBackgroundClip: "text", 
             WebkitTextFillColor: "transparent", 
             fontWeight: 700,
-            fontSize: "clamp(20px, 5vw, 28px)"
+            fontSize: "clamp(22px, 5.5vw, 32px)",
+            letterSpacing: "-0.5px"
           }}>
             👑 Панель администратора
           </h1>
@@ -2058,16 +2370,16 @@ export default function AdminPage({ onBack }) {
           >
             🚪 Выйти
           </button>
-          {tab !== "dashboard" && (
+          {tab !== "analytics" && (
             <button 
               className="admin-btn-secondary" 
               onClick={back}
               style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
             >
-              ⬅️ Назад к дашборду
+              ⬅️ Назад к аналитике
             </button>
           )}
-          {tab === "dashboard" && (
+          {tab === "analytics" && (
             <button 
               className="admin-btn-secondary" 
               onClick={back}
@@ -2079,46 +2391,102 @@ export default function AdminPage({ onBack }) {
         </div>
       </div>
 
-      <div className="admin-tabs">
+      <div className="admin-tabs" style={{
+        background: "rgba(255, 255, 255, 0.03)",
+        padding: "8px",
+        borderRadius: "16px",
+        border: "1px solid rgba(255, 255, 255, 0.1)",
+        marginBottom: 24,
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+        backdropFilter: "blur(10px)",
+        WebkitBackdropFilter: "blur(10px)"
+      }}>
           <div
-          className={`admin-tab ${tab === "dashboard" ? "active" : ""}`}
-          onClick={() => setTab("dashboard")}
-          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
+          className={`admin-tab ${tab === "analytics" ? "active" : ""}`}
+          onClick={() => setTab("analytics")}
+          style={{ 
+            fontSize: "clamp(13px, 3vw, 15px)", 
+            padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
+            fontWeight: tab === "analytics" ? 600 : 500,
+            background: tab === "analytics" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "analytics" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            borderRadius: "12px",
+            transition: "all 0.3s ease",
+            cursor: "pointer"
+          }}
           >
-          📊 Дашборд
+          📊 Аналитика
           </div>
           <div
           className={`admin-tab ${tab === "users" ? "active" : ""}`}
           onClick={() => setTab("users")}
-          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
+          style={{ 
+            fontSize: "clamp(13px, 3vw, 15px)", 
+            padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
+            fontWeight: tab === "users" ? 600 : 500,
+            background: tab === "users" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "users" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            borderRadius: "12px",
+            transition: "all 0.3s ease",
+            cursor: "pointer"
+          }}
           >
           👥 Пользователи
           </div>
           <div
           className={`admin-tab ${tab === "managers" ? "active" : ""}`}
           onClick={() => setTab("managers")}
-          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
+          style={{ 
+            fontSize: "clamp(13px, 3vw, 15px)", 
+            padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
+            fontWeight: tab === "managers" ? 600 : 500,
+            background: tab === "managers" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "managers" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            borderRadius: "12px",
+            transition: "all 0.3s ease",
+            cursor: "pointer"
+          }}
           >
           👔 Менеджеры
           </div>
             <div
           className={`admin-tab ${tab === "requests" ? "active" : ""}`}
           onClick={() => setTab("requests")}
-          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
+          style={{ 
+            fontSize: "clamp(13px, 3vw, 15px)", 
+            padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
+            fontWeight: tab === "requests" ? 600 : 500,
+            background: tab === "requests" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "requests" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            borderRadius: "12px",
+            transition: "all 0.3s ease",
+            cursor: "pointer"
+          }}
             >
           ⏰ Запросы
             </div>
         <div
           className={`admin-tab ${tab === "pending" ? "active" : ""}`}
           onClick={() => setTab("pending")}
-          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
+          style={{ 
+            fontSize: "clamp(13px, 3vw, 15px)", 
+            padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
+            fontWeight: tab === "pending" ? 600 : 500,
+            background: tab === "pending" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "pending" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            borderRadius: "12px",
+            transition: "all 0.3s ease",
+            cursor: "pointer"
+          }}
         >
           🔍 Проверка
                       </div>
                       </div>
 
       <div style={{ marginTop: 24 }}>
-        {tab === "dashboard" && <DashboardTab />}
+        {tab === "analytics" && <AnalyticsTab />}
         {tab === "users" && (
           (role === "superadmin" || role === "admin") ? <UsersTable /> : (
             <div className="admin-card">
