@@ -416,9 +416,9 @@ async def _init_background():
         try:
             # 1. База и миграции (синхронные операции)
             # Инициализация базы данных с правильными отступами
-    init_db()
-    init_users_table()
-    _safe_migrate()
+            init_db()
+            init_users_table()
+            _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -443,19 +443,19 @@ async def _init_background():
         print(f"⚠️ Ошибка запуска Telegram бота: {e}")
     
     try:
-    # 3. Проверка истекающих защит
+        # 3. Проверка истекающих защит
         asyncio.create_task(check_expiring_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска проверки защит: {e}")
 
     try:
-    # 4. Авто-закрытие защит за бездействие
+        # 4. Авто-закрытие защит за бездействие
         asyncio.create_task(auto_close_expired_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
 
     try:
-    # 5. Keep-alive механизм для предотвращения засыпания Render
+        # 5. Keep-alive механизм для предотвращения засыпания Render
         asyncio.create_task(keep_alive_worker())
     except Exception as e:
         print(f"⚠️ Ошибка запуска keep-alive: {e}")
@@ -503,7 +503,7 @@ def _safe_migrate():
     exec_safe("ALTER TABLE users ADD COLUMN group_tag TEXT")
     exec_safe("ALTER TABLE users ADD COLUMN region TEXT")
 
-        # === Managers ===
+    # === Managers ===
     exec_safe("ALTER TABLE managers ADD COLUMN telegrams TEXT DEFAULT '[]'")
 
     
@@ -3471,7 +3471,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -4168,7 +4168,7 @@ async def close_expiring_handler(callback: types.CallbackQuery):
     
     if row["status"] != "active":
         await callback.answer("❌ Защита не активна", show_alert=True)
-    conn.close()
+        conn.close()
         return
     
     # Запрашиваем причину закрытия
@@ -4620,8 +4620,8 @@ async def cmd_start_with_webapp(message: types.Message):
     
     # Создаем кнопку для открытия WebApp
     try:
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
                 [InlineKeyboardButton(text="🚪 Войти в систему", web_app=WebAppInfo(url=webapp_url))]
             ]
         )
@@ -4650,7 +4650,7 @@ async def cmd_start_with_webapp(message: types.Message):
             "Ваш Telegram ID определяется автоматически при входе."
         )
 
-    await message.answer(
+        await message.answer(
             instruction_text,
             reply_markup=keyboard,
             parse_mode="HTML"
@@ -4954,10 +4954,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-    except Exception as e:
+            except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -4970,7 +4970,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-        _bot_running = False
+                        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
