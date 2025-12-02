@@ -1725,19 +1725,31 @@
 
 .admin-table th {
   text-align: left;
-  padding: 12px;
+  padding: 14px 12px;
   border-bottom: 2px solid rgba(255, 255, 255, 0.1);
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.9);
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: clamp(11px, 2.5vw, 13px);
   letter-spacing: 0.5px;
 }
 
 .admin-table td {
   padding: 16px 12px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(255, 255, 255, 0.95);
+  font-size: clamp(13px, 3vw, 15px);
+  line-height: 1.5;
+}
+
+body.light-theme .admin-table th {
+  color: rgba(0, 0, 0, 0.85);
+  border-bottom-color: rgba(0, 0, 0, 0.15);
+}
+
+body.light-theme .admin-table td {
+  color: rgba(0, 0, 0, 0.9);
+  border-bottom-color: rgba(0, 0, 0, 0.08);
 }
 
 .admin-table tr:hover {
@@ -1748,13 +1760,18 @@
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  padding: 10px 20px;
+  padding: clamp(10px, 2.5vw, 12px) clamp(18px, 4.5vw, 24px);
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 14px;
+  font-size: clamp(13px, 3vw, 15px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
 }
 
 .admin-btn-primary:hover {
@@ -1766,12 +1783,28 @@
   background: rgba(255, 255, 255, 0.1);
   color: white;
   border: 1px solid rgba(255, 255, 255, 0.2);
-  padding: 10px 20px;
+  padding: clamp(10px, 2.5vw, 12px) clamp(18px, 4.5vw, 24px);
   border-radius: 10px;
   cursor: pointer;
   font-weight: 500;
-  font-size: 14px;
+  font-size: clamp(13px, 3vw, 15px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+}
+
+body.light-theme .admin-btn-secondary {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0f172a;
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+body.light-theme .admin-btn-secondary:hover {
+  background: rgba(0, 0, 0, 0.1);
+  border-color: rgba(0, 0, 0, 0.3);
 }
 
 .admin-btn-secondary:hover {
@@ -1784,13 +1817,18 @@
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
   border: none;
-  padding: 10px 20px;
+  padding: clamp(10px, 2.5vw, 12px) clamp(18px, 4.5vw, 24px);
   border-radius: 10px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 14px;
+  font-size: clamp(13px, 3vw, 15px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
 }
 
 .admin-btn-danger:hover {
@@ -1806,8 +1844,21 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   color: white;
-  font-size: 14px;
+  font-size: clamp(14px, 3.5vw, 16px);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  line-height: 1.5;
+}
+
+body.light-theme .admin-input,
+body.light-theme .admin-select {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.15);
+  color: #0f172a;
+}
+
+body.light-theme .admin-input::placeholder,
+body.light-theme .admin-select::placeholder {
+  color: rgba(0, 0, 0, 0.5);
 }
 
 .admin-input:focus,
@@ -1938,6 +1989,95 @@
   border-color: rgba(102, 126, 234, 0.5);
   background: rgba(255, 255, 255, 0.1);
   box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+}
+
+/* Breadcrumbs (хлебные крошки) */
+.admin-breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: clamp(12px, 2.5vw, 14px);
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 4px;
+}
+
+.admin-breadcrumb-link {
+  color: rgba(102, 126, 234, 0.9);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.admin-breadcrumb-link:hover {
+  color: rgba(102, 126, 234, 1);
+  text-decoration: underline;
+}
+
+.admin-breadcrumb-current {
+  color: rgba(255, 255, 255, 0.9);
+  font-weight: 600;
+}
+
+.admin-breadcrumb-separator {
+  color: rgba(255, 255, 255, 0.4);
+  margin: 0 4px;
+  user-select: none;
+}
+
+/* Улучшение читаемости для светлой темы */
+body.light-theme .admin-breadcrumbs {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+body.light-theme .admin-breadcrumb-link {
+  color: rgba(102, 126, 234, 0.8);
+}
+
+body.light-theme .admin-breadcrumb-link:hover {
+  color: rgba(102, 126, 234, 1);
+}
+
+body.light-theme .admin-breadcrumb-current {
+  color: rgba(0, 0, 0, 0.9);
+}
+
+body.light-theme .admin-breadcrumb-separator {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* Улучшение читаемости текста в админке */
+.admin-card h2,
+.admin-card h3,
+.admin-card h4 {
+  color: #fff;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.3px;
+}
+
+body.light-theme .admin-card h2,
+body.light-theme .admin-card h3,
+body.light-theme .admin-card h4 {
+  color: #0f172a;
+}
+
+.admin-stat-sublabel {
+  font-size: clamp(11px, 2.5vw, 13px);
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+body.light-theme .admin-stat-sublabel {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.admin-stat-icon {
+  font-size: clamp(32px, 8vw, 48px);
+  margin-bottom: 12px;
+  display: block;
 }
 
 .admin-protection-card {

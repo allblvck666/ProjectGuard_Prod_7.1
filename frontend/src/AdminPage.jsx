@@ -18,6 +18,31 @@ function Row({ children, gap = 8, wrap = true }) {
   );
 }
 
+/* ===== Breadcrumbs (хлебные крошки) ===== */
+function Breadcrumbs({ items, onNavigate }) {
+  if (!items || items.length === 0) return null;
+  
+  return (
+    <div className="admin-breadcrumbs">
+      {items.map((item, index) => (
+        <span key={index}>
+          {index > 0 && <span className="admin-breadcrumb-separator"> / </span>}
+          {index === items.length - 1 ? (
+            <span className="admin-breadcrumb-current">{item.label}</span>
+          ) : (
+            <span 
+              className="admin-breadcrumb-link" 
+              onClick={() => onNavigate && onNavigate(item.path)}
+            >
+              {item.label}
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /* ===== Модалка подтверждения ===== */
 function Confirm({
   title = "Подтверждение",
@@ -48,9 +73,9 @@ function Confirm({
         style={{ width: "100%", maxWidth: 520 }}
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 style={{ marginTop: 0, color: "#fff" }}>{title}</h3>
-        <div style={{ margin: "12px 0", color: "rgba(255,255,255,0.8)" }}>{children}</div>
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <h3 style={{ marginTop: 0, color: "#fff", fontSize: "clamp(18px, 4vw, 22px)", fontWeight: 700 }}>{title}</h3>
+        <div style={{ margin: "12px 0", color: "rgba(255,255,255,0.9)", fontSize: "clamp(14px, 3vw, 16px)", lineHeight: 1.6 }}>{children}</div>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 20 }}>
           <button className="admin-btn-secondary" onClick={onCancel}>
             {cancelText}
           </button>
@@ -119,6 +144,15 @@ function DashboardTab() {
 
   return (
     <div>
+      <div className="admin-card" style={{ marginBottom: 24 }}>
+        <h2 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+          📊 Общая статистика
+        </h2>
+        <div style={{ fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)", marginBottom: 20 }}>
+          Обновлено: {new Date().toLocaleString("ru-RU")}
+        </div>
+      </div>
+      
       <div className="admin-stat-grid">
         <div 
           className="admin-stat-card" 
@@ -128,10 +162,12 @@ function DashboardTab() {
             window.dispatchEvent(event);
           }}
         >
-          <div className="admin-stat-icon">👥</div>
-          <div className="admin-stat-value">{stats.totalUsers}</div>
-          <div className="admin-stat-label">Всего пользователей</div>
-          <div className="admin-stat-sublabel">{stats.activeUsers} активных</div>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>👥</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{stats.totalUsers}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Всего пользователей</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {stats.activeUsers} активных
+          </div>
         </div>
 
         <div 
@@ -142,23 +178,25 @@ function DashboardTab() {
             window.dispatchEvent(event);
           }}
         >
-          <div className="admin-stat-icon">👔</div>
-          <div className="admin-stat-value">{stats.totalManagers}</div>
-          <div className="admin-stat-label">Менеджеров</div>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>👔</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{stats.totalManagers}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Менеджеров</div>
         </div>
 
         <div 
           className="admin-stat-card" 
           style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", cursor: "pointer" }}
           onClick={() => {
-            const event = new CustomEvent("admin:switch-tab", { detail: "managers" });
+            const event = new CustomEvent("admin:switch-tab", { detail: "pending" });
             window.dispatchEvent(event);
           }}
         >
-          <div className="admin-stat-icon">🛡️</div>
-          <div className="admin-stat-value">{stats.totalProtections}</div>
-          <div className="admin-stat-label">Всего защит</div>
-          <div className="admin-stat-sublabel">{stats.activeProtections} активных</div>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{stats.totalProtections}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Всего защит</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {stats.activeProtections} активных
+          </div>
         </div>
 
         <div 
@@ -169,9 +207,14 @@ function DashboardTab() {
             window.dispatchEvent(event);
           }}
         >
-          <div className="admin-stat-icon">⏰</div>
-          <div className="admin-stat-value">{stats.pendingRequests}</div>
-          <div className="admin-stat-label">Запросов на продление</div>
+          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>⏰</div>
+          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{stats.pendingRequests}</div>
+          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Запросов на продление</div>
+          {stats.pendingRequests > 0 && (
+            <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9, color: "#fee140" }}>
+              Требуют внимания
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -440,9 +483,12 @@ function UsersTable() {
       </div>
 
       <div className="admin-card" style={{ width: "100%", boxSizing: "border-box" }}>
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: 20, fontWeight: 700 }}>
-          👥 Управление пользователями ({filteredUsers.length})
-        </h3>
+        <h2 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+          👥 Управление пользователями
+        </h2>
+        <div style={{ marginBottom: 16, fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)" }}>
+          Всего: <strong style={{ color: "#fff" }}>{filteredUsers.length}</strong> из {users.length}
+        </div>
         
       {loading && (
           <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
@@ -506,11 +552,18 @@ function UsersTable() {
                         <div style={{ fontSize: 14, color: "rgba(255, 255, 255, 0.7)", marginBottom: 4 }}>
                           {u.email || (u.tg_id ? `TG: ${u.tg_id}` : "—")}
                         </div>
-                        {u.phone && (
-                          <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.6)" }}>
-                            📞 {u.phone}
-                          </div>
-                        )}
+                        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginTop: 4 }}>
+                          {u.phone && (
+                            <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.6)" }}>
+                              📞 {u.phone}
+                            </div>
+                          )}
+                          {u.created_at && (
+                            <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)" }}>
+                              📅 Регистрация: {new Date(u.created_at).toLocaleDateString("ru-RU")}
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <button
@@ -545,10 +598,22 @@ function UsersTable() {
                               <div style={{ color: "#fff" }}>{u.city}</div>
                             </div>
                           )}
+                          {u.created_at && (
+                            <div>
+                              <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Дата регистрации</div>
+                              <div style={{ color: "#fff", fontSize: 13 }}>{new Date(u.created_at).toLocaleString("ru-RU")}</div>
+                            </div>
+                          )}
                           {u.last_login && (
                             <div>
                               <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Последний вход</div>
                               <div style={{ color: "#fff", fontSize: 13 }}>{new Date(u.last_login).toLocaleString("ru-RU")}</div>
+                            </div>
+                          )}
+                          {u.position && (
+                            <div>
+                              <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 4 }}>Должность</div>
+                              <div style={{ color: "#fff" }}>{u.position}</div>
                             </div>
                           )}
                         </div>
@@ -764,9 +829,18 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
   return (
     <div>
       <div className="admin-card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>
-          👔 Управление менеджерами
-        </h3>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+            👔 Управление менеджерами
+          </h2>
+          <button
+            className="admin-btn-secondary"
+            onClick={loadManagers}
+            disabled={loadingManagers}
+          >
+            🔄 Обновить
+          </button>
+        </div>
 
         <Row>
           <input
@@ -778,13 +852,6 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
           />
           <button className="admin-btn-primary" onClick={doAdd}>
             ➕ Добавить
-          </button>
-          <button
-            className="admin-btn-secondary"
-            onClick={loadManagers}
-            disabled={loadingManagers}
-          >
-            🔄 Обновить
           </button>
         </Row>
       </div>
@@ -821,7 +888,7 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                 <div key={m.id} className="admin-user-card" style={{ width: "100%", boxSizing: "border-box" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16 }}>
                     <div style={{ flex: 1, minWidth: 200 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexWrap: "wrap" }}>
                         {isEdit ? (
                           <input
                             className="admin-input"
@@ -832,53 +899,69 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                                 name: e.target.value,
                               }))
                             }
-                            style={{ maxWidth: 300 }}
+                            style={{ maxWidth: 300, fontSize: "clamp(16px, 4vw, 20px)" }}
                             onClick={(e) => e.stopPropagation()}
                           />
                         ) : (
-                          <b style={{ fontSize: 20, color: "#fff" }}>{m.name}</b>
+                          <b style={{ fontSize: "clamp(18px, 4.5vw, 22px)", color: "#fff", fontWeight: 700 }}>{m.name}</b>
                         )}
                       </div>
                       
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 16, marginTop: 16 }}>
                         <div style={{ 
                           background: "rgba(255, 255, 255, 0.05)", 
-                          padding: "12px", 
+                          padding: "clamp(12px, 3vw, 16px)", 
                           borderRadius: "12px",
-                          textAlign: "center"
+                          textAlign: "center",
+                          border: "1px solid rgba(255, 255, 255, 0.1)"
                         }}>
-                          <div style={{ fontSize: 24, fontWeight: 700, color: "#fff", marginBottom: 4 }}>{m.total}</div>
-                          <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                          <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#fff", marginBottom: 6 }}>{m.total || 0}</div>
+                          <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(255, 255, 255, 0.7)", fontWeight: 500 }}>Всего защит</div>
                         </div>
                         <div style={{ 
                           background: "rgba(61, 220, 151, 0.15)", 
-                          padding: "12px", 
+                          padding: "clamp(12px, 3vw, 16px)", 
                           borderRadius: "12px",
                           textAlign: "center",
                           border: "1px solid rgba(61, 220, 151, 0.3)"
                         }}>
-                          <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97", marginBottom: 4 }}>{m.active}</div>
-                          <div style={{ fontSize: 12, color: "rgba(61, 220, 151, 0.8)" }}>Активных</div>
+                          <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#3ddc97", marginBottom: 6 }}>{m.active || 0}</div>
+                          <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(61, 220, 151, 0.9)", fontWeight: 500 }}>Активных</div>
+                          {m.total > 0 && (
+                            <div style={{ fontSize: "clamp(10px, 2.5vw, 11px)", color: "rgba(61, 220, 151, 0.7)", marginTop: 4 }}>
+                              {Math.round((m.active / m.total) * 100)}%
+                            </div>
+                          )}
                         </div>
                         <div style={{ 
                           background: "rgba(77, 110, 235, 0.15)", 
-                          padding: "12px", 
+                          padding: "clamp(12px, 3vw, 16px)", 
                           borderRadius: "12px",
                           textAlign: "center",
                           border: "1px solid rgba(77, 110, 235, 0.3)"
                         }}>
-                          <div style={{ fontSize: 24, fontWeight: 700, color: "#6e8eff", marginBottom: 4 }}>{m.success}</div>
-                          <div style={{ fontSize: 12, color: "rgba(77, 110, 235, 0.8)" }}>Успешных</div>
+                          <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#6e8eff", marginBottom: 6 }}>{m.success || 0}</div>
+                          <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(77, 110, 235, 0.9)", fontWeight: 500 }}>Успешных</div>
+                          {m.total > 0 && (
+                            <div style={{ fontSize: "clamp(10px, 2.5vw, 11px)", color: "rgba(77, 110, 235, 0.7)", marginTop: 4 }}>
+                              {Math.round((m.success / m.total) * 100)}%
+                            </div>
+                          )}
                         </div>
                         <div style={{ 
                           background: "rgba(255, 85, 85, 0.15)", 
-                          padding: "12px", 
+                          padding: "clamp(12px, 3vw, 16px)", 
                           borderRadius: "12px",
                           textAlign: "center",
                           border: "1px solid rgba(255, 85, 85, 0.3)"
                         }}>
-                          <div style={{ fontSize: 24, fontWeight: 700, color: "#ff5555", marginBottom: 4 }}>{m.closed}</div>
-                          <div style={{ fontSize: 12, color: "rgba(255, 85, 85, 0.8)" }}>Закрытых</div>
+                          <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#ff5555", marginBottom: 6 }}>{m.closed || 0}</div>
+                          <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(255, 85, 85, 0.9)", fontWeight: 500 }}>Закрытых</div>
+                          {m.total > 0 && (
+                            <div style={{ fontSize: "clamp(10px, 2.5vw, 11px)", color: "rgba(255, 85, 85, 0.7)", marginTop: 4 }}>
+                              {Math.round((m.closed / m.total) * 100)}%
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -962,12 +1045,14 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                                   {p.status === "active" ? "✅ Активна" : "❌ Закрыта"}
                                 </span>
                               </div>
-                              <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
-                                📍 {p.address || p.partner || "—"}
-                              </div>
-                              {p.client && (
+                              {p.sku && (
+                                <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.8)", marginBottom: 6, fontWeight: 500 }}>
+                                  📦 {p.sku}
+                                </div>
+                              )}
+                              {p.partner && (
                                 <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
-                                  👤 {p.client}
+                                  🏢 {p.partner}
                                 </div>
                               )}
                               {p.area_m2 && (
@@ -977,7 +1062,12 @@ function ManagersTab({ managers, loadingManagers, loadManagers, newName, setNewN
                               )}
                               {p.expires_at && (
                                 <div style={{ fontSize: 13, color: "rgba(255, 255, 255, 0.7)", marginBottom: 6 }}>
-                                  ⏰ {p.expires_at}
+                                  ⏰ {new Date(p.expires_at).toLocaleDateString("ru-RU")}
+                                </div>
+                              )}
+                              {p.created_at && (
+                                <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 6 }}>
+                                  📅 Создано: {new Date(p.created_at).toLocaleDateString("ru-RU")}
                                 </div>
                               )}
                               <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
@@ -1079,51 +1169,59 @@ function PendingProtections() {
   }, []);
 
   return (
-    <div className="admin-card">
-      <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff" }}>Новые защиты (на проверке)</h3>
-      <button className="admin-btn-secondary" onClick={load} disabled={loading}>
-        🔄 Обновить
-      </button>
-
-      {loading && (
-        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-          Загрузка…
+    <div>
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+            🔍 Новые защиты (на проверке)
+          </h2>
+          <button className="admin-btn-secondary" onClick={load} disabled={loading}>
+            🔄 Обновить
+          </button>
         </div>
-      )}
+      </div>
       
-      {!loading && items.length === 0 && (
-        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-          Нет заявок.
-        </div>
-      )}
-      
-      {!loading && items.length > 0 && (
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", marginTop: 16 }}>
-          {items.map((p) => (
-            <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                <b style={{ color: "#fff" }}>#{p.id}</b>
-                <span style={{ fontSize: 12, opacity: 0.6 }}>{p.created_at}</span>
+      <div className="admin-card">
+        {loading && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Загрузка…
+          </div>
+        )}
+        
+        {!loading && items.length === 0 && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Нет заявок.
+          </div>
+        )}
+        
+        {!loading && items.length > 0 && (
+          <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(360px, 1fr))", marginTop: 16 }}>
+            {items.map((p) => (
+              <div key={p.id} className="admin-card" style={{ background: "rgba(255,255,255,0.02)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <b style={{ color: "#fff" }}>#{p.id}</b>
+                  <span style={{ fontSize: 12, opacity: 0.6 }}>{p.created_at}</span>
+                </div>
+                <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)", marginBottom: 12 }}>
+                  <div>👤 {p.manager}</div>
+                  <div>🏢 {p.partner} — {p.partner_city}</div>
+                  <div>📦 {p.sku}</div>
+                  <div>📏 {p.area_m2} м²</div>
+                  {p.comment && <div style={{ marginTop: 4 }}>💬 {p.comment}</div>}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                  <button className="admin-btn-success" onClick={() => approve(p)}>
+                    ✅ Принять
+                  </button>
+                  <button className="admin-btn-danger" onClick={() => reject(p)}>
+                    ❌ Отклонить
+                  </button>
+                </div>
               </div>
-              <div style={{ fontSize: 14, lineHeight: 1.6, color: "rgba(255,255,255,0.8)", marginBottom: 12 }}>
-                <div>👤 {p.manager}</div>
-                <div>🏢 {p.partner} — {p.partner_city}</div>
-                <div>📦 {p.sku}</div>
-                <div>📏 {p.area_m2} м²</div>
-                {p.comment && <div style={{ marginTop: 4 }}>💬 {p.comment}</div>}
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button className="admin-btn-success" onClick={() => approve(p)}>
-                  ✅ Принять
-                </button>
-                <button className="admin-btn-danger" onClick={() => reject(p)}>
-                  ❌ Отклонить
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1262,16 +1360,162 @@ function NotificationsTab() {
 
 /* ===== Вкладка: Запросы на продление ===== */
 function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doRejectExtendRequest, doDeleteExtendRequest, extendBusy }) {
+  const [search, setSearch] = useState("");
+  const [managerFilter, setManagerFilter] = useState("");
+  const [selectedRequests, setSelectedRequests] = useState(new Set());
+  
+  // Получаем уникальных менеджеров для фильтра
+  const managers = [...new Set(requests.map(r => r.manager).filter(Boolean))];
+  
+  // Фильтрация запросов
+  const filteredRequests = requests.filter((r) => {
+    const matchesSearch = !search || 
+      (r.sku || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.partner || "").toLowerCase().includes(search.toLowerCase()) ||
+      (r.user_name || "").toLowerCase().includes(search.toLowerCase()) ||
+      String(r.protection_id).includes(search);
+    const matchesManager = !managerFilter || r.manager === managerFilter;
+    return matchesSearch && matchesManager;
+  });
+  
+  // Массовые операции
+  const handleSelectAll = () => {
+    if (selectedRequests.size === filteredRequests.length) {
+      setSelectedRequests(new Set());
+    } else {
+      setSelectedRequests(new Set(filteredRequests.map(r => r.protection_id)));
+    }
+  };
+  
+  const handleSelectRequest = (protectionId) => {
+    const newSelected = new Set(selectedRequests);
+    if (newSelected.has(protectionId)) {
+      newSelected.delete(protectionId);
+    } else {
+      newSelected.add(protectionId);
+    }
+    setSelectedRequests(newSelected);
+  };
+  
+  const handleBulkApprove = async () => {
+    if (selectedRequests.size === 0) {
+      alert("Выберите запросы для одобрения");
+      return;
+    }
+    if (!window.confirm(`Одобрить ${selectedRequests.size} запросов?`)) return;
+    
+    for (const pid of selectedRequests) {
+      const req = requests.find(r => r.protection_id === pid);
+      if (req) {
+        try {
+          await doAdminExtend(pid, req.days || 10);
+        } catch (e) {
+          console.error(`Ошибка при одобрении запроса ${pid}:`, e);
+        }
+      }
+    }
+    setSelectedRequests(new Set());
+    await loadRequests();
+  };
+  
+  const handleBulkReject = async () => {
+    if (selectedRequests.size === 0) {
+      alert("Выберите запросы для отклонения");
+      return;
+    }
+    if (!window.confirm(`Отклонить ${selectedRequests.size} запросов?`)) return;
+    
+    for (const pid of selectedRequests) {
+      try {
+        await doRejectExtendRequest(pid);
+      } catch (e) {
+        console.error(`Ошибка при отклонении запроса ${pid}:`, e);
+      }
+    }
+    setSelectedRequests(new Set());
+    await loadRequests();
+  };
+  
   return (
-    <div className="admin-card">
-      <Row>
-        <h3 style={{ margin: 0, color: "#fff" }}>⏰ Запросы на продление</h3>
-        <button className="admin-btn-secondary" onClick={loadRequests} disabled={loadingReq}>
-          🔄 Обновить
-        </button>
-      </Row>
-
-      <div style={{ marginTop: 16 }}>
+    <div>
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+            ⏰ Запросы на продление
+          </h2>
+          <button className="admin-btn-secondary" onClick={loadRequests} disabled={loadingReq}>
+            🔄 Обновить
+          </button>
+        </div>
+        {requests.length > 0 && (
+          <div style={{ marginTop: 12, fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)" }}>
+            Всего запросов: <strong style={{ color: "#fff" }}>{requests.length}</strong>
+            {filteredRequests.length !== requests.length && (
+              <span> | Отфильтровано: <strong style={{ color: "#fff" }}>{filteredRequests.length}</strong></span>
+            )}
+          </div>
+        )}
+      </div>
+      
+      {/* Фильтры */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            className="admin-input"
+            placeholder="🔍 Поиск по SKU, партнёру, пользователю, ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ flex: 1, minWidth: 200 }}
+          />
+          <select
+            className="admin-select"
+            value={managerFilter}
+            onChange={(e) => setManagerFilter(e.target.value)}
+            style={{ minWidth: 180 }}
+          >
+            <option value="">Все менеджеры</option>
+            {managers.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </div>
+        
+        {/* Массовые операции */}
+        {filteredRequests.length > 0 && (
+          <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255, 255, 255, 0.1)", display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              className="admin-btn-secondary"
+              onClick={handleSelectAll}
+              style={{ fontSize: "clamp(12px, 3vw, 14px)" }}
+            >
+              {selectedRequests.size === filteredRequests.length ? "☐ Снять все" : "☑ Выбрать все"}
+            </button>
+            {selectedRequests.size > 0 && (
+              <>
+                <span style={{ color: "rgba(255, 255, 255, 0.7)", fontSize: "clamp(13px, 3vw, 14px)" }}>
+                  Выбрано: <strong style={{ color: "#fff" }}>{selectedRequests.size}</strong>
+                </span>
+                <button
+                  className="admin-btn-success"
+                  onClick={handleBulkApprove}
+                  style={{ fontSize: "clamp(12px, 3vw, 14px)" }}
+                >
+                  ✅ Одобрить выбранные
+                </button>
+                <button
+                  className="admin-btn-danger"
+                  onClick={handleBulkReject}
+                  style={{ fontSize: "clamp(12px, 3vw, 14px)" }}
+                >
+                  🚫 Отклонить выбранные
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      
+      <div className="admin-card">
         {loadingReq && (
           <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
             Загрузка…
@@ -1284,13 +1528,27 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
           </div>
         )}
         
-        {!loadingReq && requests.length > 0 && (
+        {!loadingReq && filteredRequests.length === 0 && requests.length > 0 && (
+          <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+            Нет запросов, соответствующих фильтрам.
+          </div>
+        )}
+        
+        {!loadingReq && filteredRequests.length > 0 && (
           <div>
             {/* Десктопная версия - таблица */}
             <div className="admin-table-desktop" style={{ overflowX: "auto" }}>
               <table className="admin-table" style={{ width: "100%", minWidth: 1000 }}>
                 <thead>
                   <tr>
+                    <th style={{ width: 40 }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRequests.size === filteredRequests.length && filteredRequests.length > 0}
+                        onChange={handleSelectAll}
+                        style={{ width: 18, height: 18, cursor: "pointer" }}
+                      />
+                    </th>
                     <th>ID защиты</th>
                     <th>Пользователь</th>
                     <th>Менеджер</th>
@@ -1304,8 +1562,18 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                   </tr>
                 </thead>
                 <tbody>
-                  {requests.map((r) => (
-                    <tr key={r.history_id}>
+                  {filteredRequests.map((r) => (
+                    <tr key={r.history_id} style={{ 
+                      background: selectedRequests.has(r.protection_id) ? "rgba(77, 110, 235, 0.1)" : "transparent" 
+                    }}>
+                      <td data-label="">
+                        <input
+                          type="checkbox"
+                          checked={selectedRequests.has(r.protection_id)}
+                          onChange={() => handleSelectRequest(r.protection_id)}
+                          style={{ width: 18, height: 18, cursor: "pointer" }}
+                        />
+                      </td>
                       <td data-label="ID">#{r.protection_id}</td>
                       <td data-label="Пользователь" style={{ fontSize: 12, fontWeight: 600 }}>
                         👤 {r.user_name || r.manager || "—"}
@@ -1360,20 +1628,30 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
               </table>
             </div>
             
-            {/* Мобильная версия - карточки */}
+            {/* Мобильная версия карточки */}
             <div className="admin-requests-mobile">
-              {requests.map((r) => (
-                <div key={r.history_id} className="admin-request-card">
+              {filteredRequests.map((r) => (
+                <div key={r.history_id} className="admin-request-card" style={{
+                  border: selectedRequests.has(r.protection_id) ? "2px solid rgba(77, 110, 235, 0.5)" : undefined
+                }}>
                   <div className="admin-request-card-header">
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
-                        Защита #{r.protection_id}
-                      </div>
-                      <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 4 }}>
-                        👤 <b>Пользователь:</b> {r.user_name || r.manager || "—"}
-                      </div>
-                      <div style={{ fontSize: 14, opacity: 0.8 }}>
-                        👔 {r.manager} | 🏢 {r.partner}
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, width: "100%" }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedRequests.has(r.protection_id)}
+                        onChange={() => handleSelectRequest(r.protection_id)}
+                        style={{ width: 20, height: 20, cursor: "pointer", marginTop: 2, flexShrink: 0 }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+                          Защита #{r.protection_id}
+                        </div>
+                        <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 4 }}>
+                          👤 <b>Пользователь:</b> {r.user_name || r.manager || "—"}
+                        </div>
+                        <div style={{ fontSize: 14, opacity: 0.8 }}>
+                          👔 {r.manager} | 🏢 {r.partner}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1390,7 +1668,7 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
                     </div>
                     
                     <div style={{ marginBottom: 12 }}>
-                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Дней / Истекает</div>
+                      <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 4 }}>Дней • Истекает</div>
                       <div style={{ fontSize: 14 }}>
                         {r.days} дн. | {r.expires_at}
                       </div>
@@ -1715,6 +1993,36 @@ export default function AdminPage({ onBack }) {
   };
 
   const role = localStorage.getItem("role");
+  
+  // Определяем breadcrumbs в зависимости от текущей вкладки
+  const getBreadcrumbs = () => {
+    const base = [{ label: "Главная", path: "home" }, { label: "Админка", path: "dashboard" }];
+    
+    const tabLabels = {
+      dashboard: "Дашборд",
+      users: "Пользователи",
+      managers: "Менеджеры",
+      requests: "Запросы на продление",
+      pending: "Проверка защит"
+    };
+    
+    if (tab !== "dashboard") {
+      base.push({ label: tabLabels[tab] || tab, path: tab });
+    }
+    
+    return base;
+  };
+  
+  const handleBreadcrumbNavigate = (path) => {
+    if (path === "home") {
+      if (onBack) onBack();
+      else window.history.back();
+    } else if (path === "dashboard") {
+      setTab("dashboard");
+    } else {
+      setTab(path);
+    }
+  };
 
   return (
     <div className="container" style={{ background: "linear-gradient(135deg, #0d1320 0%, #1a1f3a 100%)", minHeight: "100vh" }}>
@@ -1728,20 +2036,43 @@ export default function AdminPage({ onBack }) {
       </button>
       
       <div className="admin-header">
-        <h1 style={{ margin: 0, background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontWeight: 700 }}>
-          👑 Панель администратора
-        </h1>
+        <div style={{ flex: 1 }}>
+          <h1 style={{ 
+            margin: 0, 
+            marginBottom: 8,
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
+            WebkitBackgroundClip: "text", 
+            WebkitTextFillColor: "transparent", 
+            fontWeight: 700,
+            fontSize: "clamp(20px, 5vw, 28px)"
+          }}>
+            👑 Панель администратора
+          </h1>
+          <Breadcrumbs items={getBreadcrumbs()} onNavigate={handleBreadcrumbNavigate} />
+        </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <button className="admin-btn-secondary" onClick={handleLogout} style={{ fontSize: 14, padding: "10px 16px" }}>
+          <button 
+            className="admin-btn-secondary" 
+            onClick={handleLogout} 
+            style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
+          >
             🚪 Выйти
           </button>
           {tab !== "dashboard" && (
-            <button className="admin-btn-secondary" onClick={back}>
-              ⬅️ Назад
+            <button 
+              className="admin-btn-secondary" 
+              onClick={back}
+              style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
+            >
+              ⬅️ Назад к дашборду
             </button>
           )}
           {tab === "dashboard" && (
-            <button className="admin-btn-secondary" onClick={back}>
+            <button 
+              className="admin-btn-secondary" 
+              onClick={back}
+              style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
+            >
               🏠 На главную
             </button>
           )}
@@ -1752,30 +2083,35 @@ export default function AdminPage({ onBack }) {
           <div
           className={`admin-tab ${tab === "dashboard" ? "active" : ""}`}
           onClick={() => setTab("dashboard")}
+          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
           >
           📊 Дашборд
           </div>
           <div
           className={`admin-tab ${tab === "users" ? "active" : ""}`}
           onClick={() => setTab("users")}
+          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
           >
           👥 Пользователи
           </div>
           <div
           className={`admin-tab ${tab === "managers" ? "active" : ""}`}
           onClick={() => setTab("managers")}
+          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
           >
           👔 Менеджеры
           </div>
             <div
           className={`admin-tab ${tab === "requests" ? "active" : ""}`}
           onClick={() => setTab("requests")}
+          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
             >
           ⏰ Запросы
             </div>
         <div
           className={`admin-tab ${tab === "pending" ? "active" : ""}`}
           onClick={() => setTab("pending")}
+          style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)" }}
         >
           🔍 Проверка
                       </div>

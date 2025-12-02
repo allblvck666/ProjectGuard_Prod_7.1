@@ -248,7 +248,6 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
         style={{
           width: "100%",
           maxWidth: 420,
-          maxHeight: window.innerWidth <= 768 ? "calc(100vh - 32px)" : "90vh",
           maxHeight: window.innerWidth <= 768 ? "calc(100dvh - 32px)" : "90vh",
           overflowY: "auto",
           borderRadius: "24px",
