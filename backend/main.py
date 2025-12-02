@@ -1290,11 +1290,11 @@ async def telegram_auth(request: Request):
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
                     # Обновляем tg_id на правильный
-        cur.execute(
+                    cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-        )
-        conn.commit()
+                    )
+                    conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
@@ -1360,11 +1360,11 @@ async def telegram_auth(request: Request):
             existing_user = cur.fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-        cur.execute(
+                cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                     (str(tg_id), username, first_name, existing_user["id"])
-        )
-        conn.commit()
+                )
+                conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
                 row = cur.fetchone()
@@ -1669,7 +1669,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         return {"ok": True, "message": "User permanently deleted"}
     else:
         # Soft delete: is_active = 0 (блокировка)
-    update_user(user_id, {"is_active": 0})
+        update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
 
@@ -1684,7 +1684,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1820,8 +1820,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
     conn.close()
@@ -1901,17 +1901,17 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             cur.execute(protections_delete_query, (name,))
     else:
         # Мягкое удаление: переводим защиты на другого менеджера
-    if cnt > 0:
-        if not transfer_to:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+        if cnt > 0:
+            if not transfer_to:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
             query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
             cur.execute(query_to, (transfer_to,))
             row_to = cur.fetchone()
-        if not row_to:
-            conn.close()
-            raise HTTPException(status_code=404, detail="transfer_to manager not found")
-        new_name = row_to["name"]
+            if not row_to:
+                conn.close()
+                raise HTTPException(status_code=404, detail="transfer_to manager not found")
+            new_name = row_to["name"]
             update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
             cur.execute(update_query, (new_name, name))
     
@@ -2161,7 +2161,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             # Проверяем пересечение артикулов
             # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
             if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
-            if min_a <= float(row["area_m2"]) <= max_a:
+                if min_a <= float(row["area_m2"]) <= max_a:
                     # Получаем информацию о создателе защиты
                     creator_name = "—"
                     manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
@@ -2183,25 +2183,25 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         """)
                     cur.execute(admin_query)
                     admins = cur.fetchall()
-                
-                duplicate_msg = (
-                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                    
+                    duplicate_msg = (
+                        f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                         f"<b>Существующая защита:</b>\n"
-                    f"👤 Менеджер: {row['manager']}\n"
+                        f"👤 Менеджер: {row['manager']}\n"
                         f"👤 Создатель: {creator_name}\n"
-                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                    f"❗️Артикул: {row['sku']}\n"
-                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                        f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                        f"❗️Артикул: {row['sku']}\n"
+                        f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                        f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
                         f"<b>Попытка создать:</b>\n"
                         f"👤 Пользователь: {payload.manager or '—'}\n"
-                    f"📦 SKU: {sku_display}\n"
-                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                        f"📦 SKU: {sku_display}\n"
+                        f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                         f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                )
-                
+                    )
+                    
                     # Отправляем уведомления асинхронно через BackgroundTasks
-                async def send_duplicate_notifications():
+                    async def send_duplicate_notifications():
                     sent_count = 0
                     for admin in admins:
                         tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
@@ -2219,24 +2219,24 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                             except Exception as e:
                                 print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
                     
-                    if sent_count > 0:
-                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
-                
+                        if sent_count > 0:
+                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+                    
                     # Используем BackgroundTasks для отправки уведомлений
                     if background_tasks:
                         background_tasks.add_task(send_duplicate_notifications)
                     else:
                         # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                try:
+                        try:
                             import asyncio
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
-                    asyncio.create_task(send_duplicate_notifications())
+                                asyncio.create_task(send_duplicate_notifications())
                             else:
                                 loop.run_until_complete(send_duplicate_notifications())
-                except Exception as e:
-                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
-                
+                        except Exception as e:
+                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                    
                     # Формируем полную информацию о похожей защите для передачи в модальное окно
                     similar_protection_data = {
                         "id": row.get("id"),
@@ -2310,7 +2310,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-    insert_sql = _adapt_query("""
+        insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -2358,15 +2358,15 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             background_tasks.add_task(notify_admin_new_protection, row_to_out(row).dict())
         else:
             # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-        try:
+            try:
                 import asyncio
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-            asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
+                    asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
                 else:
                     loop.run_until_complete(notify_admin_new_protection(row_to_out(row).dict()))
-        except Exception as e:
-            print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+            except Exception as e:
+                print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
 
     conn.close()
     return row_to_out(row)
@@ -2542,7 +2542,7 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
             if pid in history_map:
                 continue
             
-                history_map[pid] = {}
+            history_map[pid] = {}
             
             # Получаем имя пользователя из actor, если это ID пользователя
             actor_name = actor
@@ -2790,7 +2790,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
                 result = None
                 try:
-                result = await bot.send_message(
+                    result = await bot.send_message(
                         chat_id=tg_id_int,
                         text=msg,
                     parse_mode="HTML",
@@ -2819,7 +2819,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                         result = None
                 
                 if result:
-                sent_count += 1
+                    sent_count += 1
                 admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
                 print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
@@ -2828,7 +2828,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
-                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                 print(f"🔍 Тип ошибки: {type(e).__name__}")
                 import traceback
                 traceback.print_exc()
@@ -2973,11 +2973,11 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                     from backend.db import normalize_tg_id
                     tg_id_clean = normalize_tg_id(author_row["tg_id"])
                     if tg_id_clean and tg_id_clean.isdigit():
-                    await bot.send_message(
+                        await bot.send_message(
                             int(tg_id_clean),
                         msg,
-                        parse_mode="HTML"
-                    )
+                            parse_mode="HTML"
+                        )
                         print(f"📩 Уведомление об удалении защиты отправлено автору {tg_id_clean}")
                 except Exception as e:
                     print(f"⚠️ Ошибка отправки уведомления автору {author_row.get('tg_id', 'unknown')}: {e}")
@@ -2986,11 +2986,11 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                 background_tasks.add_task(send_delete_notification)
             else:
                 # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-            try:
+                try:
                     import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                asyncio.create_task(send_delete_notification())
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(send_delete_notification())
                     else:
                         loop.run_until_complete(send_delete_notification())
                 except Exception as e:
@@ -3004,10 +3004,10 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
         cur.execute(protection_delete_query, (pid,))
     else:
         # Мягкое удаление: статус -> 'deleted'
-    actor = "admin" if is_admin else "manager"
+        actor = "admin" if is_admin else "manager"
         update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
         cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
+        add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     
     conn.commit()
     conn.close()
@@ -3444,11 +3444,11 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         """
     else:
         insert_sql = _adapt_query("""
-        INSERT INTO protections(
-            manager, client, partner, partner_city, sku, area_m2, last4,
-            object_city, address, comment, status, created_at, expires_at,
-            closed_at, extend_count, auto_closed
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at,
+                closed_at, extend_count, auto_closed
+            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
         """)
     
     cur.execute(insert_sql, (
@@ -3471,7 +3471,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -4168,7 +4168,7 @@ async def close_expiring_handler(callback: types.CallbackQuery):
     
     if row["status"] != "active":
         await callback.answer("❌ Защита не активна", show_alert=True)
-    conn.close()
+        conn.close()
         return
     
     # Запрашиваем причину закрытия
@@ -4620,8 +4620,8 @@ async def cmd_start_with_webapp(message: types.Message):
     
     # Создаем кнопку для открытия WebApp
     try:
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
                 [InlineKeyboardButton(text="🚪 Войти в систему", web_app=WebAppInfo(url=webapp_url))]
             ]
         )
@@ -4650,7 +4650,7 @@ async def cmd_start_with_webapp(message: types.Message):
             "Ваш Telegram ID определяется автоматически при входе."
         )
 
-    await message.answer(
+        await message.answer(
             instruction_text,
             reply_markup=keyboard,
             parse_mode="HTML"
@@ -4954,10 +4954,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-    except Exception as e:
+            except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -4970,7 +4970,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-        _bot_running = False
+                        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
