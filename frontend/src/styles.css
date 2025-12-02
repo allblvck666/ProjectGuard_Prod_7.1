@@ -189,7 +189,8 @@
   }
   
   body.light-theme .input::placeholder {
-    color: rgba(0, 0, 0, 0.5); /* Увеличена контрастность placeholder */
+    color: rgba(0, 0, 0, 0.65); /* Увеличена контрастность placeholder для лучшей читаемости */
+    opacity: 1;
   }
   
   /* Улучшение контрастности текста в светлой теме */
@@ -267,7 +268,7 @@
     }
     
     body.light-theme .input::placeholder {
-      color: rgba(0, 0, 0, 0.7) !important; /* Еще более контрастный placeholder */
+      color: rgba(0, 0, 0, 0.75) !important; /* Еще более контрастный placeholder для максимальной читаемости */
       font-weight: 400;
       opacity: 1 !important;
     }
@@ -780,7 +781,7 @@
   }
 
   .input::placeholder {
-    color: rgba(255, 255, 255, 0.6); /* Увеличена контрастность placeholder */
+    color: rgba(255, 255, 255, 0.7); /* Увеличена контрастность placeholder для лучшей читаемости */
     font-weight: 400;
     opacity: 1; /* Убеждаемся, что opacity не переопределяется */
   }
@@ -1858,7 +1859,8 @@ body.light-theme .admin-select {
 
 body.light-theme .admin-input::placeholder,
 body.light-theme .admin-select::placeholder {
-  color: rgba(0, 0, 0, 0.5);
+  color: rgba(0, 0, 0, 0.65);
+  opacity: 1;
 }
 
 .admin-input:focus,
@@ -2148,17 +2150,61 @@ body.light-theme .admin-stat-sublabel {
   }
 
   .admin-tab {
-    min-width: 120px;
+    min-width: 100px;
     text-align: center;
-    font-size: 13px;
-    padding: 10px 16px;
+    font-size: clamp(12px, 2.8vw, 14px);
+    padding: clamp(10px, 2.5vw, 12px) clamp(12px, 3vw, 16px);
     flex: 1 1 auto;
-    max-width: 200px;
+    max-width: none;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(102, 126, 234, 0.3);
   }
 
   .admin-stat-grid {
-    grid-template-columns: 1fr;
-    gap: 16px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  /* Для пульса компании - 5 карточек в 2 колонки */
+  .admin-card .admin-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .admin-stat-card {
+    padding: 16px 12px;
+    min-height: 120px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .admin-stat-icon {
+    font-size: clamp(28px, 7vw, 36px) !important;
+    margin-bottom: 8px !important;
+  }
+
+  .admin-stat-value {
+    font-size: clamp(24px, 6vw, 32px) !important;
+    line-height: 1.2;
+  }
+
+  .admin-stat-label {
+    font-size: clamp(11px, 2.5vw, 13px) !important;
+    margin-top: 4px;
+    margin-bottom: 0;
+  }
+
+  .admin-stat-sublabel {
+    font-size: clamp(10px, 2vw, 12px) !important;
+    margin-top: 6px !important;
+    line-height: 1.4;
   }
 
   .admin-card {
@@ -2247,6 +2293,25 @@ body.light-theme .admin-stat-sublabel {
   .admin-card {
     padding: 16px;
     overflow-x: hidden;
+    margin-bottom: 16px;
+  }
+
+  /* Улучшение читаемости текста в карточках на мобильных */
+  .admin-card h2,
+  .admin-card h3 {
+    font-size: clamp(18px, 4.5vw, 22px) !important;
+    line-height: 1.3;
+    margin-bottom: 12px;
+  }
+
+  /* Улучшение для детальной статистики на мобильных */
+  .admin-user-card {
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+
+  .admin-user-card > div {
+    font-size: clamp(14px, 3.5vw, 16px);
   }
 
   .admin-input,
@@ -2254,6 +2319,20 @@ body.light-theme .admin-stat-sublabel {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
+    font-size: clamp(16px, 4vw, 18px) !important; /* Предотвращает зум на iOS */
+    min-height: 48px;
+    padding: 14px 16px;
+  }
+
+  /* Улучшение кнопок на мобильных */
+  .admin-btn-primary,
+  .admin-btn-secondary,
+  .admin-btn-danger {
+    min-height: 48px;
+    font-size: clamp(15px, 3.5vw, 16px) !important;
+    padding: clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(102, 126, 234, 0.3);
   }
   
   /* Скрываем таблицу на мобильных, показываем карточки */

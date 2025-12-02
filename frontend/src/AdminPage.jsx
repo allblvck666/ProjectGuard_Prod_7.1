@@ -88,11 +88,11 @@ function Confirm({
   );
 }
 
-/* ===== Вкладка: Аналитика ===== */
-function AnalyticsTab() {
+/* ===== Вкладка: Пульс компании ===== */
+function PulseTab() {
   const [protections, setProtections] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState("all"); // all, month, week
+  const [selectedStat, setSelectedStat] = useState(null); // "total", "active", "success", "closed"
 
   useEffect(() => {
     const loadData = async () => {
@@ -109,84 +109,60 @@ function AnalyticsTab() {
     loadData();
   }, []);
 
-  // Фильтрация по времени
-  const getFilteredProtections = () => {
-    const now = new Date();
-    let cutoffDate = new Date(0); // Все данные
-    
-    if (timeRange === "month") {
-      cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    } else if (timeRange === "week") {
-      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    }
-    
-    return protections.filter(p => {
-      const created = new Date(p.created_at);
-      return created >= cutoffDate;
-    });
+  // Фильтрация за сегодня
+  const todayProtections = protections.filter(p => {
+    const created = new Date(p.created_at);
+    const today = new Date();
+    return created.toDateString() === today.toDateString();
+  });
+
+  // Показатели за день
+  const dayStats = {
+    protections: todayProtections.length,
+    area_m2: todayProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    cities: new Set(todayProtections.map(p => p.partner_city || p.object_city).filter(Boolean)).size,
+    managers: new Set(todayProtections.map(p => p.manager).filter(Boolean)).size,
+    skus: new Set(todayProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
   };
 
-  const filtered = getFilteredProtections();
-
-  // Статистика по городам
-  const cityStats = filtered.reduce((acc, p) => {
-    const city = p.partner_city || p.object_city || "Не указан";
-    if (!acc[city]) {
-      acc[city] = { total: 0, active: 0, success: 0, closed: 0 };
+  // Фильтрация по статусу для детальной статистики
+  const getFilteredProtections = (status = null) => {
+    if (!status) return protections;
+    
+    // Маппинг статусов
+    if (status === "total") {
+      return protections; // Все защиты
     }
-    acc[city].total++;
-    if (p.status === "active") acc[city].active++;
-    if (p.status === "success") acc[city].success++;
-    if (p.status === "closed") acc[city].closed++;
-    return acc;
-  }, {});
-
-  // Статистика по партнёрам
-  const partnerStats = filtered.reduce((acc, p) => {
-    const partner = p.partner || "Не указан";
-    if (!acc[partner]) {
-      acc[partner] = { total: 0, active: 0, success: 0, closed: 0, city: p.partner_city || p.object_city || "—" };
-    }
-    acc[partner].total++;
-    if (p.status === "active") acc[partner].active++;
-    if (p.status === "success") acc[partner].success++;
-    if (p.status === "closed") acc[partner].closed++;
-    return acc;
-  }, {});
-
-  // Статистика по артикулам
-  const skuStats = filtered.reduce((acc, p) => {
-    const skus = (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean);
-    skus.forEach(sku => {
-      if (!acc[sku]) {
-        acc[sku] = { total: 0, active: 0, success: 0, closed: 0 };
-      }
-      acc[sku].total++;
-      if (p.status === "active") acc[sku].active++;
-      if (p.status === "success") acc[sku].success++;
-      if (p.status === "closed") acc[sku].closed++;
-    });
-    return acc;
-  }, {});
+    
+    return protections.filter(p => p.status === status);
+  };
 
   // Общая статистика
+  const activeProtections = protections.filter(p => p.status === "active");
+  const successProtections = protections.filter(p => p.status === "success");
+  const closedProtections = protections.filter(p => p.status === "closed");
+  
   const totalStats = {
-    total: filtered.length,
-    active: filtered.filter(p => p.status === "active").length,
-    success: filtered.filter(p => p.status === "success").length,
-    closed: filtered.filter(p => p.status === "closed").length,
-    pending: filtered.filter(p => p.status === "pending").length,
+    total: protections.length,
+    active: activeProtections.length,
+    success: successProtections.length,
+    closed: closedProtections.length,
+    pending: protections.filter(p => p.status === "pending").length,
+    totalArea: protections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    totalSkus: new Set(protections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
+    activeArea: activeProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    activeSkus: new Set(activeProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
+    successArea: successProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    successSkus: new Set(successProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
+    closedArea: closedProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    closedSkus: new Set(closedProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
   };
-
-  const successRate = totalStats.total > 0 
-    ? Math.round((totalStats.success / totalStats.total) * 100) 
-    : 0;
 
   if (loading) {
     return (
       <div className="admin-card">
         <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
-          Загрузка аналитики...
+          Загрузка пульса компании...
         </div>
       </div>
     );
@@ -194,118 +170,313 @@ function AnalyticsTab() {
 
   return (
     <div>
-      {/* Фильтр по времени */}
-      <div className="admin-card" style={{ marginBottom: 16 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-          <h2 style={{ marginTop: 0, marginBottom: 0, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
-            📊 Аналитика компании
-          </h2>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              className={`admin-btn-secondary ${timeRange === "all" ? "active" : ""}`}
-              onClick={() => setTimeRange("all")}
-              style={{ 
-                background: timeRange === "all" ? "rgba(102, 126, 234, 0.3)" : undefined,
-                border: timeRange === "all" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
-              }}
-            >
-              Все время
-            </button>
-            <button
-              className={`admin-btn-secondary ${timeRange === "month" ? "active" : ""}`}
-              onClick={() => setTimeRange("month")}
-              style={{ 
-                background: timeRange === "month" ? "rgba(102, 126, 234, 0.3)" : undefined,
-                border: timeRange === "month" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
-              }}
-            >
-              30 дней
-            </button>
-            <button
-              className={`admin-btn-secondary ${timeRange === "week" ? "active" : ""}`}
-              onClick={() => setTimeRange("week")}
-              style={{ 
-                background: timeRange === "week" ? "rgba(102, 126, 234, 0.3)" : undefined,
-                border: timeRange === "week" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
-              }}
-            >
-              7 дней
-            </button>
+      {/* Показатели за день */}
+      <div className="admin-card" style={{ marginBottom: 24, background: "linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)", border: "1px solid rgba(102, 126, 234, 0.3)" }}>
+        <h2 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
+          💓 Пульс компании за сегодня
+        </h2>
+        <div style={{ fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)", marginBottom: 20 }}>
+          {new Date().toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+        </div>
+        <div className="admin-stat-grid">
+          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
+            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.protections}</div>
+            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Защит поставлено</div>
+          </div>
+          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📏</div>
+            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{Math.round(dayStats.area_m2)}</div>
+            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>м² поставлено</div>
+          </div>
+          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" }}>
+            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🏙️</div>
+            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.cities}</div>
+            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Городов</div>
+          </div>
+          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>👔</div>
+            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.managers}</div>
+            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Менеджеров</div>
+          </div>
+          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" }}>
+            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📦</div>
+            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.skus}</div>
+            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Артикулов</div>
           </div>
         </div>
       </div>
 
-      {/* Общая статистика */}
+      {/* Интерактивные карточки статистики */}
       <div className="admin-stat-grid" style={{ marginBottom: 24 }}>
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ 
+            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
+            cursor: "pointer",
+            transition: "transform 0.2s ease, box-shadow 0.2s ease"
+          }}
+          onClick={() => setSelectedStat(selectedStat === "total" ? null : "total")}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-4px)";
+            e.currentTarget.style.boxShadow = "0 8px 24px rgba(102, 126, 234, 0.4)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
           <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
           <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.total}</div>
           <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Всего защит</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {Math.round(totalStats.totalArea)} м² | {totalStats.totalSkus} артикулов
+          </div>
         </div>
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ 
+            background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", 
+            cursor: "pointer",
+            transition: "transform 0.2s ease, box-shadow 0.2s ease"
+          }}
+          onClick={() => setSelectedStat(selectedStat === "active" ? null : "active")}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-4px)";
+            e.currentTarget.style.boxShadow = "0 8px 24px rgba(79, 172, 254, 0.4)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
           <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>✅</div>
           <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.active}</div>
           <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Активных</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {Math.round(totalStats.activeArea)} м² | {totalStats.activeSkus} артикулов
+          </div>
         </div>
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ 
+            background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", 
+            cursor: "pointer",
+            transition: "transform 0.2s ease, box-shadow 0.2s ease"
+          }}
+          onClick={() => setSelectedStat(selectedStat === "success" ? null : "success")}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-4px)";
+            e.currentTarget.style.boxShadow = "0 8px 24px rgba(67, 233, 123, 0.4)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
           <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🎯</div>
           <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.success}</div>
           <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Успешных</div>
           <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
-            {successRate}% успешности
+            {Math.round(totalStats.successArea)} м² | {totalStats.successSkus} артикулов
           </div>
         </div>
-        <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
+        <div 
+          className="admin-stat-card" 
+          style={{ 
+            background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", 
+            cursor: "pointer",
+            transition: "transform 0.2s ease, box-shadow 0.2s ease"
+          }}
+          onClick={() => setSelectedStat(selectedStat === "closed" ? null : "closed")}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-4px)";
+            e.currentTarget.style.boxShadow = "0 8px 24px rgba(250, 112, 154, 0.4)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "none";
+          }}
+        >
           <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📊</div>
           <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.closed}</div>
           <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Закрытых</div>
+          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
+            {Math.round(totalStats.closedArea)} м² | {totalStats.closedSkus} артикулов
+          </div>
         </div>
       </div>
 
-      {/* Статистика по городам */}
-      <div className="admin-card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
-          🏙️ Статистика по городам
+      {/* Детальная статистика при клике на карточку */}
+      {selectedStat && <DetailedStatsTab status={selectedStat} protections={getFilteredProtections(selectedStat)} onClose={() => setSelectedStat(null)} />}
+    </div>
+  );
+}
+
+/* ===== Детальная статистика (вкладки) ===== */
+function DetailedStatsTab({ status, protections, onClose }) {
+  const [activeTab, setActiveTab] = useState("cities"); // cities, partners, skus
+
+  // Статистика по городам
+  const cityStats = protections.reduce((acc, p) => {
+    const city = p.partner_city || p.object_city || "Не указан";
+    if (!acc[city]) {
+      acc[city] = { total: 0, area_m2: 0, skus: new Set() };
+    }
+    acc[city].total++;
+    acc[city].area_m2 += parseFloat(p.area_m2) || 0;
+    (p.sku_display || p.sku || "").split(" + ").forEach(sku => {
+      const trimmed = sku.trim();
+      if (trimmed) acc[city].skus.add(trimmed);
+    });
+    return acc;
+  }, {});
+
+  // Статистика по партнёрам
+  const partnerStats = protections.reduce((acc, p) => {
+    const partner = p.partner || "Не указан";
+    if (!acc[partner]) {
+      acc[partner] = { total: 0, area_m2: 0, city: p.partner_city || p.object_city || "—", skus: new Set() };
+    }
+    acc[partner].total++;
+    acc[partner].area_m2 += parseFloat(p.area_m2) || 0;
+    (p.sku_display || p.sku || "").split(" + ").forEach(sku => {
+      const trimmed = sku.trim();
+      if (trimmed) acc[partner].skus.add(trimmed);
+    });
+    return acc;
+  }, {});
+
+  // Статистика по артикулам
+  const skuStats = protections.reduce((acc, p) => {
+    const skus = (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean);
+    skus.forEach(sku => {
+      if (!acc[sku]) {
+        acc[sku] = { total: 0, area_m2: 0 };
+      }
+      acc[sku].total++;
+      acc[sku].area_m2 += parseFloat(p.area_m2) || 0;
+    });
+    return acc;
+  }, {});
+
+  const statusLabels = {
+    total: "Всего защит",
+    active: "Активных защит",
+    success: "Успешных защит",
+    closed: "Закрытых защит"
+  };
+
+  return (
+    <div className="admin-card" style={{ marginTop: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <h3 style={{ margin: 0, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
+          📊 {statusLabels[status]}
         </h3>
+        <button className="admin-btn-secondary" onClick={onClose} style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>
+          ✕ Закрыть
+        </button>
+      </div>
+
+      {/* Вкладки */}
+      <div style={{ 
+        display: "flex", 
+        gap: 8, 
+        marginBottom: 20, 
+        flexWrap: "wrap",
+        justifyContent: "center"
+      }}>
+        <button
+          className={`admin-btn-secondary ${activeTab === "cities" ? "active" : ""}`}
+          onClick={() => setActiveTab("cities")}
+          style={{ 
+            background: activeTab === "cities" ? "rgba(102, 126, 234, 0.3)" : undefined,
+            border: activeTab === "cities" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
+            fontSize: "clamp(13px, 3vw, 15px)",
+            padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)",
+            minHeight: "44px",
+            flex: "1 1 auto",
+            minWidth: "100px",
+            maxWidth: "200px"
+          }}
+        >
+          🏙️ Города
+        </button>
+        <button
+          className={`admin-btn-secondary ${activeTab === "partners" ? "active" : ""}`}
+          onClick={() => setActiveTab("partners")}
+          style={{ 
+            background: activeTab === "partners" ? "rgba(102, 126, 234, 0.3)" : undefined,
+            border: activeTab === "partners" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
+            fontSize: "clamp(13px, 3vw, 15px)",
+            padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)",
+            minHeight: "44px",
+            flex: "1 1 auto",
+            minWidth: "100px",
+            maxWidth: "200px"
+          }}
+        >
+          🏢 Партнёры
+        </button>
+        <button
+          className={`admin-btn-secondary ${activeTab === "skus" ? "active" : ""}`}
+          onClick={() => setActiveTab("skus")}
+          style={{ 
+            background: activeTab === "skus" ? "rgba(102, 126, 234, 0.3)" : undefined,
+            border: activeTab === "skus" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
+            fontSize: "clamp(13px, 3vw, 15px)",
+            padding: "clamp(10px, 2.5vw, 12px) clamp(16px, 4vw, 20px)",
+            minHeight: "44px",
+            flex: "1 1 auto",
+            minWidth: "100px",
+            maxWidth: "200px"
+          }}
+        >
+          📦 Артикулы
+        </button>
+      </div>
+
+      {/* Контент вкладок */}
+      {activeTab === "cities" && (
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
           {Object.entries(cityStats)
             .sort((a, b) => b[1].total - a[1].total)
-            .slice(0, 10)
             .map(([city, stats]) => (
               <div key={city} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#fff" }}>📍 {city}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 24, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>Артикулов: {stats.skus.size}</div>
+                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {Array.from(stats.skus).slice(0, 5).map(sku => (
+                        <span key={sku} style={{ 
+                          background: "rgba(110, 142, 255, 0.2)", 
+                          padding: "2px 8px", 
+                          borderRadius: 6,
+                          fontSize: 11
+                        }}>{sku}</span>
+                      ))}
+                      {stats.skus.size > 5 && <span style={{ color: "rgba(255, 255, 255, 0.5)" }}>+{stats.skus.size - 5}</span>}
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
         </div>
-      </div>
+      )}
 
-      {/* Статистика по партнёрам */}
-      <div className="admin-card" style={{ marginBottom: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
-          🏢 Статистика по партнёрам (дилерам)
-        </h3>
+      {activeTab === "partners" && (
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
           {Object.entries(partnerStats)
             .sort((a, b) => b[1].total - a[1].total)
-            .slice(0, 15)
             .map(([partner, stats]) => (
               <div key={partner} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
                 <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: "#fff" }}>🏢 {partner}</div>
@@ -313,60 +484,53 @@ function AnalyticsTab() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
-                  <div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                  <div style={{ gridColumn: "1 / -1" }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>Артикулов: {stats.skus.size}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)", display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {Array.from(stats.skus).slice(0, 4).map(sku => (
+                        <span key={sku} style={{ 
+                          background: "rgba(110, 142, 255, 0.2)", 
+                          padding: "2px 6px", 
+                          borderRadius: 6,
+                          fontSize: 10
+                        }}>{sku}</span>
+                      ))}
+                      {stats.skus.size > 4 && <span style={{ color: "rgba(255, 255, 255, 0.5)" }}>+{stats.skus.size - 4}</span>}
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
         </div>
-      </div>
+      )}
 
-      {/* Статистика по артикулам */}
-      <div className="admin-card">
-        <h3 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 600 }}>
-          📦 Топ артикулов
-        </h3>
+      {activeTab === "skus" && (
         <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
           {Object.entries(skuStats)
             .sort((a, b) => b[1].total - a[1].total)
-            .slice(0, 20)
             .map(([sku, stats]) => (
               <div key={sku} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
                 <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, color: "#fff", wordBreak: "break-word" }}>📦 {sku}</div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Всего</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#3ddc97" }}>{stats.active}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Активных</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#6e8eff" }}>{stats.success}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Успешных</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#ff5555" }}>{stats.closed}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Закрытых</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
                 </div>
               </div>
             ))}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -2036,7 +2200,7 @@ function RequestsTab({ requests, loadingReq, loadRequests, doAdminExtend, doReje
 
 /* ===== ГЛАВНЫЙ КОМПОНЕНТ АДМИНКИ ===== */
 export default function AdminPage({ onBack }) {
-  const [tab, setTab] = useState("analytics");
+  const [tab, setTab] = useState("pulse");
   
   // 🔐 Проверка доступа при монтировании
   useEffect(() => {
@@ -2276,11 +2440,11 @@ export default function AdminPage({ onBack }) {
   }, []);
 
   const back = () => {
-    // Если мы не на аналитике - возвращаемся на аналитику
-    if (tab !== "analytics") {
-      setTab("analytics");
+    // Если мы не на пульсе - возвращаемся на пульс
+    if (tab !== "pulse") {
+      setTab("pulse");
     } else {
-      // Если на аналитике - возвращаемся на главную
+      // Если на пульсе - возвращаемся на главную
       if (onBack) onBack();
       else window.history.back();
     }
@@ -2299,17 +2463,17 @@ export default function AdminPage({ onBack }) {
   
   // Определяем breadcrumbs в зависимости от текущей вкладки
   const getBreadcrumbs = () => {
-    const base = [{ label: "Главная", path: "home" }, { label: "Админка", path: "analytics" }];
+    const base = [{ label: "Главная", path: "home" }, { label: "Админка", path: "pulse" }];
     
     const tabLabels = {
-      analytics: "Аналитика",
+      pulse: "Пульс компании",
       users: "Пользователи",
       managers: "Менеджеры",
       requests: "Запросы на продление",
       pending: "Проверка защит"
     };
     
-    if (tab !== "analytics") {
+    if (tab !== "pulse") {
       base.push({ label: tabLabels[tab] || tab, path: tab });
     }
     
@@ -2320,8 +2484,8 @@ export default function AdminPage({ onBack }) {
     if (path === "home") {
       if (onBack) onBack();
       else window.history.back();
-    } else if (path === "analytics") {
-      setTab("analytics");
+    } else if (path === "pulse") {
+      setTab("pulse");
     } else {
       setTab(path);
     }
@@ -2370,16 +2534,16 @@ export default function AdminPage({ onBack }) {
           >
             🚪 Выйти
           </button>
-          {tab !== "analytics" && (
+          {tab !== "pulse" && (
             <button 
               className="admin-btn-secondary" 
               onClick={back}
               style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
             >
-              ⬅️ Назад к аналитике
+              ⬅️ Назад к пульсу
             </button>
           )}
-          {tab === "analytics" && (
+          {tab === "pulse" && (
             <button 
               className="admin-btn-secondary" 
               onClick={back}
@@ -2404,20 +2568,20 @@ export default function AdminPage({ onBack }) {
         WebkitBackdropFilter: "blur(10px)"
       }}>
           <div
-          className={`admin-tab ${tab === "analytics" ? "active" : ""}`}
-          onClick={() => setTab("analytics")}
+          className={`admin-tab ${tab === "pulse" ? "active" : ""}`}
+          onClick={() => setTab("pulse")}
           style={{ 
             fontSize: "clamp(13px, 3vw, 15px)", 
             padding: "clamp(12px, 3vw, 14px) clamp(18px, 4.5vw, 24px)",
-            fontWeight: tab === "analytics" ? 600 : 500,
-            background: tab === "analytics" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
-            border: tab === "analytics" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
+            fontWeight: tab === "pulse" ? 600 : 500,
+            background: tab === "pulse" ? "linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%)" : "transparent",
+            border: tab === "pulse" ? "1px solid rgba(102, 126, 234, 0.4)" : "1px solid transparent",
             borderRadius: "12px",
             transition: "all 0.3s ease",
             cursor: "pointer"
           }}
           >
-          📊 Аналитика
+          💓 Пульс
           </div>
           <div
           className={`admin-tab ${tab === "users" ? "active" : ""}`}
@@ -2486,7 +2650,7 @@ export default function AdminPage({ onBack }) {
                       </div>
 
       <div style={{ marginTop: 24 }}>
-        {tab === "analytics" && <AnalyticsTab />}
+        {tab === "pulse" && <PulseTab />}
         {tab === "users" && (
           (role === "superadmin" || role === "admin") ? <UsersTable /> : (
             <div className="admin-card">
