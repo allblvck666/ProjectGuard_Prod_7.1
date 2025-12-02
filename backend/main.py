@@ -414,9 +414,9 @@ async def _init_background():
         try:
             # 1. База и миграции (синхронные операции)
             # Инициализация базы данных с правильными отступами
-    init_db()
-    init_users_table()
-    _safe_migrate()
+            init_db()
+            init_users_table()
+            _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -441,19 +441,19 @@ async def _init_background():
         print(f"⚠️ Ошибка запуска Telegram бота: {e}")
     
     try:
-    # 3. Проверка истекающих защит
+        # 3. Проверка истекающих защит
         asyncio.create_task(check_expiring_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска проверки защит: {e}")
 
     try:
-    # 4. Авто-закрытие защит за бездействие
+        # 4. Авто-закрытие защит за бездействие
         asyncio.create_task(auto_close_expired_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
 
     try:
-    # 5. Keep-alive механизм для предотвращения засыпания Render
+        # 5. Keep-alive механизм для предотвращения засыпания Render
         asyncio.create_task(keep_alive_worker())
     except Exception as e:
         print(f"⚠️ Ошибка запуска keep-alive: {e}")
@@ -501,7 +501,7 @@ def _safe_migrate():
     exec_safe("ALTER TABLE users ADD COLUMN group_tag TEXT")
     exec_safe("ALTER TABLE users ADD COLUMN region TEXT")
 
-        # === Managers ===
+    # === Managers ===
     exec_safe("ALTER TABLE managers ADD COLUMN telegrams TEXT DEFAULT '[]'")
 
     
