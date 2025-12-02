@@ -94,6 +94,8 @@ function PulseTab() {
   const [protections, setProtections] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedStat, setSelectedStat] = useState(null); // "total", "active", "success", "closed"
+  const [timeFilter, setTimeFilter] = useState("today"); // today, week, month, all
+  const [expandedSection, setExpandedSection] = useState(null); // "pulse", "stats", null
 
   useEffect(() => {
     const loadData = async () => {
@@ -109,6 +111,27 @@ function PulseTab() {
     };
     loadData();
   }, []);
+
+  // Фильтрация по времени
+  const getFilteredByTime = (protectionsList) => {
+    const now = new Date();
+    let cutoffDate = new Date(0);
+    
+    if (timeFilter === "today") {
+      cutoffDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    } else if (timeFilter === "week") {
+      cutoffDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (timeFilter === "month") {
+      cutoffDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+    
+    if (timeFilter === "all") return protectionsList;
+    
+    return protectionsList.filter(p => {
+      const created = new Date(p.created_at);
+      return created >= cutoffDate;
+    });
+  };
 
   // Фильтрация за сегодня
   const todayProtections = protections.filter(p => {
@@ -128,29 +151,29 @@ function PulseTab() {
 
   // Фильтрация по статусу для детальной статистики
   const getFilteredProtections = (status = null) => {
-    if (!status) return protections;
+    let filtered = protections;
     
-    // Маппинг статусов
-    if (status === "total") {
-      return protections; // Все защиты
+    if (status && status !== "total") {
+      filtered = protections.filter(p => p.status === status);
     }
     
-    return protections.filter(p => p.status === status);
+    return getFilteredByTime(filtered);
   };
 
-  // Общая статистика
-  const activeProtections = protections.filter(p => p.status === "active");
-  const successProtections = protections.filter(p => p.status === "success");
-  const closedProtections = protections.filter(p => p.status === "closed");
+  // Общая статистика с учетом фильтра времени
+  const filteredProtections = getFilteredByTime(protections);
+  const activeProtections = filteredProtections.filter(p => p.status === "active");
+  const successProtections = filteredProtections.filter(p => p.status === "success");
+  const closedProtections = filteredProtections.filter(p => p.status === "closed");
   
   const totalStats = {
-    total: protections.length,
+    total: filteredProtections.length,
     active: activeProtections.length,
     success: successProtections.length,
     closed: closedProtections.length,
-    pending: protections.filter(p => p.status === "pending").length,
-    totalArea: protections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
-    totalSkus: new Set(protections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
+    pending: filteredProtections.filter(p => p.status === "pending").length,
+    totalArea: filteredProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
+    totalSkus: new Set(filteredProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
     activeArea: activeProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
     activeSkus: new Set(activeProtections.flatMap(p => (p.sku_display || p.sku || "").split(" + ").map(s => s.trim()).filter(Boolean))).size,
     successArea: successProtections.reduce((sum, p) => sum + (parseFloat(p.area_m2) || 0), 0),
@@ -171,152 +194,256 @@ function PulseTab() {
 
   return (
     <div>
-      {/* Показатели за день */}
-      <div className="admin-card" style={{ marginBottom: 24, background: "linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%)", border: "1px solid rgba(102, 126, 234, 0.3)" }}>
-        <h2 style={{ marginTop: 0, marginBottom: 16, color: "#fff", fontSize: "clamp(20px, 5vw, 24px)", fontWeight: 700 }}>
-          💓 Пульс компании за сегодня
-        </h2>
-        <div style={{ fontSize: "clamp(13px, 3vw, 15px)", color: "rgba(255,255,255,0.7)", marginBottom: 20 }}>
-          {new Date().toLocaleDateString("ru-RU", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+      {/* Компактное меню с фильтрами */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+          <h2 style={{ margin: 0, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 700 }}>
+            💓 Пульс компании
+          </h2>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              className={`admin-btn-secondary ${timeFilter === "today" ? "active" : ""}`}
+              onClick={() => setTimeFilter("today")}
+              style={{
+                fontSize: "clamp(12px, 2.8vw, 14px)",
+                padding: "8px 12px",
+                minHeight: "36px",
+                background: timeFilter === "today" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeFilter === "today" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              Сегодня
+            </button>
+            <button
+              className={`admin-btn-secondary ${timeFilter === "week" ? "active" : ""}`}
+              onClick={() => setTimeFilter("week")}
+              style={{
+                fontSize: "clamp(12px, 2.8vw, 14px)",
+                padding: "8px 12px",
+                minHeight: "36px",
+                background: timeFilter === "week" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeFilter === "week" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              7 дней
+            </button>
+            <button
+              className={`admin-btn-secondary ${timeFilter === "month" ? "active" : ""}`}
+              onClick={() => setTimeFilter("month")}
+              style={{
+                fontSize: "clamp(12px, 2.8vw, 14px)",
+                padding: "8px 12px",
+                minHeight: "36px",
+                background: timeFilter === "month" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeFilter === "month" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              30 дней
+            </button>
+            <button
+              className={`admin-btn-secondary ${timeFilter === "all" ? "active" : ""}`}
+              onClick={() => setTimeFilter("all")}
+              style={{
+                fontSize: "clamp(12px, 2.8vw, 14px)",
+                padding: "8px 12px",
+                minHeight: "36px",
+                background: timeFilter === "all" ? "rgba(102, 126, 234, 0.3)" : undefined,
+                border: timeFilter === "all" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined
+              }}
+            >
+              Все
+            </button>
+          </div>
         </div>
-        <div className="admin-stat-grid">
-          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)" }}>
-            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
-            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.protections}</div>
-            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Защит поставлено</div>
-          </div>
-          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" }}>
-            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📏</div>
-            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{Math.round(dayStats.area_m2)}</div>
-            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>м² поставлено</div>
-          </div>
-          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" }}>
-            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🏙️</div>
-            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.cities}</div>
-            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Городов</div>
-          </div>
-          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)" }}>
-            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>👔</div>
-            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.managers}</div>
-            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Менеджеров</div>
-          </div>
-          <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" }}>
-            <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📦</div>
-            <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{dayStats.skus}</div>
-            <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Артикулов</div>
-          </div>
-        </div>
-      </div>
 
-      {/* Интерактивные карточки статистики */}
-      <div className="admin-stat-grid" style={{ marginBottom: 24 }}>
-        <div 
-          className="admin-stat-card" 
-          style={{ 
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
-            cursor: "pointer",
-            transition: "transform 0.2s ease, box-shadow 0.2s ease"
-          }}
-          onClick={() => setSelectedStat(selectedStat === "total" ? null : "total")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.boxShadow = "0 8px 24px rgba(102, 126, 234, 0.4)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🛡️</div>
-          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.total}</div>
-          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Всего защит</div>
-          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
-            {Math.round(totalStats.totalArea)} м² | {totalStats.totalSkus} артикулов
+        {/* Раскрывающаяся секция: Пульс за сегодня */}
+        <div style={{ marginBottom: 12 }}>
+          <div
+            onClick={() => setExpandedSection(expandedSection === "pulse" ? null : "pulse")}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "12px 16px",
+              background: "rgba(102, 126, 234, 0.1)",
+              borderRadius: "12px",
+              cursor: "pointer",
+              border: "1px solid rgba(102, 126, 234, 0.2)",
+              transition: "all 0.2s ease"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: "clamp(20px, 5vw, 24px)" }}>💓</span>
+              <div>
+                <div style={{ fontSize: "clamp(14px, 3.5vw, 16px)", fontWeight: 600, color: "#fff" }}>
+                  Пульс за сегодня
+                </div>
+                <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(255,255,255,0.6)" }}>
+                  {dayStats.protections} защит • {Math.round(dayStats.area_m2)} м² • {dayStats.cities} городов
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: "20px", color: "rgba(255,255,255,0.7)" }}>
+              {expandedSection === "pulse" ? "▼" : "▶"}
+            </span>
           </div>
+          
+          {expandedSection === "pulse" && (
+            <div style={{ marginTop: 12, padding: "0 16px 16px" }}>
+              <div className="admin-stat-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", padding: "16px 12px" }}>
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>🛡️</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{dayStats.protections}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Защит</div>
+                </div>
+                <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", padding: "16px 12px" }}>
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>📏</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{Math.round(dayStats.area_m2)}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>м²</div>
+                </div>
+                <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", padding: "16px 12px" }}>
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>🏙️</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{dayStats.cities}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Городов</div>
+                </div>
+                <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", padding: "16px 12px" }}>
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>👔</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{dayStats.managers}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Менеджеров</div>
+                </div>
+                <div className="admin-stat-card" style={{ background: "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)", padding: "16px 12px", gridColumn: "1 / -1" }}>
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>📦</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{dayStats.skus}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Артикулов</div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
-        <div 
-          className="admin-stat-card" 
-          style={{ 
-            background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", 
-            cursor: "pointer",
-            transition: "transform 0.2s ease, box-shadow 0.2s ease"
-          }}
-          onClick={() => setSelectedStat(selectedStat === "active" ? null : "active")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.boxShadow = "0 8px 24px rgba(79, 172, 254, 0.4)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>✅</div>
-          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.active}</div>
-          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Активных</div>
-          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
-            {Math.round(totalStats.activeArea)} м² | {totalStats.activeSkus} артикулов
+
+        {/* Раскрывающаяся секция: Общая статистика */}
+        <div>
+          <div
+            onClick={() => setExpandedSection(expandedSection === "stats" ? null : "stats")}
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "12px 16px",
+              background: "rgba(102, 126, 234, 0.1)",
+              borderRadius: "12px",
+              cursor: "pointer",
+              border: "1px solid rgba(102, 126, 234, 0.2)",
+              transition: "all 0.2s ease"
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: "clamp(20px, 5vw, 24px)" }}>📊</span>
+              <div>
+                <div style={{ fontSize: "clamp(14px, 3.5vw, 16px)", fontWeight: 600, color: "#fff" }}>
+                  Общая статистика
+                </div>
+                <div style={{ fontSize: "clamp(11px, 2.5vw, 13px)", color: "rgba(255,255,255,0.6)" }}>
+                  {totalStats.total} защит • {Math.round(totalStats.totalArea)} м² • {totalStats.totalSkus} артикулов
+                </div>
+              </div>
+            </div>
+            <span style={{ fontSize: "20px", color: "rgba(255,255,255,0.7)" }}>
+              {expandedSection === "stats" ? "▼" : "▶"}
+            </span>
           </div>
-        </div>
-        <div 
-          className="admin-stat-card" 
-          style={{ 
-            background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", 
-            cursor: "pointer",
-            transition: "transform 0.2s ease, box-shadow 0.2s ease"
-          }}
-          onClick={() => setSelectedStat(selectedStat === "success" ? null : "success")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.boxShadow = "0 8px 24px rgba(67, 233, 123, 0.4)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>🎯</div>
-          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.success}</div>
-          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Успешных</div>
-          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
-            {Math.round(totalStats.successArea)} м² | {totalStats.successSkus} артикулов
-          </div>
-        </div>
-        <div 
-          className="admin-stat-card" 
-          style={{ 
-            background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", 
-            cursor: "pointer",
-            transition: "transform 0.2s ease, box-shadow 0.2s ease"
-          }}
-          onClick={() => setSelectedStat(selectedStat === "closed" ? null : "closed")}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-4px)";
-            e.currentTarget.style.boxShadow = "0 8px 24px rgba(250, 112, 154, 0.4)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow = "none";
-          }}
-        >
-          <div className="admin-stat-icon" style={{ fontSize: "clamp(32px, 8vw, 48px)" }}>📊</div>
-          <div className="admin-stat-value" style={{ fontSize: "clamp(28px, 7vw, 42px)" }}>{totalStats.closed}</div>
-          <div className="admin-stat-label" style={{ fontSize: "clamp(12px, 3vw, 14px)" }}>Закрытых</div>
-          <div className="admin-stat-sublabel" style={{ fontSize: "clamp(11px, 2.5vw, 13px)", marginTop: 8, opacity: 0.9 }}>
-            {Math.round(totalStats.closedArea)} м² | {totalStats.closedSkus} артикулов
-          </div>
+          
+          {expandedSection === "stats" && (
+            <div style={{ marginTop: 12, padding: "0 16px 16px" }}>
+              <div className="admin-stat-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                <div 
+                  className="admin-stat-card" 
+                  style={{ 
+                    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)", 
+                    padding: "16px 12px",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => setSelectedStat(selectedStat === "total" ? null : "total")}
+                >
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>🛡️</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{totalStats.total}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Всего</div>
+                  <div className="admin-stat-sublabel" style={{ fontSize: "clamp(10px, 2vw, 12px)", marginTop: 6 }}>
+                    {Math.round(totalStats.totalArea)} м² | {totalStats.totalSkus} арт.
+                  </div>
+                </div>
+                <div 
+                  className="admin-stat-card" 
+                  style={{ 
+                    background: "linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)", 
+                    padding: "16px 12px",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => setSelectedStat(selectedStat === "active" ? null : "active")}
+                >
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>✅</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{totalStats.active}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Активных</div>
+                  <div className="admin-stat-sublabel" style={{ fontSize: "clamp(10px, 2vw, 12px)", marginTop: 6 }}>
+                    {Math.round(totalStats.activeArea)} м² | {totalStats.activeSkus} арт.
+                  </div>
+                </div>
+                <div 
+                  className="admin-stat-card" 
+                  style={{ 
+                    background: "linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)", 
+                    padding: "16px 12px",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => setSelectedStat(selectedStat === "success" ? null : "success")}
+                >
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>🎯</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{totalStats.success}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Успешных</div>
+                  <div className="admin-stat-sublabel" style={{ fontSize: "clamp(10px, 2vw, 12px)", marginTop: 6 }}>
+                    {Math.round(totalStats.successArea)} м² | {totalStats.successSkus} арт.
+                  </div>
+                </div>
+                <div 
+                  className="admin-stat-card" 
+                  style={{ 
+                    background: "linear-gradient(135deg, #fa709a 0%, #fee140 100%)", 
+                    padding: "16px 12px",
+                    cursor: "pointer"
+                  }}
+                  onClick={() => setSelectedStat(selectedStat === "closed" ? null : "closed")}
+                >
+                  <div className="admin-stat-icon" style={{ fontSize: "clamp(28px, 7vw, 36px)" }}>📊</div>
+                  <div className="admin-stat-value" style={{ fontSize: "clamp(24px, 6vw, 32px)" }}>{totalStats.closed}</div>
+                  <div className="admin-stat-label" style={{ fontSize: "clamp(11px, 2.5vw, 13px)" }}>Закрытых</div>
+                  <div className="admin-stat-sublabel" style={{ fontSize: "clamp(10px, 2vw, 12px)", marginTop: 6 }}>
+                    {Math.round(totalStats.closedArea)} м² | {totalStats.closedSkus} арт.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Детальная статистика при клике на карточку */}
-      {selectedStat && <DetailedStatsTab status={selectedStat} protections={getFilteredProtections(selectedStat)} onClose={() => setSelectedStat(null)} />}
+      {selectedStat && (
+        <DetailedStatsTab 
+          status={selectedStat} 
+          protections={getFilteredProtections(selectedStat)} 
+          onClose={() => setSelectedStat(null)}
+          timeFilter={timeFilter}
+        />
+      )}
     </div>
   );
 }
 
 /* ===== Детальная статистика (вкладки) ===== */
-function DetailedStatsTab({ status, protections, onClose }) {
+function DetailedStatsTab({ status, protections, onClose, timeFilter }) {
   const [activeTab, setActiveTab] = useState("cities"); // cities, partners, skus
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedItem, setSelectedItem] = useState(null); // Для детального просмотра
 
   // Статистика по городам
   const cityStats = protections.reduce((acc, p) => {
@@ -379,6 +506,23 @@ function DetailedStatsTab({ status, protections, onClose }) {
         </button>
       </div>
 
+      {/* Поиск */}
+      <div style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          placeholder="🔍 Поиск..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="admin-input"
+          style={{
+            width: "100%",
+            fontSize: "clamp(14px, 3.5vw, 16px)",
+            padding: "12px 16px",
+            minHeight: "44px"
+          }}
+        />
+      </div>
+
       {/* Вкладки */}
       <div style={{ 
         display: "flex", 
@@ -389,7 +533,7 @@ function DetailedStatsTab({ status, protections, onClose }) {
       }}>
         <button
           className={`admin-btn-secondary ${activeTab === "cities" ? "active" : ""}`}
-          onClick={() => setActiveTab("cities")}
+          onClick={() => { setActiveTab("cities"); setSelectedItem(null); }}
           style={{ 
             background: activeTab === "cities" ? "rgba(102, 126, 234, 0.3)" : undefined,
             border: activeTab === "cities" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
@@ -401,11 +545,11 @@ function DetailedStatsTab({ status, protections, onClose }) {
             maxWidth: "200px"
           }}
         >
-          🏙️ Города
+          🏙️ Города ({Object.keys(cityStats).length})
         </button>
         <button
           className={`admin-btn-secondary ${activeTab === "partners" ? "active" : ""}`}
-          onClick={() => setActiveTab("partners")}
+          onClick={() => { setActiveTab("partners"); setSelectedItem(null); }}
           style={{ 
             background: activeTab === "partners" ? "rgba(102, 126, 234, 0.3)" : undefined,
             border: activeTab === "partners" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
@@ -417,11 +561,11 @@ function DetailedStatsTab({ status, protections, onClose }) {
             maxWidth: "200px"
           }}
         >
-          🏢 Партнёры
+          🏢 Партнёры ({Object.keys(partnerStats).length})
         </button>
         <button
           className={`admin-btn-secondary ${activeTab === "skus" ? "active" : ""}`}
-          onClick={() => setActiveTab("skus")}
+          onClick={() => { setActiveTab("skus"); setSelectedItem(null); }}
           style={{ 
             background: activeTab === "skus" ? "rgba(102, 126, 234, 0.3)" : undefined,
             border: activeTab === "skus" ? "1px solid rgba(102, 126, 234, 0.5)" : undefined,
@@ -433,103 +577,272 @@ function DetailedStatsTab({ status, protections, onClose }) {
             maxWidth: "200px"
           }}
         >
-          📦 Артикулы
+          📦 Артикулы ({Object.keys(skuStats).length})
         </button>
       </div>
 
       {/* Контент вкладок */}
       {activeTab === "cities" && (
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
-          {Object.entries(cityStats)
-            .sort((a, b) => b[1].total - a[1].total)
-            .map(([city, stats]) => (
-              <div key={city} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 12, color: "#fff" }}>📍 {city}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+        <div>
+          {selectedItem ? (
+            <div>
+              <button 
+                onClick={() => setSelectedItem(null)}
+                className="admin-btn-secondary"
+                style={{ marginBottom: 16, fontSize: "clamp(13px, 3vw, 15px)" }}
+              >
+                ← Назад к списку
+              </button>
+              <div className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.05)" }}>
+                <div style={{ fontWeight: 700, fontSize: "clamp(18px, 4.5vw, 22px)", marginBottom: 16, color: "#fff" }}>
+                  📍 {selectedItem.name}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 16 }}>
                   <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#fff" }}>{selectedItem.stats.total}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(selectedItem.stats.area_m2)}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>Артикулов: {stats.skus.size}</div>
-                    <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.6)", display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {Array.from(stats.skus).slice(0, 5).map(sku => (
-                        <span key={sku} style={{ 
-                          background: "rgba(110, 142, 255, 0.2)", 
-                          padding: "2px 8px", 
-                          borderRadius: 6,
-                          fontSize: 11
-                        }}>{sku}</span>
-                      ))}
-                      {stats.skus.size > 5 && <span style={{ color: "rgba(255, 255, 255, 0.5)" }}>+{stats.skus.size - 5}</span>}
-                    </div>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: "clamp(14px, 3.5vw, 16px)", fontWeight: 600, color: "#6e8eff", marginBottom: 12 }}>
+                    Артикулы ({selectedItem.stats.skus.size}):
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {Array.from(selectedItem.stats.skus).map(sku => (
+                      <span key={sku} style={{ 
+                        background: "rgba(110, 142, 255, 0.2)", 
+                        padding: "6px 12px", 
+                        borderRadius: 8,
+                        fontSize: "clamp(12px, 3vw, 14px)",
+                        color: "#fff"
+                      }}>{sku}</span>
+                    ))}
                   </div>
                 </div>
               </div>
-            ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+              {Object.entries(cityStats)
+                .filter(([city]) => !searchQuery || city.toLowerCase().includes(searchQuery.toLowerCase()))
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([city, stats]) => (
+                  <div 
+                    key={city} 
+                    className="admin-user-card" 
+                    style={{ 
+                      background: "rgba(255, 255, 255, 0.03)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    onClick={() => setSelectedItem({ name: city, stats })}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: "clamp(15px, 3.8vw, 18px)", marginBottom: 12, color: "#fff" }}>📍 {city}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                      </div>
+                      <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                        <div style={{ fontSize: "clamp(12px, 3vw, 14px)", fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>
+                          Артикулов: {stats.skus.size}
+                        </div>
+                        <div style={{ fontSize: "clamp(10px, 2.5vw, 12px)", color: "rgba(255, 255, 255, 0.5)" }}>
+                          Нажмите для деталей →
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === "partners" && (
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}>
-          {Object.entries(partnerStats)
-            .sort((a, b) => b[1].total - a[1].total)
-            .map(([partner, stats]) => (
-              <div key={partner} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 8, color: "#fff" }}>🏢 {partner}</div>
-                <div style={{ fontSize: 12, color: "rgba(255, 255, 255, 0.5)", marginBottom: 12 }}>📍 {stats.city}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+        <div>
+          {selectedItem ? (
+            <div>
+              <button 
+                onClick={() => setSelectedItem(null)}
+                className="admin-btn-secondary"
+                style={{ marginBottom: 16, fontSize: "clamp(13px, 3vw, 15px)" }}
+              >
+                ← Назад к списку
+              </button>
+              <div className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.05)" }}>
+                <div style={{ fontWeight: 700, fontSize: "clamp(18px, 4.5vw, 22px)", marginBottom: 8, color: "#fff" }}>
+                  🏢 {selectedItem.name}
+                </div>
+                <div style={{ fontSize: "clamp(13px, 3.3vw, 15px)", color: "rgba(255, 255, 255, 0.6)", marginBottom: 16 }}>
+                  📍 {selectedItem.stats.city}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16, marginBottom: 16 }}>
                   <div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#fff" }}>{selectedItem.stats.total}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(selectedItem.stats.area_m2)}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
-                  <div style={{ gridColumn: "1 / -1" }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>Артикулов: {stats.skus.size}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)", display: "flex", flexWrap: "wrap", gap: 4 }}>
-                      {Array.from(stats.skus).slice(0, 4).map(sku => (
-                        <span key={sku} style={{ 
-                          background: "rgba(110, 142, 255, 0.2)", 
-                          padding: "2px 6px", 
-                          borderRadius: 6,
-                          fontSize: 10
-                        }}>{sku}</span>
-                      ))}
-                      {stats.skus.size > 4 && <span style={{ color: "rgba(255, 255, 255, 0.5)" }}>+{stats.skus.size - 4}</span>}
-                    </div>
+                </div>
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: "clamp(14px, 3.5vw, 16px)", fontWeight: 600, color: "#6e8eff", marginBottom: 12 }}>
+                    Артикулы ({selectedItem.stats.skus.size}):
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {Array.from(selectedItem.stats.skus).map(sku => (
+                      <span key={sku} style={{ 
+                        background: "rgba(110, 142, 255, 0.2)", 
+                        padding: "6px 12px", 
+                        borderRadius: 8,
+                        fontSize: "clamp(12px, 3vw, 14px)",
+                        color: "#fff"
+                      }}>{sku}</span>
+                    ))}
                   </div>
                 </div>
               </div>
-            ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}>
+              {Object.entries(partnerStats)
+                .filter(([partner]) => !searchQuery || partner.toLowerCase().includes(searchQuery.toLowerCase()) || partnerStats[partner].city.toLowerCase().includes(searchQuery.toLowerCase()))
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([partner, stats]) => (
+                  <div 
+                    key={partner} 
+                    className="admin-user-card" 
+                    style={{ 
+                      background: "rgba(255, 255, 255, 0.03)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    onClick={() => setSelectedItem({ name: partner, stats })}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: "clamp(15px, 3.8vw, 18px)", marginBottom: 8, color: "#fff" }}>🏢 {partner}</div>
+                    <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.5)", marginBottom: 12 }}>📍 {stats.city}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: "clamp(22px, 5.5vw, 28px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                      </div>
+                      <div style={{ gridColumn: "1 / -1", marginTop: 8 }}>
+                        <div style={{ fontSize: "clamp(12px, 3vw, 14px)", fontWeight: 600, color: "#6e8eff", marginBottom: 4 }}>
+                          Артикулов: {stats.skus.size}
+                        </div>
+                        <div style={{ fontSize: "clamp(10px, 2.5vw, 12px)", color: "rgba(255, 255, 255, 0.5)" }}>
+                          Нажмите для деталей →
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
 
       {activeTab === "skus" && (
-        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
-          {Object.entries(skuStats)
-            .sort((a, b) => b[1].total - a[1].total)
-            .map(([sku, stats]) => (
-              <div key={sku} className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.03)" }}>
-                <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 12, color: "#fff", wordBreak: "break-word" }}>📦 {sku}</div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+        <div>
+          {selectedItem ? (
+            <div>
+              <button 
+                onClick={() => setSelectedItem(null)}
+                className="admin-btn-secondary"
+                style={{ marginBottom: 16, fontSize: "clamp(13px, 3vw, 15px)" }}
+              >
+                ← Назад к списку
+              </button>
+              <div className="admin-user-card" style={{ background: "rgba(255, 255, 255, 0.05)" }}>
+                <div style={{ fontWeight: 700, fontSize: "clamp(16px, 4vw, 20px)", marginBottom: 16, color: "#fff", wordBreak: "break-word" }}>
+                  📦 {selectedItem.name}
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{stats.total}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#fff" }}>{selectedItem.stats.total}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
-                    <div style={{ fontSize: 11, color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                    <div style={{ fontSize: "clamp(28px, 7vw, 36px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(selectedItem.stats.area_m2)}</div>
+                    <div style={{ fontSize: "clamp(12px, 3vw, 14px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
                   </div>
                 </div>
               </div>
-            ))}
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))" }}>
+              {Object.entries(skuStats)
+                .filter(([sku]) => !searchQuery || sku.toLowerCase().includes(searchQuery.toLowerCase()))
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([sku, stats]) => (
+                  <div 
+                    key={sku} 
+                    className="admin-user-card" 
+                    style={{ 
+                      background: "rgba(255, 255, 255, 0.03)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                    onClick={() => setSelectedItem({ name: sku, stats })}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.06)";
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, fontSize: "clamp(13px, 3.3vw, 16px)", marginBottom: 12, color: "#fff", wordBreak: "break-word" }}>
+                      📦 {sku}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: "clamp(20px, 5vw, 26px)", fontWeight: 700, color: "#fff" }}>{stats.total}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>Защит</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: "clamp(20px, 5vw, 26px)", fontWeight: 700, color: "#3ddc97" }}>{Math.round(stats.area_m2)}</div>
+                        <div style={{ fontSize: "clamp(11px, 2.8vw, 13px)", color: "rgba(255, 255, 255, 0.6)" }}>м²</div>
+                      </div>
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: "clamp(10px, 2.5vw, 12px)", color: "rgba(255, 255, 255, 0.5)" }}>
+                      Нажмите для деталей →
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </div>
