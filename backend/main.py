@@ -443,19 +443,19 @@ async def _init_background():
         print(f"⚠️ Ошибка запуска Telegram бота: {e}")
     
     try:
-        # 3. Проверка истекающих защит
+    # 3. Проверка истекающих защит
         asyncio.create_task(check_expiring_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска проверки защит: {e}")
 
     try:
-        # 4. Авто-закрытие защит за бездействие
+    # 4. Авто-закрытие защит за бездействие
         asyncio.create_task(auto_close_expired_protections())
     except Exception as e:
         print(f"⚠️ Ошибка запуска авто-закрытия: {e}")
 
     try:
-        # 5. Keep-alive механизм для предотвращения засыпания Render
+    # 5. Keep-alive механизм для предотвращения засыпания Render
         asyncio.create_task(keep_alive_worker())
     except Exception as e:
         print(f"⚠️ Ошибка запуска keep-alive: {e}")
@@ -503,7 +503,7 @@ def _safe_migrate():
     exec_safe("ALTER TABLE users ADD COLUMN group_tag TEXT")
     exec_safe("ALTER TABLE users ADD COLUMN region TEXT")
 
-    # === Managers ===
+        # === Managers ===
     exec_safe("ALTER TABLE managers ADD COLUMN telegrams TEXT DEFAULT '[]'")
 
     
@@ -1899,21 +1899,21 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             # Удаляем все защиты этого менеджера
             protections_delete_query = _adapt_query("DELETE FROM protections WHERE manager=?")
             cur.execute(protections_delete_query, (name,))
-    else:
-        # Мягкое удаление: переводим защиты на другого менеджера
-        if cnt > 0:
-            if not transfer_to:
-                conn.close()
-                raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
-            query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
-            cur.execute(query_to, (transfer_to,))
-            row_to = cur.fetchone()
-            if not row_to:
-                conn.close()
-                raise HTTPException(status_code=404, detail="transfer_to manager not found")
-            new_name = row_to["name"]
-            update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
-            cur.execute(update_query, (new_name, name))
+        else:
+            # Мягкое удаление: переводим защиты на другого менеджера
+            if cnt > 0:
+                if not transfer_to:
+                    conn.close()
+                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+                query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
+                cur.execute(query_to, (transfer_to,))
+                row_to = cur.fetchone()
+                if not row_to:
+                    conn.close()
+                    raise HTTPException(status_code=404, detail="transfer_to manager not found")
+                new_name = row_to["name"]
+                update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
+                cur.execute(update_query, (new_name, name))
     
     # Удаляем менеджера
     delete_query = _adapt_query("DELETE FROM managers WHERE id=?")
@@ -2163,14 +2163,19 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
                 if min_a <= float(row["area_m2"]) <= max_a:
                     # Получаем информацию о создателе защиты
+                    # Инициализируем переменную до использования
                     creator_name = "—"
                     manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
                     if manager_id:
-                        creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
-                        cur.execute(creator_query, (manager_id,))
-                        creator_row = cur.fetchone()
-                        if creator_row:
-                            creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
+                        try:
+                            creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+                            cur.execute(creator_query, (manager_id,))
+                            creator_row = cur.fetchone()
+                            if creator_row:
+                                creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
+                        except Exception as e:
+                            print(f"⚠️ Ошибка получения имени создателя защиты: {e}")
+                            creator_name = "—"
                     
                     # Отправляем уведомление всем админам и суперадминам о похожей защите (только тем, у кого включены уведомления)
                     admin_query = _adapt_query("""
@@ -2183,7 +2188,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         """)
                     cur.execute(admin_query)
                     admins = cur.fetchall()
-                    
+                
                     duplicate_msg = (
                         f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                         f"<b>Существующая защита:</b>\n"
@@ -2201,8 +2206,26 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     )
                     
                     # Отправляем уведомления асинхронно через BackgroundTasks
+                    # Сохраняем creator_name в локальную переменную для использования в замыкании
+                    creator_name_for_notification = creator_name
                     async def send_duplicate_notifications():
                         sent_count = 0
+                        # Используем сохраненную переменную вместо замыкания
+                        msg = (
+                            f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                            f"<b>Существующая защита:</b>\n"
+                            f"👤 Менеджер: {row['manager']}\n"
+                            f"👤 Создатель: {creator_name_for_notification}\n"
+                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                            f"❗️Артикул: {row['sku']}\n"
+                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                            f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                            f"<b>Попытка создать:</b>\n"
+                            f"👤 Пользователь: {payload.manager or '—'}\n"
+                            f"📦 SKU: {sku_display}\n"
+                            f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                            f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+                        )
                         for admin in admins:
                             tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
                             if tg_id:
@@ -2211,7 +2234,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                                     if tg_id_int:
                                         await bot.send_message(
                                             tg_id_int,
-                                            duplicate_msg,
+                                            msg,
                                             parse_mode="HTML"
                                         )
                                         sent_count += 1
@@ -2221,7 +2244,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         
                         if sent_count > 0:
                             print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
-                    
+                
                     # Используем BackgroundTasks для отправки уведомлений
                     if background_tasks:
                         background_tasks.add_task(send_duplicate_notifications)
@@ -2311,11 +2334,11 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         """
     else:
         insert_sql = _adapt_query("""
-        INSERT INTO protections(
-            manager, client, partner, partner_city, sku, area_m2, last4,
-            object_city, address, comment, status, created_at, expires_at, closed_at,
-            extend_count, auto_closed, manager_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+            INSERT INTO protections(
+                manager, client, partner, partner_city, sku, area_m2, last4,
+                object_city, address, comment, status, created_at, expires_at, closed_at,
+                extend_count, auto_closed, manager_id
+            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
     """)
     
     cur.execute(insert_sql, (
@@ -2542,7 +2565,7 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
             if pid in history_map:
                 continue
             
-            history_map[pid] = {}
+                history_map[pid] = {}
             
             # Получаем имя пользователя из actor, если это ID пользователя
             actor_name = actor
@@ -2793,9 +2816,9 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     result = await bot.send_message(
                         chat_id=tg_id_int,
                         text=msg,
-                    parse_mode="HTML",
-                    reply_markup=kb.as_markup()
-                )
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
+                    )
                 except Exception as send_error:
                     # Если не получилось с int, пробуем со строкой
                     error_msg = str(send_error).lower()
@@ -2820,8 +2843,8 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 
                 if result:
                     sent_count += 1
-                admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                    admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
@@ -2829,9 +2852,9 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
                     print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
-                print(f"🔍 Тип ошибки: {type(e).__name__}")
-                import traceback
-                traceback.print_exc()
+                    print(f"🔍 Тип ошибки: {type(e).__name__}")
+                    import traceback
+                    traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
@@ -2975,7 +2998,7 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                     if tg_id_clean and tg_id_clean.isdigit():
                         await bot.send_message(
                             int(tg_id_clean),
-                        msg,
+                            msg,
                             parse_mode="HTML"
                         )
                         print(f"📩 Уведомление об удалении защиты отправлено автору {tg_id_clean}")
@@ -3444,11 +3467,11 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         """
     else:
         insert_sql = _adapt_query("""
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at,
-                closed_at, extend_count, auto_closed
-            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
+        INSERT INTO protections(
+            manager, client, partner, partner_city, sku, area_m2, last4,
+            object_city, address, comment, status, created_at, expires_at,
+            closed_at, extend_count, auto_closed
+        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
         """)
     
     cur.execute(insert_sql, (
