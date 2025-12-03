@@ -2371,23 +2371,41 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
     add_history(cur, new_id, "manager", "create", {"sku": sku_display, "area_m2": total_area})
     conn.commit()
 
-    # если защита "на проверке" — уведомляем админа
+    # Получаем данные созданной защиты для уведомлений
     query = _adapt_query("SELECT * FROM protections WHERE id=?")
     cur.execute(query, (new_id,))
     row = cur.fetchone()
+    row_dict = row_to_out(row).dict()
+    
+    # Отправляем уведомление всем пользователям о новой защите
+    if background_tasks:
+        background_tasks.add_task(notify_all_users_new_protection, row_dict)
+    else:
+        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(notify_all_users_new_protection(row_dict))
+            else:
+                loop.run_until_complete(notify_all_users_new_protection(row_dict))
+        except Exception as e:
+            print(f"⚠️ Ошибка при отправке уведомления всем пользователям: {e}")
+
+    # если защита "на проверке" — уведомляем админа
     if row["status"] == "pending":
         # Используем BackgroundTasks для отправки уведомлений
         if background_tasks:
-            background_tasks.add_task(notify_admin_new_protection, row_to_out(row).dict())
+            background_tasks.add_task(notify_admin_new_protection, row_dict)
         else:
             # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
             try:
                 import asyncio
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(notify_admin_new_protection(row_to_out(row).dict()))
+                    asyncio.create_task(notify_admin_new_protection(row_dict))
                 else:
-                    loop.run_until_complete(notify_admin_new_protection(row_to_out(row).dict()))
+                    loop.run_until_complete(notify_admin_new_protection(row_dict))
             except Exception as e:
                 print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
 
@@ -3979,6 +3997,60 @@ async def notify_admin_new_protection(p: dict):
     print(f"✅ Уведомление по защите #{pid} отправлено всем ответственным")
 
 
+async def notify_all_users_new_protection(p: dict):
+    """
+    Отправляет уведомление всем пользователям о новой защите
+    p = {
+      id, manager, partner, partner_city, sku, area_m2, object_city, address, comment
+    }
+    """
+    pid = p["id"]
+    
+    text = (
+        "🆕 <b>Новая защита создана</b>\n"
+        f"👤 Менеджер: {p.get('manager', '—')}\n"
+        f"🏢 Партнёр: {p.get('partner', '—')} ({p.get('partner_city', '—')})\n"
+        f"📦 SKU: {p.get('sku', '—')}\n"
+        f"📏 Площадь: {p.get('area_m2', '—')} м²\n"
+        f"📍 Объект: {p.get('object_city', '—')}, {p.get('address', '—')}\n"
+        f"⏰ Истекает: {p.get('expires_at', '—')[:10] if p.get('expires_at') else '—'}\n"
+        f"💬 Комментарий: {p.get('comment', '—')}"
+    )
+    
+    # Получаем всех пользователей с Telegram ID
+    conn = get_conn()
+    cur = conn.cursor()
+    
+    query = _adapt_query("""
+        SELECT tg_id, full_name, first_name 
+        FROM users 
+        WHERE tg_id IS NOT NULL 
+          AND tg_id != ''
+          AND (receive_notifications IS NULL OR receive_notifications = 1)
+    """)
+    cur.execute(query)
+    users = cur.fetchall()
+    conn.close()
+    
+    sent_count = 0
+    for user in users:
+        tg_id = user.get("tg_id")
+        if tg_id:
+            try:
+                from backend.db import normalize_tg_id
+                tg_id_clean = normalize_tg_id(tg_id)
+                
+                if tg_id_clean and tg_id_clean.isdigit():
+                    await bot.send_message(
+                        chat_id=int(tg_id_clean),
+                        text=text,
+                        parse_mode="HTML"
+                    )
+                    sent_count += 1
+            except Exception as e:
+                print(f"⚠️ Не удалось отправить уведомление пользователю {tg_id}: {e}")
+    
+    print(f"✅ Уведомление о новой защите #{pid} отправлено {sent_count} пользователям")
 
         
 
@@ -4007,12 +4079,18 @@ async def approve_handler(callback: types.CallbackQuery):
     cur.execute(update_query, (sku_display, pid))
     add_history(cur, pid, "admin", "approve", {"source": "tg", "sku": sku_display})
     
-    # Отправляем уведомление менеджеру
+    # Отправляем уведомление создателю защиты
     manager_name = row.get("manager", "")
-    if manager_name:
-        # Ищем менеджера по имени
-        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
-        cur.execute(query, (manager_name, manager_name))
+    manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
+    
+    if manager_name or manager_id:
+        # Ищем создателя по manager_id (приоритет) или по имени
+        if manager_id:
+            query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
+            cur.execute(query, (manager_id, manager_name, manager_name))
+        else:
+            query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+            cur.execute(query, (manager_name, manager_name))
         manager_user = cur.fetchone()
         
         if manager_user and manager_user.get("tg_id"):
@@ -4028,14 +4106,14 @@ async def approve_handler(callback: types.CallbackQuery):
                         f"📦 SKU: {sku_display}\n"
                         f"⏰ Дата истечения: {row.get('expires_at', '')[:10]}"
                     )
-                    asyncio.create_task(bot.send_message(
+                    await bot.send_message(
                         chat_id=int(tg_id_clean),
                         text=msg,
                         parse_mode="HTML"
-                    ))
-                    print(f"✅ Уведомление об одобрении отправлено менеджеру {tg_id_clean}")
+                    )
+                    print(f"✅ Уведомление об одобрении отправлено создателю {tg_id_clean}")
                 except Exception as e:
-                    print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
+                    print(f"⚠️ Не удалось отправить уведомление создателю: {e}")
 
     # достаём все связанные tg-сообщения
     query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
