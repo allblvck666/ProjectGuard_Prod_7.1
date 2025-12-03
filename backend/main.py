@@ -2276,19 +2276,19 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         "last4": row.get("last4", "—"),
                         "comment": row.get("comment", "—"),
                     }
-                
-                conn.close()
-                raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "msg": (
+                    
+                    conn.close()
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "msg": (
                                 "⚠️ Похожая активная защита уже существует:\n\n"
-                            f"👤 Менеджер: {row['manager']}\n"
+                                f"👤 Менеджер: {row['manager']}\n"
                                 f"👤 Создатель: {creator_name}\n"
-                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                            f"❗️Артикул: {row['sku']}\n"
-                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                            f"⏰ Истекает: {row['expires_at']}\n\n"
+                                f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                                f"❗️Артикул: {row['sku']}\n"
+                                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                                f"⏰ Истекает: {row['expires_at']}\n\n"
                                 "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
                             ),
                             "similar_protection": similar_protection_data
