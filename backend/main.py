@@ -1164,7 +1164,7 @@ async def login(data: UserLogin):
         # Ищем по телефону
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM users WHERE phone = ?", (data.phone,))
+        cur.execute(_adapt_query("SELECT * FROM users WHERE phone = ?"), (data.phone,))
         row = cur.fetchone()
         conn.close()
         
@@ -2036,7 +2036,7 @@ def resolve_manager_for_user(cur, user_id):
     """Безопасно ищет менеджера по user_id, если требуется"""
     if not user_id:
         return None
-    row = cur.execute("SELECT id FROM users WHERE id=?", (user_id,)).fetchone()
+    row = cur.execute(_adapt_query("SELECT id FROM users WHERE id=?"), (user_id,)).fetchone()
     return row["id"] if row else None
 
 # ===== Создание защиты =====
@@ -2425,7 +2425,7 @@ def update_manager_telegrams(manager_id: int, body: dict = Body(...)):
 
     conn = get_conn()   # ✅ вместо get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id FROM managers WHERE id = ?", (manager_id,))
+    cur.execute(_adapt_query("SELECT id FROM managers WHERE id = ?"), (manager_id,))
     row = cur.fetchone()
     if not row:
         conn.close()
@@ -3686,16 +3686,19 @@ async def check_expiring_protections():
                         sent_count += 1
                         print(f"📩 Напоминание за 2 дня отправлено менеджеру {tg_id_int} (защита #{pid})")
                     except Exception as e:
-                        print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        error_msg = str(e)
+                        # Игнорируем ошибку "chat not found" - пользователь не начал диалог с ботом
+                        if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
+                            print(f"⚠️ Пользователь {tid} не начал диалог с ботом (защита #{pid})")
+                        else:
+                            print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Отмечаем, что напоминание отправлено
                 if sent_count > 0:
-                    cur.execute(
-                        "UPDATE protections SET reminder_2days_sent = 1 WHERE id = ?",
-                        (pid,)
-                    )
+                    update_query = _adapt_query("UPDATE protections SET reminder_2days_sent = 1 WHERE id = ?")
+                    cur.execute(update_query, (pid,))
                     conn.commit()
                     print(f"✅ Напоминание за 2 дня отправлено для защиты #{pid} ({sent_count} получателей)")
 
@@ -3744,7 +3747,7 @@ async def auto_close_expired_protections():
 
                 # Закрываем защиту
                 close_reason = "закрыта за бездействие"
-                cur.execute("""
+                update_query = _adapt_query("""
                     UPDATE protections 
                     SET status = 'closed', 
                         auto_closed = 1,
@@ -3752,7 +3755,8 @@ async def auto_close_expired_protections():
                         closed_at = ?,
                         updated_at = ?
                     WHERE id = ?
-                """, (close_reason, now_iso_str, now_iso_str, pid))
+                """)
+                cur.execute(update_query, (close_reason, now_iso_str, now_iso_str, pid))
                 
                 # Записываем в историю
                 add_history(cur, pid, "system", "close", {
