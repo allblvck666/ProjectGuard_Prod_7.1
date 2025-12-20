@@ -3801,9 +3801,14 @@ async def auto_close_expired_protections():
                         else:
                             print(f"⚠️ Некорректный формат tg_id менеджера: {tg_id} (тип: {type(tg_id)})")
                     except Exception as e:
-                        print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                        error_msg = str(e)
+                        # Игнорируем ошибку "chat not found" - пользователь не начал диалог с ботом
+                        if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
+                            print(f"⚠️ Пользователь {tg_id} не начал диалог с ботом (защита #{pid})")
+                        else:
+                            print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Отправляем уведомление админам/суперадминам (только тем, у кого включены уведомления)
                 try:
@@ -3852,9 +3857,14 @@ async def auto_close_expired_protections():
                             else:
                                 print(f"⚠️ Некорректный формат tg_id админа: {admin_tg_id} (тип: {type(admin_tg_id)})")
                         except Exception as e:
-                            print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                            error_msg = str(e)
+                            # Игнорируем ошибку "chat not found" - пользователь не начал диалог с ботом
+                            if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
+                                print(f"⚠️ Админ {admin_tg_id} не начал диалог с ботом (защита #{pid})")
+                            else:
+                                print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
+                                import traceback
+                                traceback.print_exc()
                 except Exception as e:
                     print(f"⚠️ Ошибка при отправке уведомлений админам: {e}")
                 
