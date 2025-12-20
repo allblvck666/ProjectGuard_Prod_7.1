@@ -4445,6 +4445,184 @@ async def admin_reject_extend_handler(callback: types.CallbackQuery):
     
     conn.close()
 
+# ===== ЗАЩИТА БОТА ОТ СПАМА И НЕАВТОРИЗОВАННЫХ ПОЛЬЗОВАТЕЛЕЙ =====
+
+# Список запрещенных слов и фраз (спам, реклама, казино и т.д.)
+SPAM_KEYWORDS = [
+    "казино", "casino", "ставки", "bet", "играть", "выиграть", "приз",
+    "реклама", "advert", "рекламирую", "продвижение", "seo",
+    "криптовалюта", "bitcoin", "crypto", "майнинг",
+    "заработок", "деньги быстро", "быстрый заработок",
+    "кредит", "займ", "микрозайм", "деньги под",
+    "рассылка", "массовая рассылка", "спам",
+    "купить подписчиков", "накрутка", "боты",
+    "взлом", "hack", "взломать", "взломаю",
+    "продам", "купить", "продать", "скидка", "акция",
+    "http://", "https://", "www.", ".ru", ".com",
+    "telegram.me", "t.me/", "@", "канал", "группа"
+]
+
+# Список разрешенных команд (не фильтруются)
+ALLOWED_COMMANDS = ["/start", "/protections", "/pending", "/extend", "/close", "/help"]
+
+def is_spam_message(text: str) -> bool:
+    """Проверяет, является ли сообщение спамом"""
+    if not text:
+        return False
+    
+    text_lower = text.lower()
+    
+    # Проверяем на запрещенные слова
+    for keyword in SPAM_KEYWORDS:
+        if keyword in text_lower:
+            return True
+    
+    # Проверяем на множественные ссылки
+    link_count = text_lower.count("http://") + text_lower.count("https://") + text_lower.count("www.")
+    if link_count > 1:
+        return True
+    
+    # Проверяем на множественные упоминания каналов/групп
+    if text_lower.count("t.me/") > 1 or text_lower.count("@") > 2:
+        return True
+    
+    return False
+
+def is_authorized_user(tg_id: int) -> bool:
+    """Проверяет, авторизован ли пользователь (есть ли в базе)"""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        query = _adapt_query("SELECT id FROM users WHERE tg_id=?")
+        cur.execute(query, (str(tg_id),))
+        user = cur.fetchone()
+        conn.close()
+        return user is not None
+    except Exception as e:
+        print(f"⚠️ Ошибка проверки авторизации пользователя {tg_id}: {e}")
+        return False
+
+def log_suspicious_activity(tg_id: int, username: str, text: str, reason: str):
+    """Логирует подозрительную активность и отправляет уведомление админу"""
+    log_msg = (
+        f"🚨 ПОДОЗРИТЕЛЬНАЯ АКТИВНОСТЬ\n"
+        f"Пользователь: {tg_id} (@{username})\n"
+        f"Причина: {reason}\n"
+        f"Сообщение: {text[:200]}\n"
+        f"Время: {now_iso()}"
+    )
+    print(log_msg)
+    
+    # Отправляем уведомление админу в Telegram
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        # Получаем всех админов
+        query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+        cur.execute(query)
+        admins = cur.fetchall()
+        conn.close()
+        
+        alert_text = (
+            f"🚨 <b>Подозрительная активность в боте</b>\n\n"
+            f"👤 Пользователь: {tg_id} (@{username})\n"
+            f"⚠️ Причина: {reason}\n"
+            f"💬 Сообщение: {text[:150]}\n"
+            f"⏰ Время: {now_iso()}"
+        )
+        
+        for admin in admins:
+            tg_id_admin = admin.get("tg_id")
+            if tg_id_admin:
+                try:
+                    from backend.db import normalize_tg_id
+                    tg_id_clean = normalize_tg_id(tg_id_admin)
+                    if tg_id_clean and tg_id_clean.isdigit():
+                        # Используем asyncio для отправки
+                        import asyncio
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(bot.send_message(
+                                    chat_id=int(tg_id_clean),
+                                    text=alert_text,
+                                    parse_mode="HTML"
+                                ))
+                            else:
+                                loop.run_until_complete(bot.send_message(
+                                    chat_id=int(tg_id_clean),
+                                    text=alert_text,
+                                    parse_mode="HTML"
+                                ))
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки уведомления админу {tg_id_clean}: {e}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка обработки tg_id админа: {e}")
+    except Exception as e:
+        print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+
+# Middleware для защиты от спама (проверяет все сообщения перед обработкой)
+@dp.message.middleware()
+async def spam_protection_middleware(handler, event, data):
+    """Middleware для защиты от спама и неавторизованных пользователей"""
+    # Проверяем, что это текстовое сообщение
+    if not hasattr(event, 'text') or not event.text:
+        # Не текстовые сообщения пропускаем
+        return await handler(event, data)
+    
+    tg_id = event.from_user.id
+    username = event.from_user.username or "без username"
+    text = event.text
+    
+    # Проверяем, является ли это командой
+    if text.startswith("/"):
+        command = text.split()[0] if text.split() else ""
+        if command in ALLOWED_COMMANDS:
+            # Разрешенные команды пропускаем дальше
+            return await handler(event, data)
+        else:
+            # Неизвестная команда - блокируем
+            await event.answer("❌ Неизвестная команда. Используйте /start для начала работы.")
+            log_suspicious_activity(tg_id, username, text, "Неизвестная команда")
+            return  # Блокируем обработку
+    
+    # Проверяем авторизацию (кроме команды /start)
+    if not is_authorized_user(tg_id):
+        await event.answer(
+            "❌ Вы не авторизованы в системе.\n\n"
+            "Используйте команду /start для регистрации."
+        )
+        log_suspicious_activity(tg_id, username, text, "Неавторизованный пользователь")
+        return  # Блокируем обработку
+    
+    # Проверяем на спам
+    if is_spam_message(text):
+        await event.answer(
+            "❌ Ваше сообщение содержит запрещенный контент (реклама, спам).\n\n"
+            "Если это ошибка, обратитесь к администратору."
+        )
+        log_suspicious_activity(tg_id, username, text, "Спам/реклама")
+        return  # Блокируем обработку
+    
+    # Если сообщение не является ответом на другое сообщение, блокируем его
+    # (разрешены только ответы на сообщения бота и команды)
+    if not hasattr(event, 'reply_to_message') or not event.reply_to_message:
+        await event.answer(
+            "❌ Я обрабатываю только команды и ответы на мои сообщения.\n\n"
+            "Используйте команды:\n"
+            "/start - начало работы\n"
+            "/protections - список защит\n"
+            "/pending - защиты на проверке\n"
+            "/extend - продлить защиту\n"
+            "/close - закрыть защиту"
+        )
+        log_suspicious_activity(tg_id, username, text, "Неразрешенное сообщение")
+        return  # Блокируем обработку
+    
+    # Если все проверки пройдены - пропускаем дальше
+    return await handler(event, data)
+
+
 @dp.message(F.text & F.reply_to_message)
 async def handle_reply_message(message: types.Message):
     """Обработка ответов на сообщения (причина отклонения, номер 1С, причина закрытия)"""
@@ -4667,6 +4845,7 @@ print(f"🌐 WebApp URL: {WEBAPP_URL}")
 
 @dp.message(F.text == "/start")
 async def cmd_start_with_webapp(message: types.Message):
+    # Команда /start разрешена для всех (проверка в middleware)
     """
     Команда /start - обновляет данные пользователя и показывает кнопку для входа в WebApp.
     Telegram ID теперь получается автоматически из WebApp, коды верификации не нужны.
