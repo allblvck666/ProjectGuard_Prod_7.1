@@ -2189,11 +2189,33 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     cur.execute(admin_query)
                     admins = cur.fetchall()
                 
-                    duplicate_msg = (
+                duplicate_msg = (
+                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                        f"<b>Существующая защита:</b>\n"
+                    f"👤 Менеджер: {row['manager']}\n"
+                        f"👤 Создатель: {creator_name}\n"
+                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                    f"❗️Артикул: {row['sku']}\n"
+                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                        f"<b>Попытка создать:</b>\n"
+                        f"👤 Пользователь: {payload.manager or '—'}\n"
+                    f"📦 SKU: {sku_display}\n"
+                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                        f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+                )
+                
+                # Отправляем уведомления асинхронно через BackgroundTasks
+                # Сохраняем creator_name в локальную переменную для использования в замыкании
+                creator_name_for_notification = creator_name
+                async def send_duplicate_notifications():
+                    sent_count = 0
+                    # Используем сохраненную переменную вместо замыкания
+                    msg = (
                         f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                         f"<b>Существующая защита:</b>\n"
                         f"👤 Менеджер: {row['manager']}\n"
-                        f"👤 Создатель: {creator_name}\n"
+                        f"👤 Создатель: {creator_name_for_notification}\n"
                         f"🏢 Партнёр: {row['partner'] or '—'}\n"
                         f"❗️Артикул: {row['sku']}\n"
                         f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
@@ -2204,46 +2226,24 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                         f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                     )
+                    for admin in admins:
+                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                        if tg_id:
+                            try:
+                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                if tg_id_int:
+                                    await bot.send_message(
+                                        tg_id_int,
+                                        msg,
+                                        parse_mode="HTML"
+                                    )
+                                    sent_count += 1
+                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                            except Exception as e:
+                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
                     
-                    # Отправляем уведомления асинхронно через BackgroundTasks
-                    # Сохраняем creator_name в локальную переменную для использования в замыкании
-                    creator_name_for_notification = creator_name
-                    async def send_duplicate_notifications():
-                        sent_count = 0
-                        # Используем сохраненную переменную вместо замыкания
-                        msg = (
-                            f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
-                            f"<b>Существующая защита:</b>\n"
-                            f"👤 Менеджер: {row['manager']}\n"
-                            f"👤 Создатель: {creator_name_for_notification}\n"
-                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                            f"❗️Артикул: {row['sku']}\n"
-                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                            f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
-                            f"<b>Попытка создать:</b>\n"
-                            f"👤 Пользователь: {payload.manager or '—'}\n"
-                            f"📦 SKU: {sku_display}\n"
-                            f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
-                            f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                        )
-                        for admin in admins:
-                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                            if tg_id:
-                                try:
-                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                    if tg_id_int:
-                                        await bot.send_message(
-                                            tg_id_int,
-                                            msg,
-                                            parse_mode="HTML"
-                                        )
-                                        sent_count += 1
-                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                                except Exception as e:
-                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
-                        
-                        if sent_count > 0:
-                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+                    if sent_count > 0:
+                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                 
                     # Используем BackgroundTasks для отправки уведомлений
                     if background_tasks:
@@ -2259,7 +2259,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                                 loop.run_until_complete(send_duplicate_notifications())
                         except Exception as e:
                             print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
-                    
+                
                     # Формируем полную информацию о похожей защите для передачи в модальное окно
                     similar_protection_data = {
                         "id": row.get("id"),
@@ -2276,19 +2276,19 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         "last4": row.get("last4", "—"),
                         "comment": row.get("comment", "—"),
                     }
-                    
-                    conn.close()
-                    raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "msg": (
+                
+                conn.close()
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "msg": (
                                 "⚠️ Похожая активная защита уже существует:\n\n"
-                                f"👤 Менеджер: {row['manager']}\n"
+                            f"👤 Менеджер: {row['manager']}\n"
                                 f"👤 Создатель: {creator_name}\n"
-                                f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                                f"❗️Артикул: {row['sku']}\n"
-                                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                                f"⏰ Истекает: {row['expires_at']}\n\n"
+                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                            f"❗️Артикул: {row['sku']}\n"
+                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                            f"⏰ Истекает: {row['expires_at']}\n\n"
                                 "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
                             ),
                             "similar_protection": similar_protection_data
@@ -2334,11 +2334,11 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         """
     else:
         insert_sql = _adapt_query("""
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at, closed_at,
-                extend_count, auto_closed, manager_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+        INSERT INTO protections(
+            manager, client, partner, partner_city, sku, area_m2, last4,
+            object_city, address, comment, status, created_at, expires_at, closed_at,
+            extend_count, auto_closed, manager_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
     """)
     
     cur.execute(insert_sql, (
@@ -2478,14 +2478,12 @@ def update_protection(pid: int, payload: ProtectionUpdate):
         total_area = float(payload.area_m2 or 0)
 
     # === обновляем запись ===
-    cur.execute(
-        """
+    update_query = _adapt_query("""
         UPDATE protections
         SET sku = ?, area_m2 = ?, comment = ?, updated_at = ?
         WHERE id = ?
-        """,
-        (sku_display, total_area, payload.comment or "", now_iso(), pid),
-    )
+    """)
+    cur.execute(update_query, (sku_display, total_area, payload.comment or "", now_iso(), pid))
 
     add_history(
         cur,
@@ -2584,7 +2582,7 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
                 continue
             
             # Создаем новую запись для этой защиты
-            history_map[pid] = {}
+                history_map[pid] = {}
             
             # Получаем имя пользователя из actor, если это ID пользователя
             actor_name = actor
@@ -2872,8 +2870,8 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 else:
                     print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
                     print(f"🔍 Тип ошибки: {type(e).__name__}")
-                    import traceback
-                    traceback.print_exc()
+                import traceback
+                traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
@@ -3049,7 +3047,7 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
         actor = "admin" if is_admin else "manager"
         update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
         cur.execute(update_query, (now_iso(), pid))
-        add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
+    add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     
     conn.commit()
     conn.close()
@@ -3746,7 +3744,7 @@ async def auto_close_expired_protections():
                 expires_at = row["expires_at"] if "expires_at" in row.keys() else "—"
 
                 # Закрываем защиту
-                close_reason = "закрыта за бездействие"
+                close_reason = "за бездействие менеджера"
                 update_query = _adapt_query("""
                     UPDATE protections 
                     SET status = 'closed', 
@@ -3822,7 +3820,7 @@ async def auto_close_expired_protections():
                     """)).fetchall()
                     
                     admin_msg = (
-                        f"🔒 <b>Защита #{pid} автоматически закрыта за бездействие</b>\n\n"
+                        f"🔒 <b>Защита #{pid} автоматически закрыта за бездействие менеджера</b>\n\n"
                         f"👤 Менеджер: {manager_name}\n"
                         f"📦 SKU: {sku}\n"
                         f"🏢 Партнёр: {partner} ({partner_city})\n"
@@ -3868,7 +3866,7 @@ async def auto_close_expired_protections():
                 except Exception as e:
                     print(f"⚠️ Ошибка при отправке уведомлений админам: {e}")
                 
-                print(f"✅ Защита #{pid} автоматически закрыта за бездействие")
+                print(f"✅ Защита #{pid} автоматически закрыта за бездействие менеджера")
 
             if closed_count > 0:
                 print(f"✅ Авто-закрыто защит: {closed_count}")

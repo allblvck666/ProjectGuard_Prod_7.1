@@ -68,11 +68,11 @@
     }
   }
   
-  /* Переключатель темы */
+  /* Переключатель темы - улучшенный дизайн */
   .theme-toggle {
     position: relative;
-    width: 56px;
-    height: 32px;
+    width: 60px;
+    height: 34px;
     background: var(--card);
     border: 2px solid var(--border);
     border-radius: 20px;
@@ -80,75 +80,99 @@
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
-    padding: 4px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    padding: 3px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     flex-shrink: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
   
   .theme-toggle:hover {
     border-color: var(--accent);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.3);
+    transform: scale(1.05);
+  }
+  
+  .theme-toggle:active {
+    transform: scale(0.95);
   }
   
   /* На мобильной версии - фиксированная позиция в правом верхнем углу */
   @media (max-width: 768px) {
     .theme-toggle {
       position: fixed;
-      top: 16px;
-      right: 16px;
+      top: 12px;
+      right: 12px;
       z-index: 1001;
-      width: 48px;
-      height: 30px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      width: 52px;
+      height: 32px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 2px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    body.light-theme .theme-toggle {
+      background: rgba(255, 255, 255, 0.95);
+      border: 2px solid rgba(0, 0, 0, 0.15);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
     }
     
     .theme-toggle-slider {
-      width: 22px;
-      height: 22px;
+      width: 24px;
+      height: 24px;
     }
     
     body.light-theme .theme-toggle-slider {
-      transform: translateX(18px);
+      transform: translateX(20px);
     }
   }
   
   .theme-toggle-slider {
     position: absolute;
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     border-radius: 50%;
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    left: 3px;
   }
   
   body.light-theme .theme-toggle-slider {
-    transform: translateX(24px);
+    transform: translateX(26px);
     background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+    box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
   }
   
   .theme-toggle-icon {
-    font-size: 14px;
-    transition: opacity 0.2s;
+    font-size: 16px;
+    transition: opacity 0.3s, transform 0.3s;
+    line-height: 1;
   }
   
   .theme-toggle-icon.moon {
     opacity: 1;
+    transform: scale(1);
   }
   
   body.light-theme .theme-toggle-icon.moon {
     opacity: 0;
+    transform: scale(0);
   }
   
   .theme-toggle-icon.sun {
     opacity: 0;
+    transform: scale(0);
   }
   
   body.light-theme .theme-toggle-icon.sun {
     opacity: 1;
+    transform: scale(1);
   }
   
   /* Стили для светлой темы - карточки */
@@ -269,9 +293,24 @@
     }
     
     body.light-theme .input::placeholder {
-      color: rgba(0, 0, 0, 0.75) !important; /* Еще более контрастный placeholder для максимальной читаемости */
+      color: rgba(0, 0, 0, 0.6) !important; /* Оптимальная контрастность для placeholder */
       font-weight: 400;
       opacity: 1 !important;
+    }
+    
+    /* Улучшение контрастности для всех текстов в светлой теме на мобильных */
+    body.light-theme .card *,
+    body.light-theme .item *,
+    body.light-theme .toolbar * {
+      color: #0a0f1a !important;
+    }
+    
+    /* Улучшение контрастности для заголовков */
+    body.light-theme h1,
+    body.light-theme h2,
+    body.light-theme h3 {
+      color: #0a0f1a !important;
+      font-weight: 700 !important;
     }
     
     /* Дополнительное улучшение контрастности для всех текстовых элементов */
