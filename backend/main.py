@@ -2582,7 +2582,7 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
                 continue
             
             # Создаем новую запись для этой защиты
-                history_map[pid] = {}
+            history_map[pid] = {}
             
             # Получаем имя пользователя из actor, если это ID пользователя
             actor_name = actor
