@@ -2828,11 +2828,11 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                 # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
                 result = None
                 try:
-                result = await bot.send_message(
+                    result = await bot.send_message(
                         chat_id=tg_id_int,
                         text=msg,
-                    parse_mode="HTML",
-                    reply_markup=kb.as_markup()
+                        parse_mode="HTML",
+                        reply_markup=kb.as_markup()
                 )
                 except Exception as send_error:
                     # Если не получилось с int, пробуем со строкой
