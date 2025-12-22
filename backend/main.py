@@ -1904,7 +1904,7 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             if cnt > 0:
                 if not transfer_to:
                     conn.close()
-            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
                 query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
                 cur.execute(query_to, (transfer_to,))
                 row_to = cur.fetchone()
