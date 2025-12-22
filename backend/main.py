@@ -1899,17 +1899,17 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             cur.execute(protections_delete_query, (name,))
         else:
             # Мягкое удаление: переводим защиты на другого менеджера
-    if cnt > 0:
-        if not transfer_to:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+            if cnt > 0:
+                if not transfer_to:
+                    conn.close()
+                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
                 query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
                 cur.execute(query_to, (transfer_to,))
                 row_to = cur.fetchone()
-        if not row_to:
-            conn.close()
-            raise HTTPException(status_code=404, detail="transfer_to manager not found")
-        new_name = row_to["name"]
+                if not row_to:
+                    conn.close()
+                    raise HTTPException(status_code=404, detail="transfer_to manager not found")
+                new_name = row_to["name"]
                 update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
                 cur.execute(update_query, (new_name, name))
     
@@ -2159,7 +2159,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             # Проверяем пересечение артикулов
             # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
             if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
-            if min_a <= float(row["area_m2"]) <= max_a:
+                if min_a <= float(row["area_m2"]) <= max_a:
                     # Получаем информацию о создателе защиты
                     # Инициализируем переменную до использования
                     creator_name = "—"
@@ -2404,8 +2404,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     asyncio.create_task(notify_admin_new_protection(row_dict))
                 else:
                     loop.run_until_complete(notify_admin_new_protection(row_dict))
-        except Exception as e:
-            print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+            except Exception as e:
+                print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
 
     conn.close()
     return row_to_out(row)
