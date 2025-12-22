@@ -2226,19 +2226,19 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                             f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                             f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                         )
-                    for admin in admins:
-                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                        if tg_id:
-                            try:
-                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                if tg_id_int:
-                                    await bot.send_message(
-                                        tg_id_int,
+                        for admin in admins:
+                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                            if tg_id:
+                                try:
+                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                    if tg_id_int:
+                                        await bot.send_message(
+                                            tg_id_int,
                                             msg,
-                                        parse_mode="HTML"
-                                    )
-                                    sent_count += 1
-                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                                            parse_mode="HTML"
+                                        )
+                                        sent_count += 1
+                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
                                 except Exception as e:
                                     print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
                         
