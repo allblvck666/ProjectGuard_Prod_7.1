@@ -1684,7 +1684,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
