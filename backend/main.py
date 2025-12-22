@@ -2857,19 +2857,19 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
                         result = None
                 
                 if result:
-                sent_count += 1
-                admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                    sent_count += 1
+                    admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
             except Exception as e:
                 error_msg = str(e)
                 if "chat not found" in error_msg.lower() or "chat_not_found" in error_msg.lower():
                     admin_name = admin.get("full_name", admin.get("first_name", "Unknown"))
                     print(f"⚠️ Пользователь {tg_id} ({admin_name}) не начал диалог с ботом или ID неверный. Попросите пользователя отправить /start боту.")
                 else:
-                print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
-                print(f"🔍 Тип ошибки: {type(e).__name__}")
-                import traceback
-                traceback.print_exc()
+                    print(f"❌ Ошибка отправки уведомления админу {tg_id}: {e}")
+                    print(f"🔍 Тип ошибки: {type(e).__name__}")
+                    import traceback
+                    traceback.print_exc()
         
         if sent_count == 0:
             print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
