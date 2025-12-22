@@ -2360,7 +2360,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
