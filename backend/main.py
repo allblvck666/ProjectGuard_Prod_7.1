@@ -415,9 +415,9 @@ async def _init_background():
     def init_sync():
         try:
             # 1. База и миграции (синхронные операции)
-            # Инициализация базы данных с правильными отступами
-    init_db()
-    init_users_table()
+            init_db()
+            init_users_table()
+            _safe_migrate()
     _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
@@ -1668,7 +1668,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         conn.close()
         return {"ok": True, "message": "User permanently deleted"}
     else:
-        # Soft delete: is_active = 0 (блокировка)
+        update_user(user_id, {"is_active": 0})
     update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
@@ -1683,7 +1683,7 @@ class ManagerUpdate(BaseModel):
 @app.get("/api/admin/managers")
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
-    if not USE_POSTGRES:
+        conn.row_factory = sqlite3.Row
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
@@ -1819,8 +1819,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
     except (sqlite3.IntegrityError, Exception) as e:
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
-        if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
@@ -1900,18 +1900,18 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             protections_delete_query = _adapt_query("DELETE FROM protections WHERE manager=?")
             cur.execute(protections_delete_query, (name,))
         else:
-            # Мягкое удаление: переводим защиты на другого менеджера
-    if cnt > 0:
+            if cnt > 0:
+                if not transfer_to:
         if not transfer_to:
             conn.close()
-            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
                 query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
                 cur.execute(query_to, (transfer_to,))
                 row_to = cur.fetchone()
-        if not row_to:
-            conn.close()
-            raise HTTPException(status_code=404, detail="transfer_to manager not found")
-        new_name = row_to["name"]
+                if not row_to:
+                    conn.close()
+                    raise HTTPException(status_code=404, detail="transfer_to manager not found")
+                new_name = row_to["name"]
                 update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
                 cur.execute(update_query, (new_name, name))
     
