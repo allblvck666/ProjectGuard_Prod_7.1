@@ -2189,27 +2189,27 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     cur.execute(admin_query)
                     admins = cur.fetchall()
                 
-                duplicate_msg = (
-                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                    duplicate_msg = (
+                        f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                         f"<b>Существующая защита:</b>\n"
-                    f"👤 Менеджер: {row['manager']}\n"
+                        f"👤 Менеджер: {row['manager']}\n"
                         f"👤 Создатель: {creator_name}\n"
-                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                    f"❗️Артикул: {row['sku']}\n"
-                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                        f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                        f"❗️Артикул: {row['sku']}\n"
+                        f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                        f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
                         f"<b>Попытка создать:</b>\n"
                         f"👤 Пользователь: {payload.manager or '—'}\n"
-                    f"📦 SKU: {sku_display}\n"
-                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                        f"📦 SKU: {sku_display}\n"
+                        f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                         f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                )
+                    )
                 
                     # Отправляем уведомления асинхронно через BackgroundTasks
                     # Сохраняем creator_name в локальную переменную для использования в замыкании
                     creator_name_for_notification = creator_name
-                async def send_duplicate_notifications():
-                    sent_count = 0
+                    async def send_duplicate_notifications():
+                        sent_count = 0
                         # Используем сохраненную переменную вместо замыкания
                         msg = (
                             f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
@@ -2239,11 +2239,11 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                                     )
                                     sent_count += 1
                                     print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
-                    
-                    if sent_count > 0:
-                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+                                except Exception as e:
+                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                        
+                        if sent_count > 0:
+                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                 
                     # Используем BackgroundTasks для отправки уведомлений
                     if background_tasks:
