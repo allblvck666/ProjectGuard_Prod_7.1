@@ -3011,11 +3011,11 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                     from backend.db import normalize_tg_id
                     tg_id_clean = normalize_tg_id(author_row["tg_id"])
                     if tg_id_clean and tg_id_clean.isdigit():
-                    await bot.send_message(
+                        await bot.send_message(
                             int(tg_id_clean),
-                        msg,
-                        parse_mode="HTML"
-                    )
+                            msg,
+                            parse_mode="HTML"
+                        )
                         print(f"📩 Уведомление об удалении защиты отправлено автору {tg_id_clean}")
                 except Exception as e:
                     print(f"⚠️ Ошибка отправки уведомления автору {author_row.get('tg_id', 'unknown')}: {e}")
@@ -3024,11 +3024,11 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
                 background_tasks.add_task(send_delete_notification)
             else:
                 # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-            try:
+                try:
                     import asyncio
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                asyncio.create_task(send_delete_notification())
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(send_delete_notification())
                     else:
                         loop.run_until_complete(send_delete_notification())
                 except Exception as e:
@@ -3042,10 +3042,10 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
         cur.execute(protection_delete_query, (pid,))
     else:
         # Мягкое удаление: статус -> 'deleted'
-    actor = "admin" if is_admin else "manager"
+        actor = "admin" if is_admin else "manager"
         update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
         cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
+        add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     
     conn.commit()
     conn.close()
@@ -3509,7 +3509,7 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-    new_id = cur.lastrowid
+        new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -3687,9 +3687,9 @@ async def check_expiring_protections():
                         if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
                             print(f"⚠️ Пользователь {tid} не начал диалог с ботом (защита #{pid})")
                         else:
-                        print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                            print(f"⚠️ Ошибка отправки напоминания {tid}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Отмечаем, что напоминание отправлено
                 if sent_count > 0:
@@ -3802,9 +3802,9 @@ async def auto_close_expired_protections():
                         if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
                             print(f"⚠️ Пользователь {tg_id} не начал диалог с ботом (защита #{pid})")
                         else:
-                        print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
-                        import traceback
-                        traceback.print_exc()
+                            print(f"⚠️ Ошибка отправки уведомления менеджеру {tg_id}: {e}")
+                            import traceback
+                            traceback.print_exc()
                 
                 # Отправляем уведомление админам/суперадминам (только тем, у кого включены уведомления)
                 try:
@@ -3858,9 +3858,9 @@ async def auto_close_expired_protections():
                             if "chat not found" in error_msg.lower() or "bad request" in error_msg.lower():
                                 print(f"⚠️ Админ {admin_tg_id} не начал диалог с ботом (защита #{pid})")
                             else:
-                            print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                                print(f"⚠️ Ошибка отправки уведомления админу {admin_tg_id}: {e}")
+                                import traceback
+                                traceback.print_exc()
                 except Exception as e:
                     print(f"⚠️ Ошибка при отправке уведомлений админам: {e}")
                 
@@ -4280,7 +4280,7 @@ async def close_expiring_handler(callback: types.CallbackQuery):
     
     if row["status"] != "active":
         await callback.answer("❌ Защита не активна", show_alert=True)
-    conn.close()
+        conn.close()
         return
     
     # Запрашиваем причину закрытия
@@ -4793,11 +4793,11 @@ async def handle_reply_message(message: types.Message):
                     except Exception as e:
                         print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
         
-    conn.commit()
-    conn.close()
-    
-    await message.answer(
-        f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
+        conn.commit()
+        conn.close()
+        
+        await message.answer(
+            f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
             f"💬 Причина: {user_text}",
             parse_mode="HTML"
         )
@@ -4909,10 +4909,9 @@ async def cmd_start_with_webapp(message: types.Message):
     
     print(f"🌐 Отправка кнопки WebApp с URL: {webapp_url}")
     
-    # Создаем кнопку для открытия WebApp
     try:
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
                 [InlineKeyboardButton(text="🚪 Войти в систему", web_app=WebAppInfo(url=webapp_url))]
             ]
         )
@@ -4941,7 +4940,7 @@ async def cmd_start_with_webapp(message: types.Message):
             "Ваш Telegram ID определяется автоматически при входе."
         )
 
-    await message.answer(
+        await message.answer(
             instruction_text,
             reply_markup=keyboard,
             parse_mode="HTML"
@@ -5245,10 +5244,10 @@ async def start_tg_bot():
         for attempt in range(max_retries):
             try:
                 print(f"🔄 Попытка запуска polling (попытка {attempt + 1}/{max_retries})...")
-        await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
+                await dp.start_polling(bot, skip_updates=True, allowed_updates=["message", "callback_query"])
                 print("✅ Telegram-бот запущен через polling (inline кнопки активны)")
                 break
-    except Exception as e:
+            except Exception as e:
                 error_str = str(e).lower()
                 if "conflict" in error_str or "terminated by other" in error_str:
                     print(f"⚠️ Конфликт с другим экземпляром бота (попытка {attempt + 1}/{max_retries})")
@@ -5261,7 +5260,7 @@ async def start_tg_bot():
                             await asyncio.sleep(retry_delay)
                     else:
                         print("❌ Не удалось запустить бота после всех попыток")
-        _bot_running = False
+                        _bot_running = False
                         return
                 else:
                     print(f"❌ Ошибка запуска Telegram-бота: {e}")
