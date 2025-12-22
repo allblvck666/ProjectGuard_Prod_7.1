@@ -1682,7 +1682,7 @@ class ManagerUpdate(BaseModel):
 @app.get("/api/admin/managers")
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
-        conn.row_factory = sqlite3.Row
+    if not USE_POSTGRES:
         conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
