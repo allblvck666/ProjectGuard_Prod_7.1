@@ -1820,8 +1820,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         conn.close()
         raise
     conn.close()
