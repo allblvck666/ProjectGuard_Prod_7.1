@@ -1668,7 +1668,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         return {"ok": True, "message": "User permanently deleted"}
     else:
         # Soft delete: is_active = 0 (блокировка)
-    update_user(user_id, {"is_active": 0})
+        update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
 
@@ -1683,7 +1683,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1819,8 +1819,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         raise
     conn.close()
     return {"ok": True}
@@ -2224,39 +2224,39 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                             f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                             f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                         )
-                    for admin in admins:
-                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                        if tg_id:
-                            try:
-                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                if tg_id_int:
-                                    await bot.send_message(
-                                        tg_id_int,
+                        for admin in admins:
+                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                            if tg_id:
+                                try:
+                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                    if tg_id_int:
+                                        await bot.send_message(
+                                            tg_id_int,
                                             msg,
-                                        parse_mode="HTML"
-                                    )
-                                    sent_count += 1
-                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                                            parse_mode="HTML"
+                                        )
+                                        sent_count += 1
+                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                                except Exception as e:
+                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                        
+                        if sent_count > 0:
+                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                     
-                    if sent_count > 0:
-                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
-                
                     # Используем BackgroundTasks для отправки уведомлений
                     if background_tasks:
                         background_tasks.add_task(send_duplicate_notifications)
                     else:
                         # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                try:
+                        try:
                             import asyncio
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
-                    asyncio.create_task(send_duplicate_notifications())
+                                asyncio.create_task(send_duplicate_notifications())
                             else:
                                 loop.run_until_complete(send_duplicate_notifications())
-                except Exception as e:
-                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
                     # Формируем полную информацию о похожей защите для передачи в модальное окно
                     similar_protection_data = {
@@ -2331,7 +2331,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-    insert_sql = _adapt_query("""
+        insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
