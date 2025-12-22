@@ -1667,7 +1667,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         conn.close()
         return {"ok": True, "message": "User permanently deleted"}
     else:
-    update_user(user_id, {"is_active": 0})
+        # Soft delete: is_active = 0 (блокировка)
         update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
