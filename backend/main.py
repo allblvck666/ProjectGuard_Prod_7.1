@@ -1668,7 +1668,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         return {"ok": True, "message": "User permanently deleted"}
     else:
         # Soft delete: is_active = 0 (блокировка)
-    update_user(user_id, {"is_active": 0})
+        update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
 
@@ -1683,7 +1683,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-    conn.row_factory = sqlite3.Row
+        conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1819,8 +1819,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-        conn.close()
-        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+            conn.close()
+            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         raise
     conn.close()
     return {"ok": True}
