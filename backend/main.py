@@ -416,9 +416,9 @@ async def _init_background():
         try:
             # 1. База и миграции (синхронные операции)
             # Инициализация базы данных с правильными отступами
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -1290,11 +1290,11 @@ async def telegram_auth(request: Request):
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
                     # Обновляем tg_id на правильный
-                    cur.execute(
+        cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-                    )
-                    conn.commit()
+        )
+        conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
@@ -1360,11 +1360,11 @@ async def telegram_auth(request: Request):
             existing_user = cur.fetchone()
             if existing_user:
                 # Обновляем tg_id на правильный
-                cur.execute(
+        cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                     (str(tg_id), username, first_name, existing_user["id"])
-                )
-                conn.commit()
+        )
+        conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
                 row = cur.fetchone()
