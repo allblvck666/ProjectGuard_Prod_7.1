@@ -1287,11 +1287,11 @@ async def telegram_auth(request: Request):
             for wrong_id in wrong_tg_ids:
                 existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
                 if existing_user:
-        cur.execute(
+                    cur.execute(
                         _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-        )
-        conn.commit()
+                    )
+                    conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
