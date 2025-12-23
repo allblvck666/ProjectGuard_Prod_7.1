@@ -2248,15 +2248,15 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         background_tasks.add_task(send_duplicate_notifications)
                     else:
                         # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                try:
+                        try:
                             import asyncio
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
-                    asyncio.create_task(send_duplicate_notifications())
+                                asyncio.create_task(send_duplicate_notifications())
                             else:
                                 loop.run_until_complete(send_duplicate_notifications())
-                except Exception as e:
-                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
                     # Формируем полную информацию о похожей защите для передачи в модальное окно
                     similar_protection_data = {
