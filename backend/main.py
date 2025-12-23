@@ -2202,13 +2202,13 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     f"📦 SKU: {sku_display}\n"
                     f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                         f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                )
-                
+                    )
+                    
                     # Отправляем уведомления асинхронно через BackgroundTasks
                     # Сохраняем creator_name в локальную переменную для использования в замыкании
                     creator_name_for_notification = creator_name
-                async def send_duplicate_notifications():
-                    sent_count = 0
+                    async def send_duplicate_notifications():
+                        sent_count = 0
                         msg = (
                             f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                             f"<b>Существующая защита:</b>\n"
