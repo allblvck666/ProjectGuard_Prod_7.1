@@ -414,9 +414,9 @@ async def _init_background():
     # Выполняем синхронные операции в отдельном потоке
     def init_sync():
         try:
-    init_db()
-    init_users_table()
-    _safe_migrate()
+            init_db()
+            init_users_table()
+            _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
