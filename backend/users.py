@@ -48,21 +48,21 @@ def init_users_table():
         )
     else:
         # SQLite синтаксис
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS users(
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tg_id INTEGER UNIQUE,
-                tg_username TEXT,
-                first_name TEXT,
-                role TEXT,
-                manager_id INTEGER,
-                group_tag TEXT,
-                region TEXT,
-                created_at TEXT
-            )
-            """
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tg_id INTEGER UNIQUE,
+            tg_username TEXT,
+            first_name TEXT,
+            role TEXT,
+            manager_id INTEGER,
+            group_tag TEXT,
+            region TEXT,
+            created_at TEXT
         )
+        """
+    )
     conn.commit()
     conn.close()
 

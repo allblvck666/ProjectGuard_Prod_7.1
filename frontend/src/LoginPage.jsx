@@ -177,7 +177,7 @@ export default function LoginPage({ onLogin }) {
         setTimeout(fillFormFromTelegram, 500);
         return;
       }
-
+      
       // ТОЛЬКО заполняем форму данными из Telegram, НЕ логинимся автоматически
       if (tgUser) {
         if (tgUser.first_name || tgUser.last_name) {
@@ -230,15 +230,15 @@ export default function LoginPage({ onLogin }) {
           // Используем реальный tg_id из Telegram WebApp
           const tg_id = String(tgUser.id);
           
-          const data = await registerOrLogin({
-            tg_id: tg_id,
-            full_name: fullName,
-            phone: phone,
-            position: position || null,
-          });
+      const data = await registerOrLogin({
+        tg_id: tg_id,
+        full_name: fullName,
+        phone: phone,
+        position: position || null,
+      });
 
-          if (onLogin) {
-            onLogin(data.user?.role || "user");
+      if (onLogin) {
+        onLogin(data.user?.role || "user");
           }
           return;
         } else if (tg?.initData && tg.initData.length > 0) {

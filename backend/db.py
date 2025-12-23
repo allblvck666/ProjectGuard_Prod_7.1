@@ -350,9 +350,9 @@ def upsert_user(data: dict):
             cur.execute(update_query, (tg_id, existing_id))
             conn.commit()
             # Перечитываем пользователя
-            query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
-            cur.execute(query, (tg_id,))
-            existing = cur.fetchone()
+    query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
+    cur.execute(query, (tg_id,))
+    existing = cur.fetchone()
     
     now = now_iso()
     

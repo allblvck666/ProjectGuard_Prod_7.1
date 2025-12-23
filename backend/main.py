@@ -414,9 +414,9 @@ async def _init_background():
     # Выполняем синхронные операции в отдельном потоке
     def init_sync():
         try:
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -1285,13 +1285,17 @@ async def telegram_auth(request: Request):
             # Ищем пользователя с неправильными форматами tg_id для главного админа
             wrong_tg_ids = ["dev-79207455960", "79207455960", "tg-79207455960", "dev-426188469", "tg-426188469"]
             for wrong_id in wrong_tg_ids:
-                existing_user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)).fetchone()
+                existing_user = cur.execute(
+                    _adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)
+                ).fetchone()
                 if existing_user:
-                    cur.execute(
-                        _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
-                        (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-                    )
-                    conn.commit()
+        cur.execute(
+                        _adapt_query(
+                            "UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"
+                        ),
+                        (str(tg_id), username, first_name, "superadmin", existing_user["id"]),
+        )
+        conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
@@ -1356,11 +1360,11 @@ async def telegram_auth(request: Request):
             cur.execute(query, (wrong_id,))
             existing_user = cur.fetchone()
             if existing_user:
-                cur.execute(
+        cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                     (str(tg_id), username, first_name, existing_user["id"])
-                )
-                conn.commit()
+        )
+        conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
                 row = cur.fetchone()
@@ -1665,7 +1669,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         return {"ok": True, "message": "User permanently deleted"}
     else:
         # Soft delete: is_active = 0 (блокировка)
-        update_user(user_id, {"is_active": 0})
+    update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
 
