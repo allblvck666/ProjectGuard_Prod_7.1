@@ -410,7 +410,7 @@ async def _init_background():
     if _initialized:
         return
     _initialized = True
-    
+
     # Выполняем синхронные операции в отдельном потоке
     def init_sync():
         try:
@@ -420,7 +420,7 @@ async def _init_background():
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
-    
+
     # Используем to_thread для выполнения синхронных операций
     try:
         await asyncio.to_thread(init_sync)
