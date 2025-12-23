@@ -2156,7 +2156,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             # Проверяем пересечение артикулов
             # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
             if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
-            if min_a <= float(row["area_m2"]) <= max_a:
+                if min_a <= float(row["area_m2"]) <= max_a:
                     # Получаем информацию о создателе защиты
                     # Инициализируем переменную до использования
                     creator_name = "—"
