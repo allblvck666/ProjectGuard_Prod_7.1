@@ -414,9 +414,9 @@ async def _init_background():
     # Выполняем синхронные операции в отдельном потоке
     def init_sync():
         try:
-            init_db()
-            init_users_table()
-            _safe_migrate()
+    init_db()
+    init_users_table()
+    _safe_migrate()
             print("✅ База данных инициализирована")
         except Exception as e:
             print(f"⚠️ Ошибка инициализации БД: {e}")
@@ -1289,13 +1289,13 @@ async def telegram_auth(request: Request):
                     _adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)
                 ).fetchone()
                 if existing_user:
-                    cur.execute(
+        cur.execute(
                         _adapt_query(
                             "UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"
                         ),
                         (str(tg_id), username, first_name, "superadmin", existing_user["id"]),
-                    )
-                    conn.commit()
+        )
+        conn.commit()
                     query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                     cur.execute(query, (str(tg_id),))
                     user = cur.fetchone()
@@ -1360,11 +1360,11 @@ async def telegram_auth(request: Request):
             cur.execute(query, (wrong_id,))
             existing_user = cur.fetchone()
             if existing_user:
-                cur.execute(
+        cur.execute(
                     _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
                     (str(tg_id), username, first_name, existing_user["id"])
-                )
-                conn.commit()
+        )
+        conn.commit()
                 query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
                 cur.execute(query2, (str(tg_id),))
                 row = cur.fetchone()
@@ -1669,7 +1669,7 @@ def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depend
         return {"ok": True, "message": "User permanently deleted"}
     else:
         # Soft delete: is_active = 0 (блокировка)
-        update_user(user_id, {"is_active": 0})
+    update_user(user_id, {"is_active": 0})
         return {"ok": True, "message": "User blocked (can register again)"}
 
 
@@ -1684,7 +1684,7 @@ class ManagerUpdate(BaseModel):
 def admin_list_managers(user=Depends(get_admin_user)):
     conn = get_conn()
     if not USE_POSTGRES:
-        conn.row_factory = sqlite3.Row
+    conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
     if USE_POSTGRES:
@@ -1820,8 +1820,8 @@ def admin_add_manager(data: ManagerCreate, user=Depends(get_admin_user)):
         # Обрабатываем ошибки для обеих БД
         error_str = str(e).lower()
         if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-            conn.close()
-            raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
+        conn.close()
+        raise HTTPException(status_code=409, detail="Менеджер с таким именем уже существует")
         raise
     conn.close()
     return {"ok": True}
@@ -1900,17 +1900,17 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             cur.execute(protections_delete_query, (name,))
         else:
             # Мягкое удаление: переводим защиты на другого менеджера
-            if cnt > 0:
-                if not transfer_to:
-                    conn.close()
-                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+    if cnt > 0:
+        if not transfer_to:
+            conn.close()
+            raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
                 query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
                 cur.execute(query_to, (transfer_to,))
                 row_to = cur.fetchone()
-                if not row_to:
-                    conn.close()
-                    raise HTTPException(status_code=404, detail="transfer_to manager not found")
-                new_name = row_to["name"]
+        if not row_to:
+            conn.close()
+            raise HTTPException(status_code=404, detail="transfer_to manager not found")
+        new_name = row_to["name"]
                 update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
                 cur.execute(update_query, (new_name, name))
     
@@ -2160,7 +2160,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             # Проверяем пересечение артикулов
             # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
             if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
-                if min_a <= float(row["area_m2"]) <= max_a:
+            if min_a <= float(row["area_m2"]) <= max_a:
                     # Получаем информацию о создателе защиты
                     # Инициализируем переменную до использования
                     creator_name = "—"
@@ -2187,28 +2187,28 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         """)
                     cur.execute(admin_query)
                     admins = cur.fetchall()
-                    
-                    duplicate_msg = (
-                        f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                
+                duplicate_msg = (
+                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                         f"<b>Существующая защита:</b>\n"
-                        f"👤 Менеджер: {row['manager']}\n"
+                    f"👤 Менеджер: {row['manager']}\n"
                         f"👤 Создатель: {creator_name}\n"
-                        f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                        f"❗️Артикул: {row['sku']}\n"
-                        f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                        f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                    f"❗️Артикул: {row['sku']}\n"
+                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
                         f"<b>Попытка создать:</b>\n"
                         f"👤 Пользователь: {payload.manager or '—'}\n"
-                        f"📦 SKU: {sku_display}\n"
-                        f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                    f"📦 SKU: {sku_display}\n"
+                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
                         f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                    )
-                    
+                )
+                
                     # Отправляем уведомления асинхронно через BackgroundTasks
                     # Сохраняем creator_name в локальную переменную для использования в замыкании
                     creator_name_for_notification = creator_name
-                    async def send_duplicate_notifications():
-                        sent_count = 0
+                async def send_duplicate_notifications():
+                    sent_count = 0
                         msg = (
                             f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
                             f"<b>Существующая защита:</b>\n"
@@ -2248,15 +2248,15 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         background_tasks.add_task(send_duplicate_notifications)
                     else:
                         # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                        try:
+                try:
                             import asyncio
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
-                                asyncio.create_task(send_duplicate_notifications())
+                    asyncio.create_task(send_duplicate_notifications())
                             else:
                                 loop.run_until_complete(send_duplicate_notifications())
-                        except Exception as e:
-                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
                     # Формируем полную информацию о похожей защите для передачи в модальное окно
                     similar_protection_data = {
@@ -2331,7 +2331,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-        insert_sql = _adapt_query("""
+    insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
@@ -2360,7 +2360,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
         result = cur.fetchone()
         new_id = result["id"] if result else None
     else:
-        new_id = cur.lastrowid
+    new_id = cur.lastrowid
     
     if not new_id:
         conn.close()
@@ -2404,8 +2404,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     asyncio.create_task(notify_admin_new_protection(row_dict))
                 else:
                     loop.run_until_complete(notify_admin_new_protection(row_dict))
-        except Exception as e:
-            print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+            except Exception as e:
+                print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
 
     conn.close()
     return row_to_out(row)
