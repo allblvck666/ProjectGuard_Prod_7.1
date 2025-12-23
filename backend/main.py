@@ -2331,7 +2331,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             RETURNING id
         """
     else:
-    insert_sql = _adapt_query("""
+        insert_sql = _adapt_query("""
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at, closed_at,
