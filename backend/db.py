@@ -349,10 +349,11 @@ def upsert_user(data: dict):
             update_query = _adapt_query("UPDATE users SET tg_id = ? WHERE id = ?")
             cur.execute(update_query, (tg_id, existing_id))
             conn.commit()
-            # Перечитываем пользователя
-    query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
-    cur.execute(query, (tg_id,))
-    existing = cur.fetchone()
+            # Перечитываем пользователя по нормализованному tg_id
+            query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
+            cur.execute(query, (tg_id,))
+            existing = cur.fetchone()
+        # Если tg_id уже нормализованный, existing остается как есть
     
     now = now_iso()
     
