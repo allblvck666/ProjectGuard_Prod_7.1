@@ -58,7 +58,7 @@ if not BOT_TOKEN:
 # === Локальные модули ===
 from backend.db import (
     get_user_by_id,
-    get_conn, init_db, now_iso, add_days, load_skus,
+    get_conn, init_db, now_iso, add_days, add_workdays, load_skus,
     get_user_by_email, create_user, update_user, get_all_users,
     get_user_by_tg_id, upsert_user, _adapt_query, USE_POSTGRES
 )
@@ -2204,62 +2204,8 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                     f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                 )
                 
-                # Отправляем уведомления асинхронно через BackgroundTasks
-                # Сохраняем creator_name в локальную переменную для использования в замыкании
-                creator_name_for_notification = creator_name
-                async def send_duplicate_notifications():
-                    sent_count = 0
-                    msg = (
-                            f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
-                            f"<b>Существующая защита:</b>\n"
-                            f"👤 Менеджер: {row['manager']}\n"
-                            f"👤 Создатель: {creator_name_for_notification}\n"
-                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                            f"❗️Артикул: {row['sku']}\n"
-                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                            f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
-                            f"<b>Попытка создать:</b>\n"
-                            f"👤 Пользователь: {payload.manager or '—'}\n"
-                            f"📦 SKU: {sku_display}\n"
-                            f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
-                            f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                        )
-                    for admin in admins:
-                        tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                        if tg_id:
-                            try:
-                                tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                if tg_id_int:
-                                    await bot.send_message(
-                                        tg_id_int,
-                                        msg,
-                                        parse_mode="HTML"
-                                    )
-                                    sent_count += 1
-                                    print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                            except Exception as e:
-                                print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
-                    
-                    if sent_count > 0:
-                        print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
-                
-                    # Используем BackgroundTasks для отправки уведомлений
-                    if background_tasks:
-                        background_tasks.add_task(send_duplicate_notifications)
-                    else:
-                        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                        try:
-                            import asyncio
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.create_task(send_duplicate_notifications())
-                            else:
-                                loop.run_until_complete(send_duplicate_notifications())
-                        except Exception as e:
-                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
-                
-                    # Формируем полную информацию о похожей защите для передачи в модальное окно
-                    similar_protection_data = {
+                # Формируем полную информацию о похожей защите для передачи в модальное окно
+                similar_protection_data = {
                         "id": row.get("id"),
                         "manager": row.get("manager", "—"),
                         "creator_name": creator_name,
@@ -2274,19 +2220,78 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         "last4": row.get("last4", "—"),
                         "comment": row.get("comment", "—"),
                     }
+                    
+                # Отправляем уведомления асинхронно через BackgroundTasks
+                # Сохраняем данные в локальные переменные для использования в замыкании
+                creator_name_for_notification = creator_name
+                row_data = dict(row)
+                sku_display_for_notification = sku_display
+                total_area_for_notification = total_area
+                manager_for_notification = payload.manager or "—"
+                
+                async def send_duplicate_notifications():
+                        sent_count = 0
+                        msg = (
+                            f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                            f"<b>Существующая защита:</b>\n"
+                            f"👤 Менеджер: {row_data['manager']}\n"
+                            f"👤 Создатель: {creator_name_for_notification}\n"
+                            f"🏢 Партнёр: {row_data.get('partner', '—')}\n"
+                            f"❗️Артикул: {row_data['sku']}\n"
+                            f"📏 Метраж: {int(row_data['area_m2']) if float(row_data['area_m2']).is_integer() else row_data['area_m2']} м²\n"
+                            f"⏰ Истекает: {row_data['expires_at'][:10]}\n\n"
+                            f"<b>Попытка создать:</b>\n"
+                            f"👤 Пользователь: {manager_for_notification}\n"
+                            f"📦 SKU: {sku_display_for_notification}\n"
+                            f"📏 Метраж: {int(total_area_for_notification) if total_area_for_notification.is_integer() else total_area_for_notification} м²\n\n"
+                            f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+                        )
+                        for admin in admins:
+                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                            if tg_id:
+                                try:
+                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                                    if tg_id_int:
+                                        await bot.send_message(
+                                            tg_id_int,
+                                            msg,
+                                            parse_mode="HTML"
+                                        )
+                                        sent_count += 1
+                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                                except Exception as e:
+                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+                        
+                        if sent_count > 0:
+                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+                
+                # Используем BackgroundTasks для отправки уведомлений
+                if background_tasks:
+                    background_tasks.add_task(send_duplicate_notifications)
+                else:
+                    # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                    try:
+                        import asyncio
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            asyncio.create_task(send_duplicate_notifications())
+                        else:
+                            loop.run_until_complete(send_duplicate_notifications())
+                    except Exception as e:
+                        print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
                 
                 conn.close()
                 raise HTTPException(
-                    status_code=409,
-                    detail={
-                        "msg": (
+                        status_code=409,
+                        detail={
+                            "msg": (
                                 "⚠️ Похожая активная защита уже существует:\n\n"
-                            f"👤 Менеджер: {row['manager']}\n"
+                                f"👤 Менеджер: {row['manager']}\n"
                                 f"👤 Создатель: {creator_name}\n"
-                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                            f"❗️Артикул: {row['sku']}\n"
-                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                            f"⏰ Истекает: {row['expires_at']}\n\n"
+                                f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                                f"❗️Артикул: {row['sku']}\n"
+                                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                                f"⏰ Истекает: {row['expires_at']}\n\n"
                                 "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
                             ),
                             "similar_protection": similar_protection_data
@@ -2301,19 +2306,20 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
                 )
 
-    # ===== TTL по суммарной площади =====
-    ttl_days = 5
+    # ===== TTL по суммарной площади (в рабочих днях) =====
+    ttl_workdays = 5
     if total_area >= 50:
         if total_area < 100:
-            ttl_days = 5
+            ttl_workdays = 5
         elif total_area < 250:
-            ttl_days = 10
+            ttl_workdays = 10
         elif total_area < 500:
-            ttl_days = 15
+            ttl_workdays = 15
         else:
-            ttl_days = 30
+            ttl_workdays = 30
 
-    expires = add_days(created, ttl_days)
+    # Используем рабочие дни (исключая выходные и праздники)
+    expires = add_workdays(created, ttl_workdays)
 
     # 🆕 Сохраняем user_id создателя защиты в поле manager_id защиты
     # Это нужно для привязки защиты к пользователю и проверки прав на удаление
@@ -2695,11 +2701,12 @@ def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manag
             },
         )
 
-    new_exp = add_days(row["expires_at"], days)
+    # Используем рабочие дни для продления (исключая выходные и праздники)
+    new_exp = add_workdays(row["expires_at"], days)
     new_count = extend_count + (1 if actor == "manager" else 0)
     update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
     cur.execute(update_query, (new_exp, new_count, pid))
-    add_history(cur, pid, actor, "extend", {"days": days})
+    add_history(cur, pid, actor, "extend", {"days": days, "workdays": True})
     conn.commit()
     
     # Уведомления админам отправляются только при запросе на продление (request_extend)
@@ -3042,6 +3049,163 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     conn.commit()
     conn.close()
     return {"ok": True, "message": "Защита полностью удалена" if hard_delete else "Защита удалена"}
+
+
+# === Восстановление закрытой/удаленной защиты (только для суперадминов) ===
+@app.post("/api/admin/protections/{pid}/restore", response_model=ProtectionOut)
+def restore_protection(pid: int, user=Depends(get_admin_user)):
+    """
+    Восстанавливает закрытую или удаленную защиту.
+    Доступно только суперадминам.
+    """
+    user_role = user.get("role", "") if isinstance(user, dict) else ""
+    if user_role != "superadmin":
+        raise HTTPException(
+            status_code=403,
+            detail="Восстановление защит доступно только суперадминам"
+        )
+    
+    conn = get_conn()
+    cur = conn.cursor()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Защита не найдена")
+    
+    current_status = row.get("status", "")
+    
+    # Проверяем, что защита закрыта или удалена
+    if current_status not in ("closed", "deleted", "success", "rejected"):
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail=f"Защита уже активна (статус: {current_status})"
+        )
+    
+    # Восстанавливаем защиту: статус -> 'active', закрываем closed_at
+    update_query = _adapt_query("UPDATE protections SET status='active', closed_at=NULL WHERE id=?")
+    cur.execute(update_query, (pid,))
+    
+    # Записываем в историю
+    add_history(cur, pid, "superadmin", "restore", {
+        "previous_status": current_status,
+        "restored_at": now_iso()
+    })
+    
+    conn.commit()
+    
+    # Получаем обновленную защиту
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    conn.close()
+    
+    return row_to_out(row)
+
+
+# === Обновление закрытой защиты (для менеджеров - добавление причины/успеха) ===
+@app.put("/api/protections/{pid}/update-closed", response_model=ProtectionOut)
+def update_closed_protection(pid: int, data: dict = Body(...), user=Depends(get_current_active_user)):
+    """
+    Позволяет менеджеру добавить причину закрытия или отметить защиту как успешную
+    в закрытых/удаленных защитах (для статистики).
+    Доступно только автору защиты или админу.
+    """
+    conn = get_conn()
+    cur = conn.cursor()
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Защита не найдена")
+    
+    current_status = row.get("status", "")
+    
+    # Проверяем, что защита закрыта, удалена или успешна
+    if current_status not in ("closed", "deleted", "success", "rejected"):
+        conn.close()
+        raise HTTPException(
+            status_code=400,
+            detail="Обновление доступно только для закрытых, удаленных или успешных защит"
+        )
+    
+    # Проверяем права: автор или админ
+    current_user_id = user.get("id") if isinstance(user, dict) else None
+    user_role = user.get("role", "") if isinstance(user, dict) else ""
+    is_admin = user_role in ("admin", "superadmin")
+    
+    protection_manager_id = row["manager_id"] if "manager_id" in row.keys() else None
+    is_author = current_user_id and protection_manager_id and current_user_id == protection_manager_id
+    
+    if not is_author and not is_admin:
+        conn.close()
+        raise HTTPException(
+            status_code=403,
+            detail="Обновить защиту может только её автор или администратор"
+        )
+    
+    # Получаем данные для обновления
+    close_reason = data.get("close_reason", "").strip()
+    success_doc = data.get("success_doc", "").strip()
+    new_status = data.get("status")  # Опционально: можно изменить статус
+    
+    updates = []
+    values = []
+    placeholder = _get_param_placeholder()
+    
+    # Обновляем причину закрытия
+    if close_reason:
+        updates.append(f"close_reason = {placeholder}")
+        values.append(close_reason)
+    
+    # Если указан документ успеха, меняем статус на 'success'
+    if success_doc:
+        updates.append(f"status = {placeholder}")
+        values.append("success")
+        updates.append(f"closed_at = {placeholder}")
+        values.append(now_iso())
+        # Записываем в историю
+        add_history(cur, pid, "manager" if is_author else "admin", "success", {
+            "doc_1c": success_doc,
+            "source": "archive_update"
+        })
+    
+    # Если явно указан новый статус (только для админов)
+    elif new_status and is_admin and new_status in ("closed", "success", "deleted"):
+        updates.append(f"status = {placeholder}")
+        values.append(new_status)
+    
+    # Если есть обновления
+    if updates:
+        values.append(pid)
+        update_query = f"UPDATE protections SET {', '.join(updates)} WHERE id = {placeholder}"
+        cur.execute(update_query, values)
+        
+        # Записываем в историю обновление
+        history_payload = {}
+        if close_reason:
+            history_payload["close_reason"] = close_reason
+        if success_doc:
+            history_payload["doc_1c"] = success_doc
+        
+        if history_payload:
+            add_history(cur, pid, "manager" if is_author else "admin", "update_closed", history_payload)
+        
+        conn.commit()
+    
+    # Получаем обновленную защиту
+    query = _adapt_query("SELECT * FROM protections WHERE id=?")
+    cur.execute(query, (pid,))
+    row = cur.fetchone()
+    conn.close()
+    
+    return row_to_out(row)
+
 
 # --- админ: запросы на продление
 @app.get("/api/admin/extend-requests")
@@ -3448,18 +3612,19 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
             detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
         )
 
-    # === TTL ===
-    ttl_days = 5
+    # === TTL (в рабочих днях) ===
+    ttl_workdays = 5
     if total_area >= 50:
         if total_area < 100:
-            ttl_days = 5
+            ttl_workdays = 5
         elif total_area < 250:
-            ttl_days = 10
+            ttl_workdays = 10
         elif total_area < 500:
-            ttl_days = 15
+            ttl_workdays = 15
         else:
-            ttl_days = 30
-    expires = add_days(created, ttl_days)
+            ttl_workdays = 30
+    # Используем рабочие дни (исключая выходные и праздники)
+    expires = add_workdays(created, ttl_workdays)
 
     # === Запись в базу ===
     # Строим INSERT запрос с RETURNING для PostgreSQL
@@ -5106,14 +5271,15 @@ async def cmd_extend(message: types.Message):
             conn.close()
             return
         
-        # Продлеваем
-        new_exp = add_days(row.get("expires_at") if isinstance(row, dict) else row[12], days)
+        # Продлеваем (используем рабочие дни)
+        expires_at_value = row.get("expires_at") if isinstance(row, dict) else row[12]
+        new_exp = add_workdays(expires_at_value, days)
         extend_count = (row.get("extend_count") or 0) if isinstance(row, dict) else (row[14] or 0)
         new_count = extend_count + (1 if not is_admin else 0)
         
         update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
         cur.execute(update_query, (new_exp, new_count, pid))
-        add_history(cur, pid, "admin" if is_admin else "manager", "extend", {"days": days, "source": "tg"})
+        add_history(cur, pid, "admin" if is_admin else "manager", "extend", {"days": days, "workdays": True, "source": "tg"})
         conn.commit()
         conn.close()
         

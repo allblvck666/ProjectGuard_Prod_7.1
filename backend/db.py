@@ -3,6 +3,7 @@ import sqlite3
 import csv
 from pathlib import Path
 from datetime import datetime, timedelta
+from typing import Set
 
 # Базовая директория
 BASE_DIR = Path(__file__).resolve().parent
@@ -10,7 +11,11 @@ BASE_DIR = Path(__file__).resolve().parent
 # Загрузка переменных окружения из .env файла (для локальной разработки)
 try:
     from dotenv import load_dotenv
-    load_dotenv(BASE_DIR / ".env")
+    try:
+        load_dotenv(BASE_DIR / ".env")
+    except (PermissionError, FileNotFoundError, OSError):
+        # Файл недоступен или не существует - это нормально на Render
+        pass
 except ImportError:
     # python-dotenv не установлен, используем только системные переменные окружения
     pass
@@ -803,3 +808,106 @@ def now_iso():
 def add_days(dt_iso, days: int):
     dt = datetime.fromisoformat(dt_iso.replace("Z", ""))
     return (dt + timedelta(days=days)).isoformat(timespec="seconds") + "Z"
+
+
+# === Рабочие дни (исключая выходные и праздники) ===
+def get_russian_holidays(year: int) -> Set[datetime]:
+    """
+    Возвращает множество дат российских праздников для указанного года.
+    Включает новогодние каникулы, 23 февраля, 8 марта, 1 мая, 9 мая, 12 июня, 4 ноября и др.
+    """
+    holidays = set()
+    
+    # Новогодние каникулы (1-8 января)
+    for day in range(1, 9):
+        holidays.add(datetime(year, 1, day))
+    
+    # 23 февраля - День защитника Отечества
+    holidays.add(datetime(year, 2, 23))
+    
+    # 8 марта - Международный женский день
+    holidays.add(datetime(year, 3, 8))
+    
+    # 1 мая - Праздник Весны и Труда
+    holidays.add(datetime(year, 5, 1))
+    
+    # 9 мая - День Победы
+    holidays.add(datetime(year, 5, 9))
+    
+    # 12 июня - День России
+    holidays.add(datetime(year, 6, 12))
+    
+    # 4 ноября - День народного единства
+    holidays.add(datetime(year, 11, 4))
+    
+    # Если праздник выпадает на субботу, переносится на понедельник
+    # Если на воскресенье - на понедельник
+    # (упрощенная логика, можно расширить)
+    
+    return holidays
+
+
+def is_workday(date: datetime, holidays: Set[datetime] = None) -> bool:
+    """
+    Проверяет, является ли день рабочим.
+    Выходные: суббота (5) и воскресенье (6).
+    """
+    # Суббота и воскресенье - выходные
+    if date.weekday() >= 5:  # 5 = суббота, 6 = воскресенье
+        return False
+    
+    # Проверяем праздники
+    date_only = datetime(date.year, date.month, date.day)
+    
+    if holidays is None:
+        # Получаем праздники для текущего года
+        holidays = get_russian_holidays(date.year)
+        # Если январь, также проверяем праздники предыдущего года (для новогодних каникул)
+        if date.month == 1:
+            prev_holidays = get_russian_holidays(date.year - 1)
+            holidays.update(prev_holidays)
+    
+    # Проверяем, является ли дата праздником
+    if date_only in holidays:
+        return False
+    
+    return True
+
+
+def add_workdays(dt_iso: str, workdays: int) -> str:
+    """
+    Добавляет указанное количество рабочих дней к дате.
+    Исключает выходные (суббота, воскресенье) и российские праздники.
+    
+    Args:
+        dt_iso: Дата в формате ISO (например, "2024-01-15T10:30:00Z")
+        workdays: Количество рабочих дней для добавления
+    
+    Returns:
+        Новая дата в формате ISO
+    """
+    dt = datetime.fromisoformat(dt_iso.replace("Z", ""))
+    
+    # Получаем праздники для текущего и следующего года (на случай перехода через год)
+    holidays_current = get_russian_holidays(dt.year)
+    holidays_next = get_russian_holidays(dt.year + 1)
+    all_holidays = holidays_current.union(holidays_next)
+    
+    # Если начальная дата - выходной или праздник, начинаем со следующего рабочего дня
+    # (но не пропускаем дни, просто начинаем отсчет с первого рабочего дня)
+    start_dt = dt
+    
+    # Добавляем рабочие дни
+    added_days = 0
+    current_dt = start_dt
+    
+    while added_days < workdays:
+        current_dt += timedelta(days=1)
+        # Обновляем праздники, если перешли на следующий год
+        if current_dt.year > dt.year:
+            all_holidays = get_russian_holidays(current_dt.year).union(get_russian_holidays(current_dt.year + 1))
+        
+        if is_workday(current_dt, all_holidays):
+            added_days += 1
+    
+    return current_dt.isoformat(timespec="seconds") + "Z"
