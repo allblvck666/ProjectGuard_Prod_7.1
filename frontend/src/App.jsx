@@ -1149,6 +1149,50 @@ function ActiveProtectionsPage({
         </Modal>
       )}
 
+      {/* Модальное окно для редактирования закрытых защит */}
+      {updateClosedModal.open && (
+        <Modal
+          title={updateClosedModal.mode === "success" ? "✅ Отметить защиту как успешную" : "✏️ Добавить причину закрытия"}
+          onClose={() => setUpdateClosedModal({ open: false, id: null, close_reason: "", success_doc: "", mode: "reason" })}
+          onOk={updateClosedProtection}
+          okText={updateClosedModal.mode === "success" ? "✅ Сохранить" : "💾 Сохранить"}
+        >
+          {updateClosedModal.mode === "success" ? (
+            <div>
+              <div className="small" style={{ marginBottom: 12, color: "rgba(255, 255, 255, 0.8)" }}>
+                Укажите номер документа из 1С для отметки защиты как успешной:
+              </div>
+              <input
+                className="input"
+                placeholder="Номер документа 1С"
+                value={updateClosedModal.success_doc}
+                onChange={(e) => setUpdateClosedModal({ ...updateClosedModal, success_doc: e.target.value })}
+                style={{ marginBottom: 10 }}
+              />
+              <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
+                💡 После сохранения защита будет отмечена как успешная и появится в статистике
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="small" style={{ marginBottom: 12, color: "rgba(255, 255, 255, 0.8)" }}>
+                Укажите причину закрытия защиты:
+              </div>
+              <textarea
+                className="input"
+                placeholder="Причина закрытия защиты"
+                value={updateClosedModal.close_reason}
+                onChange={(e) => setUpdateClosedModal({ ...updateClosedModal, close_reason: e.target.value })}
+                style={{ minHeight: 100, marginBottom: 10 }}
+              />
+              <div className="small" style={{ marginTop: 6, opacity: 0.8 }}>
+                💡 Причина будет сохранена в истории защиты
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
       {extendRequestModal.open && (
         <Modal
           title="Запрос на продление защиты"
@@ -1185,7 +1229,8 @@ function ActiveProtectionsPage({
 // Компонент: Архив защит (только закрытые защиты с поиском)
 function ArchivePage({
   items, expanded, toggleExpand, search, setSearch,
-  managerFilter, setManagerFilter, managers, load, loading, onBack
+  managerFilter, setManagerFilter, managers, load, loading, onBack,
+  updateClosedModal, setUpdateClosedModal
 }) {
   // Фильтруем только закрытые защиты (не active)
   let filteredItems = items.filter(it => it.status !== "active");
@@ -1339,6 +1384,64 @@ function ArchivePage({
                     {it.action_actor && it.action_at && (
                       <div className="small" style={{ marginTop: 8, padding: 8, background: "rgba(59, 130, 246, 0.1)", borderRadius: 8, border: "1px solid rgba(59, 130, 246, 0.2)" }}>
                         👤 <b>Действие выполнено:</b> {it.action_actor} | 📅 {new Date(it.action_at).toLocaleString()}
+                      </div>
+                    )}
+                    
+                    {/* Кнопки для редактирования закрытых защит */}
+                    {(it.status === "closed" || it.status === "deleted" || it.status === "success") && (
+                      <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {it.status !== "success" && (
+                          <button
+                            className="btn"
+                            style={{ flex: "1 1 auto", minWidth: "120px", fontSize: "14px", padding: "8px 12px" }}
+                            onClick={() => {
+                              const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
+                              const isAuthor = user.id && it.manager_id && user.id === it.manager_id;
+                              const isAdmin = user.role === "admin" || user.role === "superadmin";
+                              
+                              if (!isAuthor && !isAdmin) {
+                                alert("❌ Обновить защиту может только её автор или администратор");
+                                return;
+                              }
+                              
+                              setUpdateClosedModal({
+                                open: true,
+                                id: it.id,
+                                close_reason: it.close_reason || "",
+                                success_doc: "",
+                                mode: "reason"
+                              });
+                            }}
+                          >
+                            ✏️ Добавить причину
+                          </button>
+                        )}
+                        {it.status !== "success" && (
+                          <button
+                            className="btn"
+                            style={{ flex: "1 1 auto", minWidth: "120px", fontSize: "14px", padding: "8px 12px", background: "#22c55e", color: "white" }}
+                            onClick={() => {
+                              const user = JSON.parse(localStorage.getItem("auth_user") || "{}");
+                              const isAuthor = user.id && it.manager_id && user.id === it.manager_id;
+                              const isAdmin = user.role === "admin" || user.role === "superadmin";
+                              
+                              if (!isAuthor && !isAdmin) {
+                                alert("❌ Обновить защиту может только её автор или администратор");
+                                return;
+                              }
+                              
+                              setUpdateClosedModal({
+                                open: true,
+                                id: it.id,
+                                close_reason: "",
+                                success_doc: it.success_doc || "",
+                                mode: "success"
+                              });
+                            }}
+                          >
+                            ✅ Отметить как успешную
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1758,6 +1861,43 @@ function App() {
     payload: null, 
     requestReason: "" 
   });
+
+  // === Редактирование закрытых защит (для архива) ===
+  const [updateClosedModal, setUpdateClosedModal] = useState({
+    open: false,
+    id: null,
+    close_reason: "",
+    success_doc: "",
+    mode: "reason" // "reason" | "success"
+  });
+
+  // === Обновление закрытых защит ===
+  const updateClosedProtection = async () => {
+    if (!updateClosedModal.id) return;
+    
+    const payload = {};
+    if (updateClosedModal.mode === "reason" && updateClosedModal.close_reason.trim()) {
+      payload.close_reason = updateClosedModal.close_reason.trim();
+    }
+    if (updateClosedModal.mode === "success" && updateClosedModal.success_doc.trim()) {
+      payload.success_doc = updateClosedModal.success_doc.trim();
+    }
+    
+    if (Object.keys(payload).length === 0) {
+      alert("❌ Заполните хотя бы одно поле");
+      return;
+    }
+    
+    try {
+      await api.put(`/api/protections/${updateClosedModal.id}/update-closed`, payload);
+      setUpdateClosedModal({ open: false, id: null, close_reason: "", success_doc: "", mode: "reason" });
+      await load();
+      alert("✅ Защита обновлена");
+    } catch (err) {
+      const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при обновлении защиты";
+      alert("❌ " + userMessage);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -2454,6 +2594,8 @@ if (isTG && (!ready || loading)) {
         loading={loading}
         onBack={goHome}
         extendRequestModal={extendRequestModal}
+        updateClosedModal={updateClosedModal}
+        setUpdateClosedModal={setUpdateClosedModal}
         setExtendRequestModal={setExtendRequestModal}
         submitExtendRequest={submitExtendRequest}
       />
@@ -2474,6 +2616,8 @@ if (isTG && (!ready || loading)) {
         managers={managers}
         load={load}
         loading={loading}
+        updateClosedModal={updateClosedModal}
+        setUpdateClosedModal={setUpdateClosedModal}
         onBack={goHome}
       />
     );
