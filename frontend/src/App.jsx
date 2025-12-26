@@ -687,7 +687,8 @@ function ActiveProtectionsPage({
   editSelectedSkus, setEditSelectedSkus, editPerSkuMode, setEditPerSkuMode,
   editAreaUnified, setEditAreaUnified, editComment, setEditComment,
   submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack,
-  extendRequestModal, setExtendRequestModal, submitExtendRequest
+  extendRequestModal, setExtendRequestModal, submitExtendRequest,
+  updateClosedModal, setUpdateClosedModal
 }) {
   const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
   const [search, setSearch] = useState("");
