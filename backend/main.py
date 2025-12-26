@@ -2187,49 +2187,50 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         """)
                     cur.execute(admin_query)
                     admins = cur.fetchall()
-                
-                duplicate_msg = (
-                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
-                    f"<b>Существующая защита:</b>\n"
-                    f"👤 Менеджер: {row['manager']}\n"
-                    f"👤 Создатель: {creator_name}\n"
-                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                    f"❗️Артикул: {row['sku']}\n"
-                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                    f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
-                    f"<b>Попытка создать:</b>\n"
-                    f"👤 Пользователь: {payload.manager or '—'}\n"
-                    f"📦 SKU: {sku_display}\n"
-                    f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
-                    f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                )
-                
-                # Формируем полную информацию о похожей защите для передачи в модальное окно
-                similar_protection_data = {
-                        "id": row.get("id"),
-                        "manager": row.get("manager", "—"),
-                        "creator_name": creator_name,
-                        "partner": row.get("partner", "—"),
-                        "partner_city": row.get("partner_city", "—"),
-                        "client": row.get("client", "—"),
-                        "sku": row.get("sku", "—"),
-                        "area_m2": row.get("area_m2"),
-                        "expires_at": row.get("expires_at", "—"),
-                        "object_city": row.get("object_city", "—"),
-                        "address": row.get("address", "—"),
-                        "last4": row.get("last4", "—"),
-                        "comment": row.get("comment", "—"),
-                    }
                     
-                # Отправляем уведомления асинхронно через BackgroundTasks
-                # Сохраняем данные в локальные переменные для использования в замыкании
-                creator_name_for_notification = creator_name
-                row_data = dict(row)
-                sku_display_for_notification = sku_display
-                total_area_for_notification = total_area
-                manager_for_notification = payload.manager or "—"
-                
-                async def send_duplicate_notifications():
+                    duplicate_msg = (
+                        f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                        f"<b>Существующая защита:</b>\n"
+                        f"👤 Менеджер: {row['manager']}\n"
+                        f"👤 Создатель: {creator_name}\n"
+                        f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                        f"❗️Артикул: {row['sku']}\n"
+                        f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                        f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                        f"<b>Попытка создать:</b>\n"
+                        f"👤 Пользователь: {payload.manager or '—'}\n"
+                        f"📦 SKU: {sku_display}\n"
+                        f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                        f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+                    )
+                    
+                    # Формируем полную информацию о похожей защите для передачи в модальное окно
+                    similar_protection_data = {
+                            "id": row.get("id"),
+                            "manager": row.get("manager", "—"),
+                            "creator_name": creator_name,
+                            "partner": row.get("partner", "—"),
+                            "partner_city": row.get("partner_city", "—"),
+                            "client": row.get("client", "—"),
+                            "sku": row.get("sku", "—"),
+                            "area_m2": row.get("area_m2"),
+                            "expires_at": row.get("expires_at", "—"),
+                            "object_city": row.get("object_city", "—"),
+                            "address": row.get("address", "—"),
+                            "last4": row.get("last4", "—"),
+                            "comment": row.get("comment", "—"),
+                        }
+                        
+                    # Отправляем уведомления асинхронно через BackgroundTasks
+                    # Сохраняем данные в локальные переменные для использования в замыкании
+                    creator_name_for_notification = creator_name
+                    row_data = dict(row)
+                    sku_display_for_notification = sku_display
+                    total_area_for_notification = total_area
+                    manager_for_notification = payload.manager or "—"
+                    admins_for_notification = admins
+                    
+                    async def send_duplicate_notifications():
                         sent_count = 0
                         msg = (
                             f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
@@ -2246,7 +2247,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                             f"📏 Метраж: {int(total_area_for_notification) if total_area_for_notification.is_integer() else total_area_for_notification} м²\n\n"
                             f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
                         )
-                        for admin in admins:
+                        for admin in admins_for_notification:
                             tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
                             if tg_id:
                                 try:
@@ -2265,38 +2266,38 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
                         if sent_count > 0:
                             print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
                 
-                # Используем BackgroundTasks для отправки уведомлений
-                if background_tasks:
-                    background_tasks.add_task(send_duplicate_notifications)
-                else:
-                    # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                    try:
-                        import asyncio
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            asyncio.create_task(send_duplicate_notifications())
-                        else:
-                            loop.run_until_complete(send_duplicate_notifications())
-                    except Exception as e:
-                        print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
-                
-                conn.close()
-                raise HTTPException(
-                        status_code=409,
-                        detail={
-                            "msg": (
-                                "⚠️ Похожая активная защита уже существует:\n\n"
-                                f"👤 Менеджер: {row['manager']}\n"
-                                f"👤 Создатель: {creator_name}\n"
-                                f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                                f"❗️Артикул: {row['sku']}\n"
-                                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                                f"⏰ Истекает: {row['expires_at']}\n\n"
-                                "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
-                            ),
-                            "similar_protection": similar_protection_data
-                        }
-                    )
+                    # Используем BackgroundTasks для отправки уведомлений
+                    if background_tasks:
+                        background_tasks.add_task(send_duplicate_notifications)
+                    else:
+                        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                        try:
+                            import asyncio
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                asyncio.create_task(send_duplicate_notifications())
+                            else:
+                                loop.run_until_complete(send_duplicate_notifications())
+                        except Exception as e:
+                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+                    
+                    conn.close()
+                    raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "msg": (
+                                    "⚠️ Похожая активная защита уже существует:\n\n"
+                                    f"👤 Менеджер: {row['manager']}\n"
+                                    f"👤 Создатель: {creator_name}\n"
+                                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                                    f"❗️Артикул: {row['sku']}\n"
+                                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                                    f"⏰ Истекает: {row['expires_at']}\n\n"
+                                    "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
+                                ),
+                                "similar_protection": similar_protection_data
+                            }
+                        )
 
     # ===== Проверка минимальной площади (50 м²) =====
     if total_area < 50:
