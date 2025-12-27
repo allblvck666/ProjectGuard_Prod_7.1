@@ -70,7 +70,7 @@ def init_users_table():
 
 # === Добавить пользователя ===
 @router.post("/")
-def add_user(data: UserCreate):
+def add_user(data: UserCreate, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     
@@ -102,7 +102,7 @@ def add_user(data: UserCreate):
 
 # === Список пользователей ===
 @router.get("/")
-def list_users():
+def list_users(user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     query = "SELECT * FROM users ORDER BY id DESC"
@@ -121,7 +121,7 @@ def list_users():
 
 # === Привязать помощника к менеджеру ===
 @router.post("/link-assistant")
-def link_assistant(data: LinkAssistant):
+def link_assistant(data: LinkAssistant, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     placeholder = _get_param_placeholder()
@@ -146,7 +146,7 @@ def link_assistant(data: LinkAssistant):
 
 # === Получить помощников по менеджеру ===
 @router.get("/assistants/{manager_id}")
-def get_assistants(manager_id: int):
+def get_assistants(manager_id: int, user=Depends(require_admin)):
     conn = get_conn()
     cur = conn.cursor()
     query = _adapt_query("SELECT * FROM users WHERE manager_id=?")

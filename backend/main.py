@@ -41,16 +41,24 @@ JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
 ALGORITHM = "HS256"
 FRONTEND_URL = env_get("FRONTEND_URL", "https://projectguard-frontend-prod-7-1.onrender.com")
 DB_PATH = env_get("DB_PATH", str(BASE_DIR / "data.sqlite3"))
+DEBUG_CONFIG = env_get("DEBUG_CONFIG", "0") == "1"
 
-print("DEBUG .env path:", ENV_PATH)
-print("DEBUG env_file keys:", list(env_file.keys()))
-print("DEBUG BOT_TOKEN value exists:", bool(BOT_TOKEN))
-print("DEBUG SECRET_KEY exists:", bool(SECRET_KEY))
-print("DEBUG JWT_SECRET exists:", bool(JWT_SECRET))
-if JWT_SECRET:
-    print("DEBUG JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
-if SECRET_KEY:
-    print("DEBUG SECRET_KEY length:", len(SECRET_KEY), "start:", SECRET_KEY[:10] + "...")
+ALLOW_DEV_LOGIN = env_get("ALLOW_DEV_LOGIN", "0") == "1"
+TELEGRAM_WEBHOOK_SECRET = env_get("TELEGRAM_WEBHOOK_SECRET")
+NOTIFY_TOKEN = env_get("NOTIFY_TOKEN")
+TELEGRAM_LOGIN_REQUIRE_INIT_DATA = env_get("TELEGRAM_LOGIN_REQUIRE_INIT_DATA", "0") == "1"
+TELEGRAM_LOGIN_MAX_AGE_SECONDS = int(env_get("TELEGRAM_LOGIN_MAX_AGE_SECONDS", "86400"))
+
+if DEBUG_CONFIG:
+    print("DEBUG .env path:", ENV_PATH)
+    print("DEBUG env_file keys:", list(env_file.keys()))
+    print("DEBUG BOT_TOKEN value exists:", bool(BOT_TOKEN))
+    print("DEBUG SECRET_KEY exists:", bool(SECRET_KEY))
+    print("DEBUG JWT_SECRET exists:", bool(JWT_SECRET))
+    if JWT_SECRET:
+        print("DEBUG JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
+    if SECRET_KEY:
+        print("DEBUG SECRET_KEY length:", len(SECRET_KEY), "start:", SECRET_KEY[:10] + "...")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Проверь backend/.env или переменные окружения.")
@@ -90,6 +98,48 @@ def fmt_iso(dt: datetime) -> str:
     if not dt:
         return None
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
+
+def _parse_telegram_init_data(init_data: str) -> dict | None:
+    try:
+        from urllib.parse import parse_qs, unquote
+        params = parse_qs(init_data, keep_blank_values=True)
+        user_raw = params.get("user", [None])[0]
+        if not user_raw:
+            return None
+        return json.loads(unquote(user_raw))
+    except Exception:
+        return None
+
+def _validate_telegram_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> bool:
+    try:
+        from urllib.parse import parse_qs
+        params = parse_qs(init_data, keep_blank_values=True)
+        hash_value = params.pop("hash", [None])[0]
+        if not hash_value:
+            return False
+
+        data_check_string = "\n".join(
+            f"{k}={v[0]}" for k, v in sorted(params.items())
+        )
+        secret = hashlib.sha256(bot_token.encode("utf-8")).digest()
+        expected_hash = hmac.new(
+            secret, data_check_string.encode("utf-8"), hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(expected_hash, hash_value):
+            return False
+
+        auth_date = params.get("auth_date", [None])[0]
+        if auth_date:
+            try:
+                auth_date_int = int(auth_date)
+            except ValueError:
+                return False
+            if abs(int(time.time()) - auth_date_int) > max_age_seconds:
+                return False
+
+        return True
+    except Exception:
+        return False
 
 from contextlib import asynccontextmanager
 
@@ -1436,6 +1486,8 @@ def update_my_tg_id(data: dict = Body(...), user=Depends(get_current_user)):
 # ===== DEV-авторизация без проверки Telegram =====
 @app.post("/api/auth/dev-login")
 def dev_login(payload: dict):
+    if not ALLOW_DEV_LOGIN:
+        raise HTTPException(status_code=404, detail="Not found")
     from backend.db import normalize_tg_id
     tg_id_raw = payload.get("tg_id") or payload.get("id") or "0"
     tg_id_normalized = normalize_tg_id(tg_id_raw)
@@ -1758,13 +1810,32 @@ def admin_list_managers(user=Depends(get_admin_user)):
 @app.post("/api/auth/telegram-login")
 async def telegram_login(request: Request):
     data = await request.json()
+    init_data = data.get("init_data") or data.get("initData")
 
-    tg_id = int(data.get("tg_id") or 0)
-    if not tg_id:
-        raise HTTPException(status_code=400, detail="tg_id is required")
+    if TELEGRAM_LOGIN_REQUIRE_INIT_DATA:
+        if not BOT_TOKEN:
+            raise HTTPException(status_code=500, detail="BOT_TOKEN is not configured")
+        if not init_data:
+            raise HTTPException(status_code=403, detail="init_data is required")
+        if not _validate_telegram_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS):
+            raise HTTPException(status_code=403, detail="Invalid init_data")
 
-    username = data.get("username") or ""
-    first_name = data.get("first_name") or "User"
+        user_payload = _parse_telegram_init_data(init_data) or {}
+        tg_id = int(user_payload.get("id") or 0)
+        if not tg_id:
+            raise HTTPException(status_code=400, detail="tg_id is required")
+        username = user_payload.get("username") or data.get("username") or ""
+        first_name = user_payload.get("first_name") or data.get("first_name") or "User"
+    else:
+        if init_data and BOT_TOKEN:
+            if not _validate_telegram_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS):
+                print("⚠️ Invalid init_data provided for telegram-login, ignoring")
+
+        tg_id = int(data.get("tg_id") or 0)
+        if not tg_id:
+            raise HTTPException(status_code=400, detail="tg_id is required")
+        username = data.get("username") or ""
+        first_name = data.get("first_name") or "User"
 
     # роль
     role = "superadmin" if tg_id == 426188469 else "manager"
@@ -1927,7 +1998,7 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
 
 # === Добавление пользователя (админка) ===
 @app.post("/api/users/")
-def create_user(user: dict):
+def create_user(user: dict, admin_user=Depends(get_admin_user)):
     try:
         print("📩 Новый пользователь:", user)
         conn = get_conn()
@@ -5411,11 +5482,14 @@ async def start_tg_bot():
         
         try:
             # Устанавливаем webhook
-            await bot.set_webhook(
-                url=webhook_url,
-                allowed_updates=["message", "callback_query"],
-                drop_pending_updates=True
-            )
+            webhook_kwargs = {
+                "url": webhook_url,
+                "allowed_updates": ["message", "callback_query"],
+                "drop_pending_updates": True,
+            }
+            if TELEGRAM_WEBHOOK_SECRET:
+                webhook_kwargs["secret_token"] = TELEGRAM_WEBHOOK_SECRET
+            await bot.set_webhook(**webhook_kwargs)
             print("✅ Webhook установлен успешно")
             print("🤖 Telegram-бот запущен через webhook (inline кнопки активны)")
         except Exception as e:
@@ -5477,6 +5551,10 @@ async def start_tg_bot():
 async def telegram_webhook(request: Request):
     """Endpoint для получения обновлений от Telegram через webhook"""
     try:
+        if TELEGRAM_WEBHOOK_SECRET:
+            secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+            if not secret or not hmac.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
+                raise HTTPException(status_code=403, detail="Invalid webhook secret")
         update_data = await request.json()
         from aiogram.types import Update
         update = Update(**update_data)
@@ -5498,13 +5576,20 @@ import requests
 
 
 @app.post("/api/notify")
-def notify_user(data: dict):
+def notify_user(data: dict, request: Request):
     import requests
 
     chat_id = data.get("chat_id") or data.get("tg_id") or data.get("tg_username")
     message = data.get("message") or data.get("text") or ""
 
     print("📩 Получен запрос на уведомление:", chat_id, message)
+
+    if NOTIFY_TOKEN:
+        token = request.headers.get("X-Notify-Token") or request.headers.get("Authorization")
+        if token and token.startswith("Bearer "):
+            token = token.replace("Bearer ", "", 1).strip()
+        if not token or not hmac.compare_digest(token, NOTIFY_TOKEN):
+            raise HTTPException(status_code=403, detail="Invalid notify token")
 
     if not chat_id:
         raise HTTPException(status_code=400, detail="chat_id is required")
@@ -5532,4 +5617,3 @@ from fastapi import Request
 @app.get("/", tags=["root"])
 def root():
     return {"ok": True, "message": "🚀 ProjectGuard backend is alive"}
-

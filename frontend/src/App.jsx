@@ -1621,6 +1621,7 @@ function App() {
           tg_id: user.id,
           username: user.username || "",
           first_name: user.first_name || "",
+          init_data: tg.initData || "",
         }),
       })
         .then((r) => {

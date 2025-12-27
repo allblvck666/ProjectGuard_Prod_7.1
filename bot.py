@@ -2,14 +2,18 @@
 # Бот запускается автоматически через backend/main.py
 # Запуск этого файла создаст конфликт с основным ботом!
 
+import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import CommandStart
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 import asyncio
 
 # === Настройки ===
-TOKEN = "8256079955:AAEaAeD___LgmxJEoeFT89tGzFN2NwxX3k0"
-WEBAPP_URL = "https://projectguard-frontend-prod-7-1.onrender.com"
+TOKEN = os.getenv("BOT_TOKEN")
+WEBAPP_URL = os.getenv("FRONTEND_URL", "https://projectguard-frontend-prod-7-1.onrender.com")
+
+if not TOKEN:
+    raise RuntimeError("BOT_TOKEN is not set")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -43,5 +47,4 @@ async def main():
 
 # if __name__ == "__main__":
 #     asyncio.run(main())
-
 
