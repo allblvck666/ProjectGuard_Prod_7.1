@@ -185,7 +185,7 @@ function PulseTab() {
   if (loading) {
     return (
       <div className="admin-card">
-        <div style={{ textAlign: "center", padding: 40, color: "rgba(255,255,255,0.6)" }}>
+        <div style={{ textAlign: "center", padding: 40, color: "var(--hint)" }}>
           Загрузка пульса компании...
         </div>
       </div>
@@ -197,7 +197,7 @@ function PulseTab() {
       {/* Компактное меню с фильтрами */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
-          <h2 style={{ margin: 0, color: "#fff", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 700 }}>
+          <h2 style={{ margin: 0, color: "var(--tg-text)", fontSize: "clamp(18px, 4.5vw, 22px)", fontWeight: 700 }}>
             💓 Пульс компании
           </h2>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>

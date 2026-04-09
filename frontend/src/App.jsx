@@ -46,35 +46,35 @@ const StatCard = memo(function StatCard({ s }) {
         <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid rgba(255, 255, 255, 0.1)" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12, fontSize: 14 }}>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Всего защит</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Всего защит</div>
               <div style={{ fontWeight: 700, fontSize: 18 }}>{s.total || 0}</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Активных</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Активных</div>
               <div style={{ fontWeight: 700, fontSize: 18, color: "#3ddc97" }}>{s.active_cnt || s.active || 0}</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Активных (м²)</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Активных (м²)</div>
               <div style={{ fontWeight: 700, fontSize: 18 }}>{s.active_area || 0} м²</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Успешных</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Успешных</div>
               <div style={{ fontWeight: 700, fontSize: 18, color: "#4ade80" }}>{s.success_cnt || s.success || 0}</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Успешных (м²)</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Успешных (м²)</div>
               <div style={{ fontWeight: 700, fontSize: 18 }}>{s.success_area || 0} м²</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Закрытых</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Закрытых</div>
               <div style={{ fontWeight: 700, fontSize: 18, color: "#f87171" }}>{s.closed_cnt || s.closed || 0}</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>Закрытых (м²)</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>Закрытых (м²)</div>
               <div style={{ fontWeight: 700, fontSize: 18 }}>{s.closed_area || 0} м²</div>
             </div>
             <div>
-              <div style={{ color: "rgba(255, 255, 255, 0.6)", marginBottom: 4 }}>% Успеха</div>
+              <div style={{ color: "var(--hint)", marginBottom: 4 }}>% Успеха</div>
               <div style={{ fontWeight: 700, fontSize: 18 }}>{s.rate || s.success_rate || 0}%</div>
             </div>
           </div>
@@ -669,7 +669,7 @@ function CreateProtectionPage({
                 }}
               />
             </div>
-            <div className="small" style={{ color: "rgba(255, 255, 255, 0.6)", fontSize: 12 }}>
+            <div className="small" style={{ color: "var(--hint)", fontSize: 12 }}>
               ⚠️ Защита будет отправлена администратору на проверку. Вы получите уведомление после решения.
             </div>
           </div>
@@ -2696,7 +2696,7 @@ if (isTG && (!ready || loading)) {
           <h2 style={{ margin: "0 0 12px 0", color: "#fff", fontWeight: 700 }}>
             Раздел в разработке
           </h2>
-          <p style={{ margin: 0, color: "rgba(255, 255, 255, 0.7)", fontSize: 16 }}>
+          <p style={{ margin: 0, color: "var(--hint-strong)", fontSize: 16 }}>
             Данный раздел находится в разработке
           </p>
           <button 

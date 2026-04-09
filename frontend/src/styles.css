@@ -20,6 +20,20 @@
     --tg-hint: var(--tg-theme-hint-color, var(--muted));
     --tg-button: var(--tg-theme-button-color, var(--accent));
     --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+
+    /* Единые "безопасные" оттенки текста для любых устройств/тем (в т.ч. Windows Telegram Mini App) */
+    --hint-soft: rgba(255, 255, 255, 0.58);
+    --hint: rgba(255, 255, 255, 0.70);
+    --hint-strong: rgba(255, 255, 255, 0.78);
+  }
+
+  /* Если браузер поддерживает color-mix — делаем оттенки от реального tg-text (лучше на Windows) */
+  @supports (color: color-mix(in srgb, #000 50%, transparent)) {
+    :root {
+      --hint-soft: color-mix(in srgb, var(--tg-text) 58%, transparent);
+      --hint: color-mix(in srgb, var(--tg-text) 70%, transparent);
+      --hint-strong: color-mix(in srgb, var(--tg-text) 78%, transparent);
+    }
   }
   
   /* Светлая тема */
@@ -36,6 +50,9 @@
     --warning: #f59e0b;
     --border: rgba(0, 0, 0, 0.15); /* Более заметная граница */
     --shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+    --hint-soft: rgba(15, 23, 42, 0.62);
+    --hint: rgba(15, 23, 42, 0.74);
+    --hint-strong: rgba(15, 23, 42, 0.82);
   }
   
   body.light-theme {
@@ -228,6 +245,29 @@
   body.light-theme h3,
   body.light-theme p {
     color: #0f172a !important; /* Явно темный цвет для лучшей читаемости */
+  }
+
+  /* В проекте есть места с inline-цветами вида rgba(255,255,255,0.6),
+     которые на светлой теме/Telegram light становятся нечитаемыми.
+     !important позволяет переопределить inline style без изменения структуры компонентов. */
+  body.light-theme [style*="rgba(255,255,255"],
+  body.light-theme [style*="rgba(255, 255, 255"] {
+    color: var(--hint) !important;
+  }
+  body.light-theme [style*="rgba(255,255,255,0.7)"],
+  body.light-theme [style*="rgba(255, 255, 255, 0.7)"] {
+    color: var(--hint-strong) !important;
+  }
+  body.light-theme [style*="rgba(255,255,255,0.5)"],
+  body.light-theme [style*="rgba(255, 255, 255, 0.5)"] {
+    color: var(--hint-soft) !important;
+  }
+
+  @media (prefers-color-scheme: light) {
+    body:not(.light-theme) [style*="rgba(255,255,255"],
+    body:not(.light-theme) [style*="rgba(255, 255, 255"] {
+      color: var(--hint) !important;
+    }
   }
   
   /* Улучшение контрастности для меток с opacity */
@@ -1058,9 +1098,44 @@
   
   .small { 
     font-size: clamp(0.8125rem, 1.8vw, 0.875rem); /* 13px - 14px, адаптивный */
-    color: var(--tg-hint);
+    color: var(--hint);
     line-height: 1.5;
     font-weight: 500;
+  }
+
+  /* Windows High Contrast / forced colors */
+  @media (forced-colors: active) {
+    :root, body, .card, .input, .select, .btn {
+      forced-color-adjust: auto;
+    }
+    body {
+      background: Canvas !important;
+      color: CanvasText !important;
+    }
+    .card, .input, .select {
+      background: Canvas !important;
+      color: CanvasText !important;
+      border: 1px solid CanvasText !important;
+      box-shadow: none !important;
+    }
+    .btn {
+      background: ButtonFace !important;
+      color: ButtonText !important;
+      border: 1px solid ButtonText !important;
+      box-shadow: none !important;
+    }
+  }
+
+  /* Режим повышенного контраста */
+  @media (prefers-contrast: more) {
+    :root {
+      --border: rgba(255, 255, 255, 0.22);
+      --muted: rgba(255, 255, 255, 0.82);
+    }
+    body.light-theme {
+      --border: rgba(0, 0, 0, 0.26);
+      --muted: rgba(15, 23, 42, 0.82);
+    }
   }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   
