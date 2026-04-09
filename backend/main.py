@@ -68,7 +68,8 @@ from backend.db import (
     get_user_by_id,
     get_conn, init_db, now_iso, add_days, add_workdays, load_skus,
     get_user_by_email, create_user, update_user, get_all_users,
-    get_user_by_tg_id, upsert_user, _adapt_query, USE_POSTGRES
+    get_user_by_tg_id, upsert_user, _adapt_query, USE_POSTGRES,
+    workdays_until, is_workday
 )
 from backend.users import router as users_router, init_users_table
 from backend.auth import (
@@ -220,6 +221,8 @@ def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: Ba
             f"📦 SKU: {sku_display}\n"
             f"📏 Площадь: {r.get('area_m2', '—')} м²"
         )
+        # Обновляем исходные сообщения и дополнительно шлём "событие" в те же чаты (общий чат тоже здесь)
+        sent_to: set[str] = set()
         for n in notif_rows:
             try:
                 await bot.edit_message_text(
@@ -230,6 +233,19 @@ def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: Ba
                 )
             except Exception as e:
                 print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+
+            try:
+                chat_id = n["chat_id"]
+                chat_key = str(chat_id)
+                if chat_key not in sent_to:
+                    sent_to.add(chat_key)
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"✅ <b>Защита #{pid} одобрена администратором</b>",
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
         
         # Отправляем уведомление менеджеру
         if manager_name:
@@ -326,6 +342,8 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), backgr
             f"📏 Площадь: {r.get('area_m2', '—')} м²\n\n"
             f"💬 Причина: {reason}"
         )
+        # Обновляем исходные сообщения и дополнительно шлём "событие" в те же чаты (общий чат тоже здесь)
+        sent_to: set[str] = set()
         for n in notif_rows:
             try:
                 await bot.edit_message_text(
@@ -336,6 +354,19 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), backgr
                 )
             except Exception as e:
                 print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+
+            try:
+                chat_id = n["chat_id"]
+                chat_key = str(chat_id)
+                if chat_key not in sent_to:
+                    sent_to.add(chat_key)
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"🚫 <b>Защита #{pid} отклонена администратором</b>\nПричина: {reason}",
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
         
         # Отправляем уведомление менеджеру
         if manager_name:
@@ -562,8 +593,9 @@ def _safe_migrate():
 
 def row_to_out(row, history_data: dict = None) -> ProtectionOut:
     expires = datetime.fromisoformat(row["expires_at"].replace("Z", ""))
-    days_left = (expires - datetime.utcnow()).days
-    warn2d = row["status"] == "active" and days_left <= 2
+    # Важно: сроки защит считаем в рабочих днях (официальные выходные/праздники не уменьшают счётчик).
+    days_left = workdays_until(row["expires_at"], datetime.utcnow())
+    warn2d = row["status"] == "active" and 0 <= days_left <= 2
     warn_text = "⏰ Через 2 дня истекает — напомни менеджеру." if warn2d else None
     # Проверяем наличие manager_id в строке (для совместимости с SQLite и PostgreSQL)
     manager_id = row["manager_id"] if "manager_id" in row.keys() else None
@@ -615,7 +647,12 @@ def row_to_out(row, history_data: dict = None) -> ProtectionOut:
     )
 
 def normalize_sku(raw: str) -> str:
-    return re.sub(r"[\(\)а-яА-Я\s]+", "", raw or "").strip()
+    s = (raw or "").strip().upper()
+    # Убираем пометки в скобках типа "(клей)/(замок)" и т.п., чтобы не смешивать реальные коды
+    s = re.sub(r"\([^)]*\)", "", s)
+    # Убираем пробелы/табуляции, но оставляем буквенно-цифровой код и разделители
+    s = re.sub(r"\s+", "", s)
+    return s
 
 def add_history(cur, protection_id: int, actor: str, action: str, payload: dict):
     query = _adapt_query("INSERT INTO history(protection_id, at, actor, action, payload) VALUES (?,?,?,?,?)")
@@ -3790,14 +3827,17 @@ async def check_expiring_protections():
     """Проверка истекающих защит и отправка напоминаний за 2 дня"""
     while True:
         try:
+            # В выходные/праздники уведомления о "сгорании" не отправляем
+            if not is_workday(datetime.utcnow()):
+                await asyncio.sleep(6 * 60 * 60)
+                continue
+
             conn = get_conn()
             cur = conn.cursor()
             now = datetime.utcnow()
-            now_iso_str = now.isoformat()
-            two_days = (now + timedelta(days=2)).isoformat()
 
-            # Проверяем только активные защиты, которым осталось <= 2 дней, но еще не истекли
-            # и для которых еще не отправлялось напоминание
+            # Берём все активные защиты без отправленного напоминания и фильтруем по рабочим дням в Python,
+            # чтобы корректно учитывать официальные выходные/праздники.
             query = _adapt_query("""
                 SELECT p.id, p.manager, p.sku, p.expires_at, p.manager_id, p.partner, p.partner_city,
                        p.area_m2, p.extend_count, p.reminder_2days_sent,
@@ -3805,11 +3845,9 @@ async def check_expiring_protections():
                 FROM protections p
                 LEFT JOIN users u ON u.id = p.manager_id
                 WHERE p.status='active' 
-                  AND p.expires_at >= ?
-                  AND p.expires_at <= ?
                   AND (p.reminder_2days_sent IS NULL OR p.reminder_2days_sent = 0)
             """)
-            cur.execute(query, (now_iso_str, two_days))
+            cur.execute(query)
             rows = cur.fetchall()
 
             for r in rows:
@@ -3823,6 +3861,12 @@ async def check_expiring_protections():
                 partner_city = r["partner_city"] if "partner_city" in r.keys() else "—"
                 area_m2 = r["area_m2"] if "area_m2" in r.keys() else None
                 extend_count = r["extend_count"] if "extend_count" in r.keys() else 0
+                wd_left = workdays_until(expires_at, now)
+
+                # Напоминаем, когда до истечения осталось 2 рабочих дня (и также не пропускаем 1/0,
+                # если сервис был "в офлайне" или попадали выходные).
+                if wd_left < 0 or wd_left > 2:
+                    continue
 
                 # Получаем всех пользователей, привязанных к этому менеджеру
                 recipients: list[int] = []
@@ -3875,8 +3919,14 @@ async def check_expiring_protections():
                 area_text = f"{area_m2} м²" if area_m2 else "—"
                 extend_text = f" (продлевалась {extend_count} раз)" if extend_count > 0 else ""
 
+                when_text = (
+                    "сегодня" if wd_left == 0 else
+                    "через 1 рабочий день" if wd_left == 1 else
+                    "через 2 рабочих дня"
+                )
+
                 msg = (
-                    f"⚠️ <b>Защита #{pid} истекает через 2 дня!</b>\n\n"
+                    f"⚠️ <b>Защита #{pid} истекает {when_text}!</b>\n\n"
                     f"📦 SKU: {sku}\n"
                     f"👤 Менеджер: {manager_name}\n"
                     f"🏢 Партнёр: {partner} ({partner_city})\n"
@@ -3940,12 +3990,19 @@ async def auto_close_expired_protections():
     """Автоматическое закрытие защит, срок которых истёк без продления"""
     while True:
         try:
+            # В выходные/праздники авто-закрытие не выполняем (счётчик не должен "тикать")
+            if not is_workday(datetime.utcnow()):
+                await asyncio.sleep(6 * 60 * 60)
+                continue
+
             conn = get_conn()
             cur = conn.cursor()
             now = datetime.utcnow()
             now_iso_str = now.isoformat()
 
-            # Находим все активные защиты, срок которых уже истёк
+            # Находим все активные защиты, которые уже истекли (по рабочим дням).
+            # SQL сравнение по дате не подходит, т.к. официальные выходные/праздники не должны
+            # приводить к закрытию "в субботу/воскресенье".
             query = _adapt_query("""
                 SELECT p.id, p.manager, p.sku, p.partner, p.partner_city, p.manager_id,
                        p.expires_at, p.auto_closed,
@@ -3953,14 +4010,13 @@ async def auto_close_expired_protections():
                 FROM protections p
                 LEFT JOIN users u ON u.id = p.manager_id
                 WHERE p.status = 'active' 
-                  AND p.expires_at < ?
                   AND (p.auto_closed IS NULL OR p.auto_closed = 0)
             """)
-            cur.execute(query, (now_iso_str,))
-            expired_rows = cur.fetchall()
+            cur.execute(query)
+            candidate_rows = cur.fetchall()
 
             closed_count = 0
-            for row in expired_rows:
+            for row in candidate_rows:
                 pid = row["id"]
                 manager_name = row["manager"] if "manager" in row.keys() else "—"
                 sku = row["sku"] if "sku" in row.keys() else "—"
@@ -3969,6 +4025,14 @@ async def auto_close_expired_protections():
                 manager_id = row["manager_id"] if "manager_id" in row.keys() else None
                 tg_id = row["tg_id"] if "tg_id" in row.keys() else None
                 expires_at = row["expires_at"] if "expires_at" in row.keys() else "—"
+
+                if not expires_at or expires_at == "—":
+                    continue
+
+                # Истекло, если дата истечения раньше сегодняшней даты.
+                # workdays_until вернёт отрицательное значение, когда protection уже "в прошлом".
+                if workdays_until(expires_at, now) >= 0:
+                    continue
 
                 # Закрываем защиту
                 close_reason = "за бездействие менеджера"
@@ -4417,6 +4481,7 @@ async def approve_handler(callback: types.CallbackQuery):
     )
 
     # редактируем у всех, кому отправляли
+    sent_to: set[str] = set()
     for n in notif_rows:
         try:
             await bot.edit_message_text(
@@ -4427,6 +4492,20 @@ async def approve_handler(callback: types.CallbackQuery):
             )
         except Exception as e:
             print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+
+        # Доп. уведомление в общий чат/группы (где было исходное сообщение)
+        try:
+            chat_id = n["chat_id"]
+            chat_key = str(chat_id)
+            if chat_key not in sent_to:
+                sent_to.add(chat_key)
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=f"✅ <b>Защита #{pid} одобрена</b>",
+                    parse_mode="HTML",
+                )
+        except Exception as e:
+            print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
 
     await callback.answer("Одобрено ✅")
 
@@ -4487,8 +4566,8 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
-    from datetime import datetime, timedelta
-    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat()
+    # Продлеваем в рабочих днях (официальные выходные/праздники не считаются)
+    new_exp = add_workdays(row["expires_at"], days)
     update_query = _adapt_query("UPDATE protections SET expires_at=? WHERE id=?")
     cur.execute(update_query, (new_exp, pid))
     add_history(cur, pid, "manager", "extend", {"days": days, "source": "tg_expiring"})
@@ -4592,8 +4671,8 @@ async def admin_extend_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
-    from datetime import datetime, timedelta
-    new_exp = (datetime.fromisoformat(row["expires_at"].replace("Z", "")) + timedelta(days=days)).isoformat() + "Z"
+    # Продлеваем в рабочих днях (официальные выходные/праздники не считаются)
+    new_exp = add_workdays(row["expires_at"], days)
     update_query = _adapt_query("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?")
     cur.execute(update_query, (new_exp, now_iso(), pid))
     add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
@@ -4960,6 +5039,7 @@ async def handle_reply_message(message: types.Message):
             f"💬 Причина: {user_text}"
         )
         
+        sent_to: set[str] = set()
         for n in notif_rows:
             try:
                 await bot.edit_message_text(
@@ -4970,6 +5050,20 @@ async def handle_reply_message(message: types.Message):
                 )
             except Exception as e:
                 print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
+
+            # Доп. уведомление в общий чат/группы (где было исходное сообщение)
+            try:
+                chat_id = n["chat_id"]
+                chat_key = str(chat_id)
+                if chat_key not in sent_to:
+                    sent_to.add(chat_key)
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"🚫 <b>Защита #{pid} отклонена</b>\nПричина: {user_text}",
+                        parse_mode="HTML",
+                    )
+            except Exception as e:
+                print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
         
         # Отправляем уведомление менеджеру
         manager_name = row.get("manager", "")

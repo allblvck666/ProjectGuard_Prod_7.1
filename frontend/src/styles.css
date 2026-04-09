@@ -3,7 +3,8 @@
     --bg: #0a0e1a;
     --card: #0f172a;
     --bg-card: rgba(255,255,255,0.04);
-    --muted: rgba(255, 255, 255, 0.5);
+    /* muted был слишком бледным на части экранов (особенно в Telegram WebApp / OLED) */
+    --muted: rgba(255, 255, 255, 0.72);
     --text: #ffffff;
     --accent: #667eea;
     --accent-light: #764ba2;
@@ -15,6 +16,7 @@
     --shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
     --tg-bg: var(--tg-theme-bg-color, var(--bg));
     --tg-text: var(--tg-theme-text-color, var(--text));
+    /* tg hint на некоторых устройствах может быть слишком светлым — используем более контрастный fallback */
     --tg-hint: var(--tg-theme-hint-color, var(--muted));
     --tg-button: var(--tg-theme-button-color, var(--accent));
     --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
@@ -1056,9 +1058,9 @@
   
   .small { 
     font-size: clamp(0.8125rem, 1.8vw, 0.875rem); /* 13px - 14px, адаптивный */
-    color: var(--muted);
+    color: var(--tg-hint);
     line-height: 1.5;
-    font-weight: 400;
+    font-weight: 500;
   }
   .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
   
