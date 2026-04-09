@@ -7,5 +7,5 @@ backend/venv/
 frontend/.env
 backend/*.sqlite3
 backend/data.sqlite3*
-backend/skus.csvvenv/
+backend/skus.csv
 venv/

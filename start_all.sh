@@ -4,6 +4,7 @@ echo "🚀 ProjectGuard Mini — автозапуск (frontend + backend)"
 # === Настройки ===
 FRONT_DIR="./frontend"
 BACK_DIR="./backend"
+BACK_REQ="$BACK_DIR/requirements.txt"
 VENV_DIR="./venv"
 HOST="0.0.0.0"
 PORT=8000
@@ -17,9 +18,9 @@ fi
 source "$VENV_DIR/bin/activate"
 
 # === Устанавливаем зависимости (если нужно) ===
-if [ -f "requirements.txt" ]; then
+if [ -f "$BACK_REQ" ]; then
   echo "📦 Проверяю зависимости Python..."
-  pip install -q -r requirements.txt
+  pip install -q -r "$BACK_REQ"
 fi
 
 # === Сборка фронтенда ===
@@ -38,8 +39,9 @@ nohup uvicorn backend.main:app --host "$HOST" --port "$PORT" > backend.log 2>&1 
 # === Информация ===
 IP=$(ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1")
 echo "───────────────────────────────"
-echo "✅ ProjectGuard Mini запущен!"
-echo "🌐 Backend + Frontend доступны на:"
+echo "✅ ProjectGuard Mini backend запущен!"
+echo "🌐 Backend API доступен на:"
 echo "💻  http://localhost:$PORT"
 echo "📱  http://$IP:$PORT"
+echo "🧩 Frontend для разработки запускается отдельно: cd frontend && npm run dev"
 echo "───────────────────────────────"

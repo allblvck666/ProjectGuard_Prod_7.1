@@ -1,36 +1,10 @@
 // frontend/src/LoginPage.jsx
 import { useState, useEffect } from "react";
-import { registerOrLogin } from "./api";
-import TelegramLoginButton from "./TelegramLoginButton";
+import { registerOrLogin, login as loginByCredentials } from "./api";
 
 // Функция для нормализации номера телефона (убираем все нецифровые символы)
 function normalizePhone(phone) {
   return phone.replace(/\D/g, "");
-}
-
-// Функция для красивого форматирования телефона: +7 (999) 123-45-67
-function formatPhone(phone) {
-  // Убираем все нецифровые символы
-  const digits = phone.replace(/\D/g, "");
-  
-  // Если номер начинается с 8, заменяем на 7
-  let normalized = digits;
-  if (normalized.startsWith("8") && normalized.length === 11) {
-    normalized = "7" + normalized.substring(1);
-  }
-  
-  // Если номер начинается не с 7 или 8, добавляем 7
-  if (normalized.length === 10) {
-    normalized = "7" + normalized;
-  }
-  
-  // Форматируем: +7 (999) 123-45-67
-  if (normalized.length === 11 && normalized.startsWith("7")) {
-    return `+7 (${normalized.substring(1, 4)}) ${normalized.substring(4, 7)}-${normalized.substring(7, 9)}-${normalized.substring(9, 11)}`;
-  }
-  
-  // Если не подходит под формат, возвращаем как есть
-  return phone;
 }
 
 // Функция для обработки ввода телефона с автопостановкой форматирования
@@ -145,7 +119,6 @@ export default function LoginPage({ onLogin }) {
   
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [telegramLoading, setTelegramLoading] = useState(false);
 
   // === Форма входа/регистрации ===
   const [fullName, setFullName] = useState("");
@@ -267,8 +240,14 @@ export default function LoginPage({ onLogin }) {
           return;
         }
       } else {
-        // Для браузера - показываем сообщение
-        setErr("Пожалуйста, откройте приложение через Telegram бота для авторизации.");
+        // Для браузера: fallback-вход по имени и телефону
+        const data = await loginByCredentials({
+          full_name: fullName.trim(),
+          phone: phoneDigits,
+        });
+        if (onLogin) {
+          onLogin(data.user?.role || "manager");
+        }
         return;
       }
     } catch (e) {
@@ -290,7 +269,7 @@ export default function LoginPage({ onLogin }) {
         paddingTop: isTG ? "20px" : "80px",
         paddingBottom: "40px",
         textAlign: "center",
-        minHeight: isTG ? "100vh" : "auto",
+        minHeight: isTG ? "100dvh" : "auto",
         display: "flex",
         flexDirection: "column",
         justifyContent: isTG ? "center" : "flex-start",
@@ -303,7 +282,7 @@ export default function LoginPage({ onLogin }) {
         <p className="small" style={{ opacity: 0.7, margin: 0 }}>
           {isTG 
             ? "Заполните данные для входа" 
-            : "Откройте приложение через Telegram бота"}
+            : "Вход по имени и телефону"}
         </p>
         {isTG && (
           <p className="small" style={{ opacity: 0.6, margin: "8px 0 0 0", fontSize: 12 }}>
@@ -311,8 +290,8 @@ export default function LoginPage({ onLogin }) {
           </p>
         )}
         {!isTG && (
-          <p className="small" style={{ opacity: 0.5, margin: "8px 0 0 0", fontSize: 11, color: "#ffa500" }}>
-            ⚠️ Приложение должно быть открыто через Telegram бота
+          <p className="small" style={{ opacity: 0.65, margin: "8px 0 0 0", fontSize: 11, color: "#7dd3fc" }}>
+            ℹ️ Через Telegram вход также доступен и создаёт привязку к Telegram ID
           </p>
         )}
       </div>
@@ -393,17 +372,17 @@ export default function LoginPage({ onLogin }) {
         {!isTG && (
           <div style={{ 
             fontSize: 12, 
-            opacity: 0.7, 
+            opacity: 0.75, 
             margin: "16px 0 0 0", 
             textAlign: "center",
             padding: "12px",
-            background: "rgba(255, 165, 0, 0.1)",
+            background: "rgba(125, 211, 252, 0.1)",
             borderRadius: "8px",
-            border: "1px solid rgba(255, 165, 0, 0.3)"
+            border: "1px solid rgba(125, 211, 252, 0.3)"
           }}>
-            <p style={{ margin: "0 0 8px 0" }}>⚠️ Приложение должно быть открыто через Telegram бота</p>
-            <p style={{ margin: 0, fontSize: 11, opacity: 0.8 }}>
-              Найдите бота в Telegram и нажмите кнопку "Войти в систему"
+            <p style={{ margin: "0 0 8px 0" }}>✅ Вход по ссылке включён</p>
+            <p style={{ margin: 0, fontSize: 11, opacity: 0.85 }}>
+              Для уведомлений в Telegram дополнительно войдите через бота
             </p>
           </div>
         )}

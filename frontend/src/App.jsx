@@ -688,7 +688,7 @@ function ActiveProtectionsPage({
   editAreaUnified, setEditAreaUnified, editComment, setEditComment,
   submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
-  updateClosedModal, setUpdateClosedModal
+  updateClosedModal, setUpdateClosedModal, updateClosedProtection
 }) {
   const [activeTab, setActiveTab] = useState("my"); // "my" | "all"
   const [search, setSearch] = useState("");
@@ -2353,7 +2353,7 @@ if (isTG && (!ready || loading)) {
     <div style={{ 
       padding: 40, 
       textAlign: "center", 
-      minHeight: "100vh",
+      minHeight: "100dvh",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
@@ -2373,7 +2373,7 @@ if (isTG && (!ready || loading)) {
       <div style={{ 
         padding: 40, 
         textAlign: "center", 
-        minHeight: "100vh",
+        minHeight: "100dvh",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2431,7 +2431,7 @@ if (isTG && (!ready || loading)) {
         <div style={{ 
           padding: 40, 
           textAlign: "center", 
-          minHeight: "100vh",
+          minHeight: "100dvh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -2598,6 +2598,7 @@ if (isTG && (!ready || loading)) {
         extendRequestModal={extendRequestModal}
         updateClosedModal={updateClosedModal}
         setUpdateClosedModal={setUpdateClosedModal}
+        updateClosedProtection={updateClosedProtection}
         setExtendRequestModal={setExtendRequestModal}
         submitExtendRequest={submitExtendRequest}
       />
@@ -2638,7 +2639,7 @@ if (isTG && (!ready || loading)) {
   // ==== НАСТРОЙКИ ====
   if (route === "settings") {
     return (
-      <div className="container" style={{ position: "relative", minHeight: "100vh" }}>
+      <div className="container" style={{ position: "relative", minHeight: "100dvh" }}>
         <ThemeToggle />
         <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
           <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>

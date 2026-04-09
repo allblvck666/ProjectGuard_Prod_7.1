@@ -48,8 +48,6 @@ export default function TelegramLoginButton({ onLogin }) {
     );
   };
 
-  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
-
   return (
     <button
       onClick={handleLogin}

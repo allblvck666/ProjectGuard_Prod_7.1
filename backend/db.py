@@ -39,6 +39,31 @@ def _can_use_postgres():
 USE_POSTGRES = _can_use_postgres()
 
 
+class HybridRow(dict):
+    """
+    Совместимый контейнер строки SQLite:
+    - поддерживает доступ по имени поля: row["field"], row.get("field")
+    - поддерживает доступ по индексу: row[0] (для legacy-кода)
+    """
+    def __init__(self, values_by_name: dict, columns: list[str]):
+        super().__init__(values_by_name)
+        self._columns = columns
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            try:
+                key = self._columns[key]
+            except IndexError as exc:
+                raise KeyError(key) from exc
+        return super().__getitem__(key)
+
+
+def _sqlite_hybrid_row_factory(cursor, row):
+    columns = [col[0] for col in cursor.description]
+    values_by_name = {columns[idx]: row[idx] for idx in range(len(columns))}
+    return HybridRow(values_by_name, columns)
+
+
 # === CSV загрузка ===
 def load_skus():
     items = []
@@ -132,16 +157,16 @@ def get_conn():
         except ImportError:
             print("⚠️ psycopg2 не установлен, используем SQLite")
             conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = _sqlite_hybrid_row_factory
             return conn
         except Exception as e:
             print(f"⚠️ Ошибка подключения к PostgreSQL: {e}, используем SQLite")
             conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = sqlite3.Row
+            conn.row_factory = _sqlite_hybrid_row_factory
             return conn
     else:
         conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn.row_factory = _sqlite_hybrid_row_factory
         return conn
 
 def _get_param_placeholder():

@@ -2806,7 +2806,7 @@ export default function AdminPage({ onBack }) {
   };
 
   return (
-    <div className="container" style={{ background: "linear-gradient(135deg, #0d1320 0%, #1a1f3a 100%)", minHeight: "100vh" }}>
+    <div className="container" style={{ background: "linear-gradient(135deg, #0d1320 0%, #1a1f3a 100%)", minHeight: "100dvh" }}>
       {/* Фиксированная кнопка "назад" на мобильной версии */}
       <button 
         className="fixed-back-button" 

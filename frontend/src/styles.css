@@ -120,9 +120,9 @@
   @media (max-width: 768px) {
     .theme-toggle {
       position: fixed;
-      top: 12px;
+      top: max(12px, env(safe-area-inset-top));
       right: 12px;
-      z-index: 1001;
+      z-index: 950;
       width: 52px;
       height: 32px;
       box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
@@ -489,7 +489,7 @@
   }
   
   /* Улучшение читаемости для всех текстовых элементов */
-  p, span, div, label, a, button, input, select, textarea {
+  p, label, a, button, input, select, textarea {
     font-size: clamp(0.875rem, 2vw, 1rem); /* Адаптивный размер: минимум 14px, максимум 16px */
     line-height: 1.6;
     letter-spacing: 0.01em; /* Небольшой межбуквенный интервал для лучшей читаемости */
@@ -547,6 +547,7 @@
       background-attachment: fixed;
       position: relative;
       min-height: 100vh;
+      min-height: 100dvh;
       /* Премиум градиент с анимацией */
       background-size: 200% 200%;
       animation: gradientShift 15s ease infinite;
@@ -627,6 +628,7 @@
     margin: 0 auto;
     padding: 0 20px 60px;
     min-height: 100vh;
+    min-height: 100dvh;
     width: 100%;
     box-sizing: border-box;
     overflow-x: hidden;
@@ -667,7 +669,7 @@
     }
     
     /* Улучшение читаемости текста на мобильных */
-    p, span, div, label, a {
+    p, label, a {
       font-size: 1rem; /* 17px на мобильных */
       line-height: 1.7;
     }
@@ -695,25 +697,25 @@
       line-height: 1.8;
     }
     
-    .input, .select, .btn, p, span, div, label {
+    .input, .select, .btn, p, label {
       font-size: 1rem !important; /* 18px на очень маленьких экранах */
     }
   }
   
   /* Улучшения для старых браузеров */
   @supports not (font-size: clamp(1rem, 2vw, 1.5rem)) {
-    .input, .select, .btn, p, span, div, label {
+    .input, .select, .btn, p, label {
       font-size: 16px;
     }
     
     @media (max-width: 768px) {
-      .input, .select, .btn, p, span, div, label {
+      .input, .select, .btn, p, label {
         font-size: 17px;
       }
     }
     
     @media (max-width: 480px) {
-      .input, .select, .btn, p, span, div, label {
+      .input, .select, .btn, p, label {
         font-size: 18px;
       }
     }
@@ -760,7 +762,7 @@
     transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
     animation: fadeInUp 0.5s ease-out;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
   
   .card::before {
@@ -1260,21 +1262,21 @@
 
 /* Кнопка "Добавить защиту" должна быть больше на всех устройствах */
 .container .btn:not(.secondary):not(.danger):not(.success):not(.warning):not(.refresh):not(.small) {
-  padding: 18px 32px;
-  font-size: 18px;
+  padding: 0 20px;
+  font-size: clamp(0.9375rem, 2vw, 1rem);
   font-weight: 700;
-  min-height: 60px;
-  letter-spacing: 0.5px;
+  min-height: 48px;
+  letter-spacing: 0.02em;
 }
 
 @media (max-width: 768px) {
-  /* Кнопка "Добавить защиту" должна быть еще больше на мобильной версии */
+  /* На мобильных оставляем комфортный размер без разрыва сетки */
   .container .btn:not(.secondary):not(.danger):not(.success):not(.warning):not(.refresh):not(.small) {
-    padding: 20px 32px;
-    font-size: 19px;
+    padding: 0 20px;
+    font-size: 1rem;
     font-weight: 700;
-    min-height: 64px;
-    letter-spacing: 0.6px;
+    min-height: 52px;
+    letter-spacing: 0.03em;
   }
 }
 
@@ -1514,7 +1516,7 @@
     0 8px 24px rgba(102, 126, 234, 0.4),
     0 0 0 4px rgba(102, 126, 234, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(10px);
@@ -1535,6 +1537,7 @@
 
 @media (max-width: 768px) {
   .fixed-back-button {
+    display: flex;
     width: 52px;
     height: 52px;
     font-size: 22px;
@@ -1662,14 +1665,9 @@
     flex-direction: column;
   }
   
-  /* Кнопки в модальном окне должны быть зафиксированы внизу */
+  /* Футер модалки фиксируется в компоненте Modal, не дублируем sticky для каждой кнопки */
   .modal-content .btn {
-    position: sticky;
-    bottom: 0;
-    margin-top: auto;
-    padding-top: 16px;
-    background: rgba(15, 23, 42, 0.98);
-    z-index: 10;
+    position: static;
   }
   
   /* Для модального окна запроса на продление делаем еще компактнее */

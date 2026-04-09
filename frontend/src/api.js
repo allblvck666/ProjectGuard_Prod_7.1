@@ -2,7 +2,21 @@
 import axios from "axios";
 
 // 🔥 ЕДИНЫЙ ИСТОЧНИК API
-export const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const PROD_API_FALLBACK = "https://projectguard-prod-7-1.onrender.com";
+const LOCAL_API_FALLBACK = "http://localhost:8000";
+
+function inferApiBase() {
+  if (typeof window === "undefined") {
+    return PROD_API_FALLBACK;
+  }
+  const host = window.location.hostname;
+  if (host === "localhost" || host === "127.0.0.1") {
+    return LOCAL_API_FALLBACK;
+  }
+  return PROD_API_FALLBACK;
+}
+
+export const API_BASE = import.meta.env.VITE_API_URL || inferApiBase();
 
 // 🔥 axios создаём с единым URL
 export const api = axios.create({
@@ -194,4 +208,3 @@ export const adminUsersAPI = {
     return res.data;
   },
 };
-
