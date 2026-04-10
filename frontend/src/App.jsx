@@ -1525,10 +1525,21 @@ function App() {
     }
 
     const body = document.body;
+    const getStoredTheme = () => {
+      const saved = localStorage.getItem("theme");
+      return saved === "light" || saved === "dark" ? saved : null;
+    };
+    const applyTheme = (theme) => {
+      const isLightTheme = theme === "light";
+      body.classList.toggle("light-theme", isLightTheme);
+      window.dispatchEvent(new CustomEvent("app-theme-sync", { detail: { theme } }));
+      return isLightTheme;
+    };
 
     if (!isTG) {
       body.removeAttribute("data-telegram-webapp");
-      body.classList.toggle("light-theme", localStorage.getItem("theme") === "light");
+      const savedTheme = getStoredTheme();
+      applyTheme(savedTheme === "light" ? "light" : "dark");
       return undefined;
     }
 
@@ -1538,15 +1549,25 @@ function App() {
       return undefined;
     }
 
-    const syncTelegramTheme = () => {
+    const resolveTheme = () => {
+      const savedTheme = getStoredTheme();
+      if (savedTheme) {
+        return savedTheme;
+      }
+
       const isLightScheme =
         tg.colorScheme === "light" ||
         (typeof tg.themeParams?.bg_color === "string" &&
           tg.themeParams.bg_color.toLowerCase() === "#ffffff");
-      const shellColor = isLightScheme ? "#f8fafc" : "#0d1320";
+      return isLightScheme ? "light" : "dark";
+    };
+
+    const syncTelegramTheme = (forcedTheme) => {
+      const theme = forcedTheme || resolveTheme();
+      const isLightTheme = applyTheme(theme);
+      const shellColor = isLightTheme ? "#f8fafc" : "#0d1320";
 
       body.setAttribute("data-telegram-webapp", "true");
-      body.classList.toggle("light-theme", isLightScheme);
 
       try {
         tg.setHeaderColor(shellColor);
@@ -1561,11 +1582,22 @@ function App() {
       }
     };
 
+    const handleManualThemeChange = (event) => {
+      const nextTheme = event?.detail?.theme;
+      if (nextTheme === "light" || nextTheme === "dark") {
+        syncTelegramTheme(nextTheme);
+      } else {
+        syncTelegramTheme();
+      }
+    };
+
     syncTelegramTheme();
     tg.onEvent?.("themeChanged", syncTelegramTheme);
+    window.addEventListener("app-theme-change", handleManualThemeChange);
 
     return () => {
       tg.offEvent?.("themeChanged", syncTelegramTheme);
+      window.removeEventListener("app-theme-change", handleManualThemeChange);
     };
   }, [isTG]);
 

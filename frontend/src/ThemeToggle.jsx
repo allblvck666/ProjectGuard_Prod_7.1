@@ -1,36 +1,57 @@
 // frontend/src/ThemeToggle.jsx
 import { useEffect, useState } from "react";
 
+function resolvePreferredTheme() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "light" || saved === "dark") {
+    return saved;
+  }
+
+  const tg = window.Telegram?.WebApp;
+  const isTelegramLight =
+    tg?.colorScheme === "light" ||
+    (typeof tg?.themeParams?.bg_color === "string" &&
+      tg.themeParams.bg_color.toLowerCase() === "#ffffff");
+
+  return isTelegramLight ? "light" : "dark";
+}
+
 export default function ThemeToggle() {
-  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
-  const [isLight, setIsLight] = useState(() => {
-    const saved = localStorage.getItem("theme");
-    return saved === "light";
-  });
+  const [isLight, setIsLight] = useState(() => resolvePreferredTheme() === "light");
 
   useEffect(() => {
-    if (isTG) return;
     if (isLight) {
       document.body.classList.add("light-theme");
     } else {
       document.body.classList.remove("light-theme");
     }
-  }, [isLight, isTG]);
+  }, [isLight]);
 
   useEffect(() => {
-    if (isTG) {
-      document.body.classList.remove("light-theme");
-    }
-  }, [isTG]);
+    const syncThemeState = (event) => {
+      if (event?.detail?.theme === "light" || event?.detail?.theme === "dark") {
+        setIsLight(event.detail.theme === "light");
+        return;
+      }
+
+      setIsLight(resolvePreferredTheme() === "light");
+    };
+
+    window.addEventListener("app-theme-sync", syncThemeState);
+    return () => {
+      window.removeEventListener("app-theme-sync", syncThemeState);
+    };
+  }, []);
 
   const toggleTheme = () => {
     const newTheme = !isLight;
     setIsLight(newTheme);
     localStorage.setItem("theme", newTheme ? "light" : "dark");
-  };
-
-  if (isTG) {
-    return null;
+    window.dispatchEvent(
+      new CustomEvent("app-theme-change", {
+        detail: { theme: newTheme ? "light" : "dark" },
+      })
+    );
   }
 
   return (
