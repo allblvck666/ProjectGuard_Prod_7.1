@@ -1342,6 +1342,33 @@
   letter-spacing: 0.01em;
 }
 
+body.light-theme .home-header {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(248, 250, 252, 0.96) 52%,
+    rgba(241, 245, 249, 0.98) 100%);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+}
+
+body.light-theme .home-header::before {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.08) 50%,
+    transparent 100%);
+}
+
+body.light-theme .home-greeting {
+  background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+body.light-theme .home-subtitle {
+  color: var(--hint);
+}
+
 .home-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -1350,6 +1377,11 @@
 }
 
 @media (max-width: 768px) {
+  .theme-toggle + .home-header,
+  .theme-toggle + .header {
+    padding-right: 92px;
+  }
+
   .home-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: 12px;
@@ -1504,6 +1536,56 @@
   letter-spacing: 0.02em;
   position: relative;
   z-index: 1;
+}
+
+body.light-theme .home-card {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.96) 0%,
+    rgba(248, 250, 252, 0.94) 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow:
+    0 14px 36px rgba(15, 23, 42, 0.10),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+body.light-theme .home-card::before {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(148, 163, 184, 0.14) 50%,
+    transparent 100%);
+}
+
+body.light-theme .home-card::after {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(148, 163, 184, 0.20) 50%,
+    transparent 100%);
+}
+
+body.light-theme .home-card:hover {
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(239, 246, 255, 0.98) 100%);
+  border-color: rgba(102, 126, 234, 0.22);
+  box-shadow:
+    0 18px 40px rgba(59, 130, 246, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
+}
+
+body.light-theme .home-card:hover .home-card-icon {
+  filter: drop-shadow(0 8px 18px rgba(59, 130, 246, 0.20));
+}
+
+body.light-theme .home-card-title {
+  background: none;
+  color: #0f172a;
+  -webkit-text-fill-color: #0f172a;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+}
+
+body.light-theme .home-card-subtitle {
+  color: var(--hint);
 }
 
 /* ============================================
