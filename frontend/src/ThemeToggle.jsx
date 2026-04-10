@@ -2,31 +2,36 @@
 import { useEffect, useState } from "react";
 
 export default function ThemeToggle() {
+  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
   const [isLight, setIsLight] = useState(() => {
     const saved = localStorage.getItem("theme");
     return saved === "light";
   });
 
   useEffect(() => {
-    // Применяем тему при загрузке
+    if (isTG) return;
     if (isLight) {
       document.body.classList.add("light-theme");
     } else {
       document.body.classList.remove("light-theme");
     }
-  }, [isLight]);
+  }, [isLight, isTG]);
+
+  useEffect(() => {
+    if (isTG) {
+      document.body.classList.remove("light-theme");
+    }
+  }, [isTG]);
 
   const toggleTheme = () => {
     const newTheme = !isLight;
     setIsLight(newTheme);
     localStorage.setItem("theme", newTheme ? "light" : "dark");
-    
-    if (newTheme) {
-      document.body.classList.add("light-theme");
-    } else {
-      document.body.classList.remove("light-theme");
-    }
   };
+
+  if (isTG) {
+    return null;
+  }
 
   return (
     <div 
@@ -49,4 +54,3 @@ export default function ThemeToggle() {
     </div>
   );
 }
-

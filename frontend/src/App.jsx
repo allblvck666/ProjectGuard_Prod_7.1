@@ -253,6 +253,7 @@ function Modal({ title, children, onClose, onOk, okText = "OK", disabled }) {
           borderRadius: "24px",
           display: "flex",
           flexDirection: "column",
+          color: "var(--text)",
           WebkitOverflowScrolling: "touch",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -557,7 +558,7 @@ function CreateProtectionPage({
           okText="📤 Отправить запрос админу"
         >
           <div style={{ marginBottom: 16 }}>
-            <div className="small" style={{ marginBottom: 16, color: "rgba(255, 255, 255, 0.9)", whiteSpace: "pre-line" }}>
+            <div className="small" style={{ marginBottom: 16, color: "var(--hint)", whiteSpace: "pre-line" }}>
               {similarProtectionModal.similarInfo?.message || "Похожая активная защита уже существует."}
             </div>
             
@@ -568,7 +569,8 @@ function CreateProtectionPage({
                 background: "rgba(255, 193, 7, 0.15)", 
                 borderRadius: 12, 
                 border: "2px solid rgba(255, 193, 7, 0.4)",
-                marginBottom: 16
+                marginBottom: 16,
+                color: "var(--text)"
               }}>
                 <div className="small" style={{ fontWeight: 700, marginBottom: 12, fontSize: 14, textTransform: "uppercase", letterSpacing: "0.5px" }}>
                   📋 Информация о существующей защите:
@@ -648,7 +650,8 @@ function CreateProtectionPage({
               background: "rgba(102, 126, 234, 0.1)", 
               borderRadius: 8, 
               border: "1px solid rgba(102, 126, 234, 0.3)",
-              marginBottom: 12
+              marginBottom: 12,
+              color: "var(--text)"
             }}>
               <div className="small" style={{ fontWeight: 600, marginBottom: 8 }}>
                 💬 Укажите причину для администратора:
@@ -1516,6 +1519,56 @@ function App() {
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+
+    const body = document.body;
+
+    if (!isTG) {
+      body.removeAttribute("data-telegram-webapp");
+      body.classList.toggle("light-theme", localStorage.getItem("theme") === "light");
+      return undefined;
+    }
+
+    const tg = window.Telegram?.WebApp;
+    if (!tg) {
+      body.setAttribute("data-telegram-webapp", "true");
+      return undefined;
+    }
+
+    const syncTelegramTheme = () => {
+      const isLightScheme =
+        tg.colorScheme === "light" ||
+        (typeof tg.themeParams?.bg_color === "string" &&
+          tg.themeParams.bg_color.toLowerCase() === "#ffffff");
+      const shellColor = isLightScheme ? "#f8fafc" : "#0d1320";
+
+      body.setAttribute("data-telegram-webapp", "true");
+      body.classList.toggle("light-theme", isLightScheme);
+
+      try {
+        tg.setHeaderColor(shellColor);
+      } catch (e) {
+        // ignore Telegram shell color errors
+      }
+
+      try {
+        tg.setBackgroundColor(shellColor);
+      } catch (e) {
+        // ignore Telegram shell color errors
+      }
+    };
+
+    syncTelegramTheme();
+    tg.onEvent?.("themeChanged", syncTelegramTheme);
+
+    return () => {
+      tg.offEvent?.("themeChanged", syncTelegramTheme);
+    };
+  }, [isTG]);
+
   // 🔍 Проверка валидности токена при загрузке (только для браузера)
   useEffect(() => {
     if (isTG) {
@@ -2315,15 +2368,6 @@ function App() {
     // Используем общий loading для загрузки данных
 
   useEffect(() => {
-    // Устанавливаем data-атрибут для Telegram WebApp
-    if (typeof document !== "undefined") {
-      if (isTG) {
-        document.body.setAttribute("data-telegram-webapp", "true");
-      } else {
-        document.body.removeAttribute("data-telegram-webapp");
-      }
-    }
-    
     if (!isTG) {
       setReady(true);
       setLoading(false);
@@ -2333,12 +2377,9 @@ function App() {
     try {
       const tg = window.Telegram?.WebApp;
       if (tg) {
-      tg.ready();
+        tg.ready();
         tg.expand();
-        // Настраиваем цвета Telegram WebApp
-        tg.setHeaderColor('#0d1320');
-        tg.setBackgroundColor('#0d1320');
-      setReady(true);
+        setReady(true);
       }
     } catch (e) {
       // Telegram WebApp init error
