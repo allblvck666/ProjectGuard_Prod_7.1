@@ -34,11 +34,6 @@ function readThemeChoice() {
   }
 }
 
-function appVersion() {
-  if (typeof document === "undefined") return "";
-  return document.querySelector('meta[name="app-version"]')?.content || "";
-}
-
 export default function MoreScreen({ auth, onStats, onAdmin, onSettings, onExport, onLogout }) {
   const [theme, setTheme] = useState(readThemeChoice);
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -145,7 +140,7 @@ export default function MoreScreen({ auth, onStats, onAdmin, onSettings, onExpor
           </Button>
         </section>
 
-        <div className="pgm-version">ProjectGuard{appVersion() ? ` · ${appVersion()}` : ""}</div>
+        <div className="pgm-credit">Создано Messiah Studio</div>
         <div className="pgm__pad" />
       </div>
 
