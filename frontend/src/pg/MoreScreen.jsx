@@ -140,7 +140,7 @@ export default function MoreScreen({ auth, onStats, onAdmin, onSettings, onExpor
           </Button>
         </section>
 
-        <div className="pgm-credit">Создано Messiah Studio</div>
+        <div className="pgm-credit">Messiah Studio</div>
         <div className="pgm__pad" />
       </div>
 
