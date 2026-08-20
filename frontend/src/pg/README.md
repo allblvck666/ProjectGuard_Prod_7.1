@@ -8,6 +8,7 @@
 
 | Флаг         | Что включает                          | Этап |
 |--------------|---------------------------------------|------|
+| `ui-home`    | главная: сводка и быстрые действия    | —    |
 | `ui-list`    | список активных защит                 | 2    |
 | `ui-detail`  | карточка защиты (из списка и архива)  | 3    |
 | `ui-create`  | создание + экран конфликта            | 4    |
@@ -51,6 +52,8 @@ window.__pgFlags().reset()             // вернуть значения по �
 - `CreateProtection.jsx` + `create.css` — создание защиты
 - `ConflictScreen.jsx` — экран конфликта (дубликат: тот же артикул и метраж ±10%)
 - `SkuPicker.jsx` + `form.css` — выбор артикулов
+- `HomeScreen.jsx` + `home.css` — главная
+- `ProtectionCard.jsx` + `protection-card.css` — карточка защиты (главная, список, архив)
 - `ArchiveList.jsx` — архив защит
 - `StatsScreen.jsx` + `stats.css` — статистика
 - `AdminScreen.jsx` + `admin.css` + `admin/` — админка (5 вкладок)

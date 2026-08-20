@@ -18,6 +18,7 @@ const CreateProtectionNew = lazy(() => import("./pg/CreateProtection.jsx"));
 const ArchiveListNew = lazy(() => import("./pg/ArchiveList.jsx"));
 const StatsScreenNew = lazy(() => import("./pg/StatsScreen.jsx"));
 const AdminScreenNew = lazy(() => import("./pg/AdminScreen.jsx"));
+const HomeScreenNew = lazy(() => import("./pg/HomeScreen.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1537,6 +1538,8 @@ function App() {
 
   // Витрина дизайн-системы: ?ui-kit=1
   const showUiKit = useNewUi("ui-kit");
+  // Новая главная: ?ui-home=new
+  const newHome = useNewUi("ui-home");
   // Новый список активных защит: ?ui-list=new
   const newList = useNewUi("ui-list");
   // Новая карточка защиты: ?ui-detail=new
@@ -1873,7 +1876,10 @@ function App() {
     setRoute("home");
   };
 
-  const goHome = () => setRoute("home");
+  const goHome = () => {
+    setListFilter(null);
+    setRoute("home");
+  };
   const goCreate = () => setRoute("create");
   const goActive = () => setRoute("active");
   const goArchive = () => setRoute("archive");
@@ -1887,6 +1893,9 @@ function App() {
   const [loadError, setLoadError] = useState(null);
   // Карточка защиты, открытая из архива (в списке она живёт внутри экрана списка)
   const [archiveDetailId, setArchiveDetailId] = useState(null);
+  // Карточка защиты, открытая с главной, и предустановленный фильтр списка
+  const [homeDetailId, setHomeDetailId] = useState(null);
+  const [listFilter, setListFilter] = useState(null);
   const [managers, setManagers] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [managerFilter, setManagerFilter] = useState("");
@@ -2561,6 +2570,7 @@ function App() {
 // загрузки, а полноэкранная заглушка размонтировала бы экран на каждом
 // обновлении (и сбрасывала бы фильтры и pull-to-refresh).
 const usesNewUi =
+  (route === "home" && newHome) ||
   (route === "active" && newList) ||
   (route === "create" && newCreate) ||
   (route === "archive" && (newArchive || (newDetail && archiveDetailId != null))) ||
@@ -2686,6 +2696,53 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
   if (route === "home") {
+    const doLogout = () => {
+      localStorage.clear();
+      setAuth({ token: "", role: "", user: null });
+      setTokenValid(false);
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+    };
+
+    // Новая главная (?ui-home=new): сводка по защитам вместо шести плиток
+    if (newHome) {
+      return (
+        <Suspense fallback={null}>
+          <HomeScreenNew
+            auth={auth}
+            items={items}
+            loading={loading}
+            load={load}
+            onCreate={goCreate}
+            onList={(filter) => {
+              setListFilter(filter || null);
+              goActive();
+            }}
+            onArchive={goArchive}
+            onStats={goStats}
+            onAdmin={goAdmin}
+            onSettings={() => setRoute("settings")}
+            onExport={exportXlsx}
+            onLogout={doLogout}
+            newDetail={newDetail}
+            detailId={homeDetailId}
+            setDetailId={setHomeDetailId}
+            act={act}
+            openEditModal={openEditModal}
+            restoreProtection={restoreProtection}
+            sheets={{
+              closeModal, setCloseModal, doClose,
+              successModal, setSuccessModal, doSuccess,
+              deleteModal, setDeleteModal, doDelete,
+              extendRequestModal, setExtendRequestModal, submitExtendRequest,
+              editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
+              editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
+              editComment, setEditComment, submitEdit, skus, onAreaChange,
+            }}
+          />
+        </Suspense>
+      );
+    }
+
     // Используем full_name, которое может быть установлено админом, иначе first_name
     const userName = auth.user?.full_name || auth.user?.first_name || "Пользователь";
     const currentRole = auth.role || auth.user?.role || role;
@@ -2865,6 +2922,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
             submitExtendRequest={submitExtendRequest}
             restoreProtection={restoreProtection}
             newDetail={newDetail}
+            initialFilter={listFilter}
           />
         </Suspense>
       );

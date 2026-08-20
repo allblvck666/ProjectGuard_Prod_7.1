@@ -17,6 +17,7 @@ import {
   BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes,
 } from "./telegram";
 import "./list.css";
+import "./protection-card.css";
 
 const TABS = [
   { value: "all", label: "Все" },
@@ -219,11 +220,11 @@ export default function ArchiveList({
 
       <div className="pgl__scroll" ref={scrollRef}>
         <div
-          className="pgl-ptr"
+          className="pg-ptr"
           style={{ height: pull, transition: dragging ? "none" : "height 200ms ease" }}
           aria-hidden={pull === 0}
         >
-          <span className="pgl-ptr__in" style={{ opacity: Math.min(1, pull / 40) }}>
+          <span className="pg-ptr__in" style={{ opacity: Math.min(1, pull / 40) }}>
             <Icon
               name="refresh"
               size={15}

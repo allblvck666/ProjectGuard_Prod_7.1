@@ -7,58 +7,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Badge, Button, Card, EmptyState, ErrorState, Icon,
-  Input, LoadingState, Segment, Sheet, Track,
+  Badge, Button, EmptyState, ErrorState, Icon,
+  Input, LoadingState, Segment, Sheet,
 } from "./ui";
 import ActionSheets from "./ActionSheets";
 import ProtectionDetail from "./ProtectionDetail";
+import ProtectionCard from "./ProtectionCard";
 import {
-  daysLeftText, fmtArea, fmtDateShort, managerName, plural, remainingPercent,
-  shortName, skuShort, statusBadge, statusKind, trackTone,
+  EXPIRING_DAYS, daysLeftText, fmtArea, fmtDateShort, managerName, plural,
+  skuShort, statusBadge,
 } from "./format";
 import { usePullToRefresh } from "./usePullToRefresh";
 import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes } from "./telegram";
 import "./list.css";
-
-/* ---------------- карточка списка ---------------- */
-
-function ProtectionCard({ item, onOpen }) {
-  const badge = statusBadge(item);
-  const kind = statusKind(item);
-
-  return (
-    <Card status={kind} tappable onClick={() => onOpen(item)} className="pgl-card">
-      <div className="pgl-card__top">
-        <div className="pgl-card__partner">{item.partner || "—"}</div>
-        <Badge tone={badge.tone}>{badge.label}</Badge>
-      </div>
-
-      <div className="pgl-card__client">{item.client || "Клиент не указан"}</div>
-
-      <div className="pgl-card__meta">
-        <span className="pgl-card__m">
-          <Icon name="package" size={14} />
-          {skuShort(item.sku)}
-        </span>
-        <span className="pgl-card__m pg-num">
-          <Icon name="ruler" size={14} />
-          {fmtArea(item.area_m2)}
-        </span>
-        <span className="pgl-card__m">
-          <Icon name="user" size={14} />
-          {shortName(item.manager)}
-        </span>
-      </div>
-
-      <div className="pgl-card__foot">
-        <Track value={remainingPercent(item)} tone={trackTone(item)} />
-        <span className="pgl-card__days pg-num">
-          {daysLeftText(item)} · до {fmtDateShort(item.expires_at)}
-        </span>
-      </div>
-    </Card>
-  );
-}
 
 /* ---------------- экран ---------------- */
 
@@ -72,9 +33,11 @@ export default function ProtectionsList({
   editComment, setEditComment, submitEdit, skus, onAreaChange,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
-  restoreProtection, newDetail, loadError,
+  restoreProtection, newDetail, loadError, initialFilter,
 }) {
-  const [tab, setTab] = useState("my");           // "my" | "all"
+  const [tab, setTab] = useState(initialFilter?.expiring ? "all" : "my"); // "my" | "all"
+  // Пришли с главной по «Истекают» — сразу показываем только горящие
+  const [onlyExpiring, setOnlyExpiring] = useState(!!initialFilter?.expiring);
   const [search, setSearch] = useState("");
   const [managerFilter, setManagerFilter] = useState("");
   const [actionsFor, setActionsFor] = useState(null);
@@ -116,6 +79,10 @@ export default function ProtectionsList({
       result = result.filter((it) => it.manager === managerFilter);
     }
 
+    if (onlyExpiring) {
+      result = result.filter((it) => Number(it.days_left) <= EXPIRING_DAYS);
+    }
+
     // Самые срочные — наверх: ради этого и заведён янтарный акцент
     return [...result].sort((a, b) => {
       const da = Number(a.days_left);
@@ -123,7 +90,7 @@ export default function ProtectionsList({
       if (Number.isFinite(da) && Number.isFinite(db) && da !== db) return da - db;
       return String(a.partner || "").localeCompare(String(b.partner || ""), "ru");
     });
-  }, [items, tab, search, managerFilter, currentUserId, currentUserName]);
+  }, [items, tab, search, managerFilter, onlyExpiring, currentUserId, currentUserName]);
 
   // В фильтре показываем справочник менеджеров плюс тех, кто встречается в защитах
   const managerOptions = useMemo(() => {
@@ -208,6 +175,7 @@ export default function ProtectionsList({
             onClick={() => {
               setSearch("");
               setManagerFilter("");
+              setOnlyExpiring(false);
               setTab("all");
             }}
           >
@@ -276,6 +244,16 @@ export default function ProtectionsList({
           <span className="pgl-chips__count pg-num">
             {filtered.length} {plural(filtered.length, "защита", "защиты", "защит")}
           </span>
+          <button
+            type="button"
+            className="pg-chip"
+            onClick={() => setOnlyExpiring((v) => !v)}
+          >
+            <Badge tone={onlyExpiring ? "warning" : undefined} plain>
+              Истекают
+              {onlyExpiring && <Icon name="close" size={12} />}
+            </Badge>
+          </button>
           {isAdmin && tab === "all" && (
             <button type="button" className="pg-chip" onClick={() => setManagerSheet(true)}>
               <Badge tone={managerFilter ? "accent" : undefined} plain>
@@ -289,11 +267,11 @@ export default function ProtectionsList({
 
       <div className="pgl__scroll" ref={scrollRef}>
         <div
-          className="pgl-ptr"
+          className="pg-ptr"
           style={{ height: pull, transition: dragging ? "none" : "height 200ms ease" }}
           aria-hidden={pull === 0}
         >
-          <span className="pgl-ptr__in" style={{ opacity: Math.min(1, pull / 40) }}>
+          <span className="pg-ptr__in" style={{ opacity: Math.min(1, pull / 40) }}>
             <Icon
               name="refresh"
               size={15}

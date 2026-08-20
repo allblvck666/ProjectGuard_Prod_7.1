@@ -565,6 +565,23 @@
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* ================= Индикатор pull-to-refresh ================= */
+
+.pg-ptr {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.pg-ptr__in {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--pg-hint);
+  white-space: nowrap;
+}
+
 /* ================= Состояния: скелетон / пусто / ошибка ================= */
 
 .pg-skeleton {
