@@ -1737,11 +1737,8 @@ function App() {
             const role = res.data.role;
             localStorage.setItem("role", role);
             setAuth((prev) => ({ ...prev, role }));
-            if (role === "admin" || role === "superadmin") {
-              setRoute("admin");
-            } else {
-              setRoute("home");
-            }
+            // Админку открываем по запросу из «Ещё», а не вместо главной
+            setRoute("home");
           } else {
             throw new Error("Token invalid");
           }
@@ -1805,11 +1802,7 @@ function App() {
 
           setAuth({ token: data.token, role, user });
 
-          if (role === "admin" || role === "superadmin") {
-            setRoute("admin");
-          } else {
-            setRoute("home");
-          }
+          setRoute("home");
 
           tg.ready();
           tg.expand();
@@ -1848,11 +1841,7 @@ function App() {
         localStorage.setItem("auth_user", JSON.stringify(user));
         setAuth({ token: data.token, role, user });
 
-        if (role === "admin" || role === "superadmin") {
-          setRoute("admin");
-        } else {
-          setRoute("home");
-        }
+        setRoute("home");
 
         // Показываем уведомление только в браузере
         if (!isTG) {
@@ -2677,11 +2666,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
           
           setAuth({ token, role: finalRole, user });
           setTokenValid(true);
-          if (finalRole === "admin" || finalRole === "superadmin") {
-            setRoute("admin");
-          } else {
-            setRoute("home");
-          }
+          setRoute("home");
         }}
       />
     );

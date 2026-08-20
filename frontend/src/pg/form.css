@@ -75,7 +75,7 @@
 .pgf-sku__opt {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   width: 100%;
   padding: 10px var(--pg-sp-3);
   border: none;
@@ -90,8 +90,37 @@
 }
 .pgf-sku__opt:last-child { border-bottom: none; }
 .pgf-sku__opt:active { background: var(--pg-surface-2); }
-.pgf-sku__opt-code { font-weight: 600; }
-.pgf-sku__opt-meta { font-size: var(--pg-fs-xs); color: var(--pg-hint); }
+.pgf-sku__opt-head { display: flex; align-items: center; gap: var(--pg-sp-2); }
+.pgf-sku__opt-code { font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Тип виден сразу: один код бывает и «замок», и «клей» */
+.pgf-sku__opt-type {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-full);
+  background: var(--pg-surface-2);
+  color: var(--pg-text-2);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pgf-sku__opt-meta {
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgf-sku__none {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px var(--pg-sp-3);
+  color: var(--pg-hint);
+  font-size: var(--pg-fs-sm);
+}
 
 .pgf-sku__limit {
   display: flex;
@@ -104,16 +133,3 @@
   color: var(--pg-warning);
   font-size: var(--pg-fs-xs);
 }
-
-.pgf-sku__choose {
-  padding: var(--pg-sp-3);
-  border: 1px solid var(--pg-accent-border);
-  border-radius: var(--pg-r-md);
-  background: var(--pg-accent-bg);
-}
-.pgf-sku__choose-h {
-  font-size: var(--pg-fs-sm);
-  color: var(--pg-text-2);
-  margin-bottom: var(--pg-sp-2);
-}
-.pgf-sku__choose-b { display: flex; flex-wrap: wrap; gap: var(--pg-sp-2); }

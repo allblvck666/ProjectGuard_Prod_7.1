@@ -1,13 +1,29 @@
 // frontend/src/pg/SkuPicker.jsx
-// Выбор артикулов в новом оформлении. Правила те же, что и в старом
-// SkuSelector (до 3 артикулов, выбор типа при совпадении кода,
-// метраж по артикулам) — меняется только вид.
+// ============================================================
+// Выбор артикулов. Правила те же, что и в старом SkuSelector
+// (до 3 артикулов, метраж по артикулам) — меняется вид и то,
+// как выбирается вариант.
+//
+// В справочнике один код живёт в нескольких вариантах: у 49 кодов
+// есть и «замок», и «клей», а у части — ещё и разные коллекции.
+// Поэтому в подсказке сразу видно тип и коллекцию, а выбранный
+// вариант добавляется без второго вопроса «замок или клей».
+// ============================================================
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Badge, Button, Icon, Input } from "./ui";
+import { Badge, Icon, Input } from "./ui";
 import { notify } from "./notify";
 
 const MAX_SKUS = 3;
+const MAX_SUGGESTIONS = 24;
+
+function variantKey(s) {
+  return [
+    String(s.sku || "").toUpperCase(),
+    String(s.type || "").toLowerCase(),
+    String(s.collection || "").toLowerCase(),
+  ].join("|");
+}
 
 export default function SkuPicker({
   skus = [],
@@ -18,14 +34,37 @@ export default function SkuPicker({
   onNotice,
 }) {
   const [input, setInput] = useState("");
-  const [chooseType, setChooseType] = useState(null);
   const [focused, setFocused] = useState(false);
   const boxRef = useRef(null);
 
   const suggestions = useMemo(() => {
     const val = input.trim().toUpperCase();
     if (!val) return [];
-    return skus.filter((s) => String(s.sku).toUpperCase().startsWith(val)).slice(0, 10);
+
+    const seen = new Set();
+    const found = [];
+    for (const s of skus) {
+      const code = String(s.sku || "").toUpperCase();
+      if (!code.startsWith(val)) continue;
+      const key = variantKey(s);
+      if (seen.has(key)) continue; // в справочнике встречаются повторы строк
+      seen.add(key);
+      found.push(s);
+    }
+
+    // Варианты одного кода держим рядом: сначала точное совпадение, потом по коду и типу
+    found.sort((a, b) => {
+      const ca = String(a.sku || "");
+      const cb = String(b.sku || "");
+      if (ca !== cb) {
+        if (ca.toUpperCase() === val) return -1;
+        if (cb.toUpperCase() === val) return 1;
+        return ca.localeCompare(cb, "ru", { numeric: true });
+      }
+      return String(a.type || "").localeCompare(String(b.type || ""), "ru");
+    });
+
+    return found.slice(0, MAX_SUGGESTIONS);
   }, [input, skus]);
 
   useEffect(() => {
@@ -38,29 +77,25 @@ export default function SkuPicker({
 
   const notice = (msg) => (onNotice ? onNotice(msg) : notify.error(msg));
 
-  const pushSku = (skuObj) => {
+  // В подсказке уже выбран конкретный вариант — добавляем как есть,
+  // переспрашивать про тип не нужно
+  const addSku = (skuObj) => {
     if (selected.length >= MAX_SKUS) {
       notice(`Можно добавить максимум ${MAX_SKUS} артикула`);
       return;
     }
-    if (selected.find((s) => s.sku === skuObj.sku && s.type === skuObj.type)) {
-      notice("Этот артикул уже добавлен");
+    const already = selected.find(
+      (s) =>
+        String(s.sku).toUpperCase() === String(skuObj.sku).toUpperCase() &&
+        String(s.type || "").toLowerCase() === String(skuObj.type || "").toLowerCase()
+    );
+    if (already) {
+      notice(`${skuObj.sku} · ${skuObj.type || "без типа"} уже добавлен`);
       return;
     }
     setSelected([...selected, { ...skuObj, area: "" }]);
     setInput("");
     setFocused(false);
-  };
-
-  const addSku = (skuObj) => {
-    const same = skus.filter((s) => s.sku === skuObj.sku);
-    if (same.length > 1) {
-      setChooseType(same);
-      setInput("");
-      setFocused(false);
-      return;
-    }
-    pushSku(skuObj);
   };
 
   const removeSku = (sku) =>
@@ -76,7 +111,7 @@ export default function SkuPicker({
             <div className="pgf-sku__item" key={`${s.sku}-${s.type}-${i}`}>
               <Badge tone="accent" plain className="pgf-sku__chip">
                 <span>{s.sku}</span>
-                <span className="pgf-sku__type">{s.type}</span>
+                {s.type && <span className="pgf-sku__type">{s.type}</span>}
                 <button
                   type="button"
                   className="pgf-sku__x"
@@ -112,23 +147,34 @@ export default function SkuPicker({
               setFocused(true);
             }}
             onFocus={() => setFocused(true)}
+            inputMode="numeric"
             autoComplete="off"
           />
-          {focused && suggestions.length > 0 && (
+          {focused && input.trim() && (
             <div className="pgf-sku__drop">
-              {suggestions.map((s, i) => (
-                <button
-                  type="button"
-                  className="pgf-sku__opt"
-                  key={`${s.sku}-${s.type}-${i}`}
-                  onClick={() => addSku(s)}
-                >
-                  <span className="pgf-sku__opt-code">{s.sku}</span>
-                  <span className="pgf-sku__opt-meta">
-                    {[s.collection, s.type].filter(Boolean).join(" · ")}
-                  </span>
-                </button>
-              ))}
+              {suggestions.length === 0 ? (
+                <div className="pgf-sku__none">
+                  <Icon name="search" size={14} />
+                  Артикул не найден
+                </div>
+              ) : (
+                suggestions.map((s) => (
+                  <button
+                    type="button"
+                    className="pgf-sku__opt"
+                    key={variantKey(s)}
+                    onClick={() => addSku(s)}
+                  >
+                    <span className="pgf-sku__opt-head">
+                      <b className="pgf-sku__opt-code">{s.sku}</b>
+                      {s.type && <span className="pgf-sku__opt-type">{s.type}</span>}
+                    </span>
+                    {s.collection && (
+                      <span className="pgf-sku__opt-meta">{s.collection}</span>
+                    )}
+                  </button>
+                ))
+              )}
             </div>
           )}
         </div>
@@ -136,32 +182,6 @@ export default function SkuPicker({
         <div className="pgf-sku__limit">
           <Icon name="info" size={14} />
           Максимум {MAX_SKUS} артикула. Уберите один, чтобы добавить другой.
-        </div>
-      )}
-
-      {chooseType && (
-        <div className="pgf-sku__choose">
-          <div className="pgf-sku__choose-h">
-            Выберите тип для <b>{chooseType[0].sku}</b>
-          </div>
-          <div className="pgf-sku__choose-b">
-            {chooseType.map((opt, i) => (
-              <Button
-                key={i}
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  pushSku(opt);
-                  setChooseType(null);
-                }}
-              >
-                {opt.type}
-              </Button>
-            ))}
-            <Button variant="ghost" size="sm" onClick={() => setChooseType(null)}>
-              Отмена
-            </Button>
-          </div>
         </div>
       )}
     </div>
