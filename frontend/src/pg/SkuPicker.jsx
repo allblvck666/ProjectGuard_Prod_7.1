@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Button, Icon, Input } from "./ui";
+import { notify } from "./notify";
 
 const MAX_SKUS = 3;
 
@@ -35,7 +36,7 @@ export default function SkuPicker({
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  const notice = (msg) => (onNotice ? onNotice(msg) : window.alert(msg));
+  const notice = (msg) => (onNotice ? onNotice(msg) : notify.error(msg));
 
   const pushSku = (skuObj) => {
     if (selected.length >= MAX_SKUS) {

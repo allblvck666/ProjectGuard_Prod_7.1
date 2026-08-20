@@ -1,0 +1,54 @@
+/* ============================================================
+   Тосты. Префикс pgt-.
+   Сверху, чтобы не спорить с нижней кнопкой Telegram.
+   ============================================================ */
+
+.pgt {
+  position: fixed;
+  top: calc(var(--pg-sp-2) + env(safe-area-inset-top, 0px));
+  left: var(--pg-sp-3);
+  right: var(--pg-sp-3);
+  z-index: 120;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.pgt__i {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--pg-sp-2);
+  width: 100%;
+  padding: 10px var(--pg-sp-3);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-surface);
+  box-shadow: var(--pg-shadow);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-sm);
+  line-height: var(--pg-lh);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  animation: pgt-in 200ms ease;
+}
+.pgt__i span { flex: 1; min-width: 0; }
+.pgt__i .pg-icon { margin-top: 1px; }
+
+.pgt__i--success { border-color: var(--pg-success-border); }
+.pgt__i--success .pg-icon { color: var(--pg-success); }
+.pgt__i--error { border-color: var(--pg-danger-border); }
+.pgt__i--error .pg-icon { color: var(--pg-danger); }
+.pgt__i--info .pg-icon { color: var(--pg-accent); }
+
+@keyframes pgt-in {
+  from { transform: translateY(-8px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pgt__i { animation: none; }
+}

@@ -8,6 +8,7 @@ import {
   LoadingState, Sheet, Textarea,
 } from "../ui";
 import { fmtArea, fmtDateShort, plural, shortName, skuShort } from "../format";
+import { notify } from "../notify";
 
 export default function RequestsTab() {
   const [rows, setRows] = useState(null);
@@ -40,7 +41,7 @@ export default function RequestsTab() {
       });
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось продлить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось продлить");
     } finally {
       setBusy(0);
     }
@@ -55,7 +56,7 @@ export default function RequestsTab() {
       setReject(null);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось отклонить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось отклонить");
     } finally {
       setBusy(0);
     }
@@ -68,7 +69,7 @@ export default function RequestsTab() {
       setDrop(null);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось снять запрос"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось снять запрос");
     } finally {
       setBusy(0);
     }

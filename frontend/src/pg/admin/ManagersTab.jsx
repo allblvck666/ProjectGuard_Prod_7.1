@@ -9,6 +9,7 @@ import {
   LoadingState, Select, Sheet,
 } from "../ui";
 import { fmtArea, fmtDateShort, plural, skuShort, statusBadge } from "../format";
+import { notify } from "../notify";
 
 export default function ManagersTab() {
   const [managers, setManagers] = useState(null);
@@ -60,7 +61,7 @@ export default function ManagersTab() {
       setAddOpen(false);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось добавить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось добавить");
     } finally {
       setBusy(false);
     }
@@ -75,7 +76,7 @@ export default function ManagersTab() {
       setRename(null);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось переименовать"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось переименовать");
     } finally {
       setBusy(false);
     }
@@ -90,7 +91,7 @@ export default function ManagersTab() {
       setTransferTo("");
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось удалить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось удалить");
     } finally {
       setBusy(false);
     }

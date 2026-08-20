@@ -9,6 +9,7 @@ import {
   LoadingState, Select, Sheet,
 } from "../ui";
 import { fmtDate, initials, plural } from "../format";
+import { notify } from "../notify";
 
 const ROLES = [
   { value: "manager", label: "Менеджер" },
@@ -90,7 +91,7 @@ export default function UsersTab({ role, currentUserId }) {
       setOpened((prev) => (prev && prev.id === id ? { ...prev, ...(updated || data) } : prev));
       return true;
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось сохранить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось сохранить");
       return false;
     } finally {
       setBusy(false);
@@ -109,7 +110,7 @@ export default function UsersTab({ role, currentUserId }) {
       setConfirm(null);
       setOpened(null);
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось удалить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось удалить");
     } finally {
       setBusy(false);
     }
@@ -123,7 +124,7 @@ export default function UsersTab({ role, currentUserId }) {
       setClearWord("");
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось очистить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось очистить");
     } finally {
       setBusy(false);
     }

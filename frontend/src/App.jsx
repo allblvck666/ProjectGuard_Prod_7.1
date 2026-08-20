@@ -10,6 +10,7 @@ const AdminPage = lazy(() => import("./AdminPage.jsx"));
 import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
+import { notify } from "./pg/notify";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
@@ -111,11 +112,11 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
 
   const pushSku = (skuObj) => {
     if (selected.length >= 3) {
-      alert("Можно добавить максимум 3 артикула");
+      notify.error("Можно добавить максимум 3 артикула");
       return;
     }
     if (selected.find((s) => s.sku === skuObj.sku && s.type === skuObj.type)) {
-      alert("Этот артикул уже добавлен");
+      notify.error("Этот артикул уже добавлен");
       return;
     }
     setSelected([...selected, { ...skuObj, area: "" }]);
@@ -1422,7 +1423,7 @@ function ArchivePage({
                               const isAdmin = user.role === "admin" || user.role === "superadmin";
                               
                               if (!isAuthor && !isAdmin) {
-                                alert("❌ Обновить защиту может только её автор или администратор");
+                                notify.error("Обновить защиту может только её автор или администратор");
                                 return;
                               }
                               
@@ -1448,7 +1449,7 @@ function ArchivePage({
                               const isAdmin = user.role === "admin" || user.role === "superadmin";
                               
                               if (!isAuthor && !isAdmin) {
-                                alert("❌ Обновить защиту может только её автор или администратор");
+                                notify.error("Обновить защиту может только её автор или администратор");
                                 return;
                               }
                               
@@ -1832,7 +1833,7 @@ function App() {
 
         // Показываем уведомление только в браузере
         if (!isTG) {
-          alert("✅ Вход выполнен как " + role);
+          notify.success("Вход выполнен как " + role);
         } else {
           const tg = window.Telegram?.WebApp;
           if (tg?.HapticFeedback) {
@@ -1840,10 +1841,10 @@ function App() {
           }
         }
       } else {
-        alert("❌ Ошибка входа");
+        notify.error("Ошибка входа");
       }
     } catch (err) {
-      alert("Ошибка запроса к серверу");
+      notify.error("Ошибка запроса к серверу");
     }
   };
 
@@ -1864,7 +1865,7 @@ function App() {
     if (currentRole === "admin" || currentRole === "superadmin") {
       setRoute("admin");
     } else {
-      alert("⛔ Нет прав доступа к админке");
+      notify.error("Нет прав доступа к админке");
     }
   };
 
@@ -1992,7 +1993,8 @@ function App() {
     }
 
     if (total < 50) {
-      return alert("❌ Минимум 50 м²");
+      notify.error("Минимум 50 м²");
+      return;
     }
 
     const payload = {
@@ -2007,7 +2009,7 @@ function App() {
       await load();
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при редактировании защиты";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2043,7 +2045,7 @@ function App() {
     }
     
     if (Object.keys(payload).length === 0) {
-      alert("❌ Заполните хотя бы одно поле");
+      notify.error("Заполните хотя бы одно поле");
       return;
     }
     
@@ -2051,10 +2053,10 @@ function App() {
       await api.put(`/api/protections/${updateClosedModal.id}/update-closed`, payload);
       setUpdateClosedModal({ open: false, id: null, close_reason: "", success_doc: "", mode: "reason" });
       await load();
-      alert("✅ Защита обновлена");
+      notify.success("Защита обновлена");
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при обновлении защиты";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2227,14 +2229,20 @@ function App() {
 
     if (emptyFields.length > 0) {
       setErrorFields(emptyFields);
-      alert("⚠️ Заполните обязательные поля: " + emptyFields.join(", "));
-      return;
+      notify.error("Заполните обязательные поля: " + emptyFields.join(", "));
+      return false;
     }
 
     setErrorFields([]);
 
-    if (!form.manager) return alert("Выберите менеджера");
-    if (selectedSkus.length === 0) return alert("Добавьте артикул");
+    if (!form.manager) {
+      notify.error("Выберите менеджера");
+      return false;
+    }
+    if (selectedSkus.length === 0) {
+      notify.error("Добавьте артикул");
+      return false;
+    }
 
     const sku_data = selectedSkus.map((s) => ({
       sku: s.sku,
@@ -2246,7 +2254,10 @@ function App() {
       ? sku_data.reduce((sum, it) => sum + Number(it.area || 0), 0)
       : Number(form.area_m2 || 0);
 
-    if (total_area <= 0) return alert("Укажите метраж");
+    if (total_area <= 0) {
+      notify.error("Укажите метраж");
+      return false;
+    }
 
     const payload = {
       ...form,
@@ -2291,7 +2302,7 @@ function App() {
           requestReason: ""
         });
       } else if (typeof detail === "string") {
-        alert("⚠️ " + detail);
+        notify.error(detail);
       } else if (detail?.msg) {
         const conflictMsg = detail.msg;
         const reason = prompt(
@@ -2305,18 +2316,18 @@ function App() {
               ...payload,
               comment: reason.trim(),
             });
-            alert("✅ Отправлено админу на проверку.");
+            notify.success("Отправлено админу на проверку.");
             await load();
           } catch (subErr) {
             const subUserMessage = subErr.userMessage || subErr.response?.data?.detail || "Ошибка при отправке админу";
-            alert("❌ " + subUserMessage);
+            notify.error(subUserMessage);
           }
         } else {
-          alert("⚠️ Защита не создана (отменено пользователем).");
+          notify.error("Защита не создана (отменено пользователем).");
         }
       } else if (err.response?.status === 400) {
         const msg = userMessage || detail || "Ошибка данных защиты";
-        alert("⚠️ " + msg);
+        notify.error(msg);
         const possibleFields = [
           "partner",
           "partner_city",
@@ -2331,7 +2342,7 @@ function App() {
         if (matched.length > 0) setErrorFields(matched);
       } else {
         const finalMessage = userMessage || detail || "Не удалось создать защиту. Попробуйте позже.";
-        alert("❌ " + finalMessage);
+        notify.error(finalMessage);
       }
       return false;
     }
@@ -2365,7 +2376,7 @@ function App() {
     } catch (err) {
       const userMessage =
         err.userMessage || err.response?.data?.detail || "Не удалось пропустить защиту";
-      alert("❌ " + (typeof userMessage === "string" ? userMessage : "Не удалось пропустить защиту"));
+      notify.error((typeof userMessage === "string" ? userMessage : "Не удалось пропустить защиту"));
       return false;
     }
   };
@@ -2389,14 +2400,14 @@ function App() {
         });
       } else {
         const finalMessage = userMessage || det?.msg || det || "Не удалось продлить защиту";
-        alert("⚠️ " + finalMessage);
+        notify.error(finalMessage);
       }
     }
   };
 
   const submitExtendRequest = async () => {
     if (!extendRequestModal.reason.trim()) {
-      alert("⚠️ Причина не указана — запрос отменён.");
+      notify.error("Причина не указана — запрос отменён.");
       return;
     }
 
@@ -2405,18 +2416,18 @@ function App() {
         days: extendRequestModal.days,
         reason: extendRequestModal.reason.trim(),
       });
-      alert("✅ Запрос на продление отправлен администратору.");
+      notify.success("Запрос на продление отправлен администратору.");
       setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" });
       await load();
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса на продление";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
   const submitSimilarProtectionRequest = async () => {
     if (!similarProtectionModal.requestReason.trim()) {
-      alert("⚠️ Укажите причину для запроса администратору.");
+      notify.error("Укажите причину для запроса администратору.");
       return;
     }
 
@@ -2426,13 +2437,13 @@ function App() {
         comment: similarProtectionModal.requestReason.trim(),
       });
       // Новый экран показывает результат сам, старому нужен alert
-      if (!newCreate) alert("✅ Запрос отправлен администратору на проверку.");
+      if (!newCreate) notify.success("Запрос отправлен администратору на проверку.");
       setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" });
       await load();
       return true;
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса администратору";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
       return false;
     }
   };
@@ -2453,7 +2464,7 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось закрыть защиту";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2466,7 +2477,7 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось отметить как успешную";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2479,7 +2490,7 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось удалить защиту";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2492,7 +2503,7 @@ function App() {
     } catch (e) {
       const userMessage =
         e.userMessage || e.response?.data?.detail || "Не удалось восстановить защиту";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
       return false;
     }
   };

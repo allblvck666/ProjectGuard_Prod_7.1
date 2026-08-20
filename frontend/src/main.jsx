@@ -8,6 +8,7 @@ import './styles.css'
 import './pg/tokens.css'
 import { initFlags } from './pg/flags'
 import { initPgTheme } from './pg/theme'
+import { ToastHost } from './pg/notify'
 
 initFlags()
 initPgTheme()
@@ -15,5 +16,7 @@ initPgTheme()
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <App />
+    {/* Тосты поверх любого экрана — заменяют блокирующий alert() */}
+    <ToastHost />
   </React.StrictMode>,
 )

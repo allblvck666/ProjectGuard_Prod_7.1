@@ -8,6 +8,7 @@ import {
   KV, LoadingState, Sheet, Textarea,
 } from "../ui";
 import { fmtArea, fmtDateShort, maskPhone, plural, shortName, skuShort } from "../format";
+import { notify } from "../notify";
 
 export default function PendingTab() {
   const [rows, setRows] = useState(null);
@@ -37,7 +38,7 @@ export default function PendingTab() {
       await api.post(`/api/admin/pending/${p.id}/approve`);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось одобрить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось одобрить");
     } finally {
       setBusy(0);
     }
@@ -50,7 +51,7 @@ export default function PendingTab() {
       setReject(null);
       await load();
     } catch (e) {
-      window.alert("❌ " + (e.userMessage || e.response?.data?.detail || "Не удалось отклонить"));
+      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось отклонить");
     } finally {
       setBusy(0);
     }
