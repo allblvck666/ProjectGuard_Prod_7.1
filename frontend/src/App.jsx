@@ -6,6 +6,22 @@ import { api, fetchMe, adminUsersAPI } from "./api";
 import { lazy, Suspense, memo, useMemo, useEffect } from "react";
 const AdminPage = lazy(() => import("./AdminPage.jsx"));
 
+// Новый слой представления (редизайн) — включается флагами, см. pg/flags.js
+import { useNewUi } from "./pg/useFlags";
+import { setFlag } from "./pg/flags";
+import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
+import { notify } from "./pg/notify";
+import TabBar, { TABBAR_ROUTES } from "./pg/TabBar";
+const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
+const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
+const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
+const CreateProtectionNew = lazy(() => import("./pg/CreateProtection.jsx"));
+const ArchiveListNew = lazy(() => import("./pg/ArchiveList.jsx"));
+const StatsScreenNew = lazy(() => import("./pg/StatsScreen.jsx"));
+const AdminScreenNew = lazy(() => import("./pg/AdminScreen.jsx"));
+const HomeScreenNew = lazy(() => import("./pg/HomeScreen.jsx"));
+const MoreScreenNew = lazy(() => import("./pg/MoreScreen.jsx"));
+
 import { useState } from "react";
 import "./App.css";
 import LoginPage from "./LoginPage";
@@ -99,11 +115,11 @@ function SkuSelector({ skus, selected, setSelected, perSkuMode, onAreaChange }) 
 
   const pushSku = (skuObj) => {
     if (selected.length >= 3) {
-      alert("Можно добавить максимум 3 артикула");
+      notify.error("Можно добавить максимум 3 артикула");
       return;
     }
     if (selected.find((s) => s.sku === skuObj.sku && s.type === skuObj.type)) {
-      alert("Этот артикул уже добавлен");
+      notify.error("Этот артикул уже добавлен");
       return;
     }
     setSelected([...selected, { ...skuObj, area: "" }]);
@@ -301,7 +317,7 @@ function CreateProtectionPage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -741,7 +757,7 @@ function ActiveProtectionsPage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1234,7 +1250,10 @@ function ActiveProtectionsPage({
 function ArchivePage({
   items, expanded, toggleExpand, search, setSearch,
   managerFilter, setManagerFilter, managers, load, loading, onBack,
-  updateClosedModal, setUpdateClosedModal
+  updateClosedModal, setUpdateClosedModal,
+  // Передаётся только при ?ui-detail=new: тап по карточке открывает
+  // новую карточку защиты вместо разворачивания подробностей.
+  onOpenDetail
 }) {
   // Фильтруем только закрытые защиты (не active)
   let filteredItems = items.filter(it => it.status !== "active");
@@ -1254,7 +1273,7 @@ function ArchivePage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1318,7 +1337,10 @@ function ArchivePage({
             
             return (
               <div key={it.id} className="item">
-                <div className="line" onClick={() => toggleExpand(it.id)}>
+                <div
+                  className="line"
+                  onClick={() => (onOpenDetail ? onOpenDetail(it.id) : toggleExpand(it.id))}
+                >
                   <div>
                     <b>{it.partner || "—"}</b> — {it.sku || "—"}{" "}
                     {it.area_m2 ? `(${it.area_m2} м²)` : ""}
@@ -1342,11 +1364,11 @@ function ArchivePage({
                     )}
                   </div>
                   <div className="small arrow">
-                    {expanded[it.id] ? "▲" : "▼"}
+                    {onOpenDetail ? "›" : expanded[it.id] ? "▲" : "▼"}
                   </div>
                 </div>
 
-                {expanded[it.id] && (
+                {!onOpenDetail && expanded[it.id] && (
                   <div className="details">
                     {it.partner && (
                       <div className="small">
@@ -1404,7 +1426,7 @@ function ArchivePage({
                               const isAdmin = user.role === "admin" || user.role === "superadmin";
                               
                               if (!isAuthor && !isAdmin) {
-                                alert("❌ Обновить защиту может только её автор или администратор");
+                                notify.error("Обновить защиту может только её автор или администратор");
                                 return;
                               }
                               
@@ -1430,7 +1452,7 @@ function ArchivePage({
                               const isAdmin = user.role === "admin" || user.role === "superadmin";
                               
                               if (!isAuthor && !isAdmin) {
-                                alert("❌ Обновить защиту может только её автор или администратор");
+                                notify.error("Обновить защиту может только её автор или администратор");
                                 return;
                               }
                               
@@ -1464,7 +1486,7 @@ function StatsPage({ stats, onBack }) {
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1515,6 +1537,24 @@ function App() {
   });
 
   const [route, setRoute] = useState("home"); // "home" | "create" | "active" | "archive" | "stats" | "admin"
+
+  // Витрина дизайн-системы: ?ui-kit=1
+  const showUiKit = useNewUi("ui-kit");
+  // Новая главная: ?ui-home=new
+  const newHome = useNewUi("ui-home");
+  // Новый список активных защит: ?ui-list=new
+  const newList = useNewUi("ui-list");
+  // Новая карточка защиты: ?ui-detail=new
+  const newDetail = useNewUi("ui-detail");
+  // Новое создание защиты и экран конфликта: ?ui-create=new
+  const newCreate = useNewUi("ui-create");
+  // Новый архив: ?ui-archive=new
+  const newArchive = useNewUi("ui-archive");
+  // Новая админка и статистика: ?ui-admin=new
+  const newAdmin = useNewUi("ui-admin");
+  // Нативная навигация Telegram: ?ui-nav=new
+  const newNav = useNewUi("ui-nav");
+  const nativeNav = newNav && isTelegramApp();
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -1600,6 +1640,42 @@ function App() {
       window.removeEventListener("app-theme-change", handleManualThemeChange);
     };
   }, [isTG]);
+
+  // Панель разделов внизу — только на корневых экранах нового UI.
+  // На вложенных (карточка защиты, создание, админка) её нет: назад ведёт Telegram.
+  const tabsOn =
+    TABBAR_ROUTES.includes(route) &&
+    ((route === "home" && newHome) ||
+      (route === "active" && newList) ||
+      (route === "archive" && newArchive) ||
+      route === "more");
+
+  // Нативная навигация: «Назад» для всех экранов на самом низком приоритете —
+  // новые экраны перекрывают его своим обработчиком, когда открыт слой поверх.
+  useBackButton(
+    () => setRoute("home"),
+    nativeNav && route !== "home" && !tabsOn,
+    BACK_PRIORITY.app
+  );
+
+  // Экраны поджимаются на высоту панели разделов, чтобы контент не уезжал под неё
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    if (tabsOn) root.setAttribute("data-pg-tabs", "on");
+    else root.removeAttribute("data-pg-tabs");
+    return () => root.removeAttribute("data-pg-tabs");
+  }, [tabsOn]);
+
+  // Метка для CSS: прячем свои «← Назад» и плавающую стрелку на старых экранах,
+  // но только когда кнопку действительно рисует Telegram.
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    if (nativeNav) root.setAttribute("data-pg-nav", "native");
+    else root.removeAttribute("data-pg-nav");
+    return () => root.removeAttribute("data-pg-nav");
+  }, [nativeNav]);
 
   // 🔍 Проверка валидности токена при загрузке (только для браузера)
   useEffect(() => {
@@ -1780,7 +1856,7 @@ function App() {
 
         // Показываем уведомление только в браузере
         if (!isTG) {
-          alert("✅ Вход выполнен как " + role);
+          notify.success("Вход выполнен как " + role);
         } else {
           const tg = window.Telegram?.WebApp;
           if (tg?.HapticFeedback) {
@@ -1788,10 +1864,10 @@ function App() {
           }
         }
       } else {
-        alert("❌ Ошибка входа");
+        notify.error("Ошибка входа");
       }
     } catch (err) {
-      alert("Ошибка запроса к серверу");
+      notify.error("Ошибка запроса к серверу");
     }
   };
 
@@ -1812,7 +1888,7 @@ function App() {
     if (currentRole === "admin" || currentRole === "superadmin") {
       setRoute("admin");
     } else {
-      alert("⛔ Нет прав доступа к админке");
+      notify.error("Нет прав доступа к админке");
     }
   };
 
@@ -1820,7 +1896,13 @@ function App() {
     setRoute("home");
   };
 
-  const goHome = () => setRoute("home");
+  const goHome = () => {
+    setListFilter(null);
+    setRoute("home");
+  };
+  const goMore = () => setRoute("more");
+  // Статистика, админка и настройки живут в «Ещё» — назад логичнее туда
+  const goBackFromSecondary = () => (newHome ? goMore() : goHome());
   const goCreate = () => setRoute("create");
   const goActive = () => setRoute("active");
   const goArchive = () => setRoute("archive");
@@ -1831,6 +1913,12 @@ function App() {
   const [stats, setStats] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  // Карточка защиты, открытая из архива (в списке она живёт внутри экрана списка)
+  const [archiveDetailId, setArchiveDetailId] = useState(null);
+  // Карточка защиты, открытая с главной, и предустановленный фильтр списка
+  const [homeDetailId, setHomeDetailId] = useState(null);
+  const [listFilter, setListFilter] = useState(null);
   const [managers, setManagers] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [managerFilter, setManagerFilter] = useState("");
@@ -1883,10 +1971,27 @@ function App() {
   const openEditModal = (item) => {
     setEditModal({ open: true, id: item.id });
     const parsed = [];
-    const parts = (item.sku || "").split(";").map((p) => p.trim());
+    // Бэкенд склеивает артикулы двумя способами:
+    //   "AF1 (Тип) + AF2 (Тип)"                      — единый метраж, «м²» в строке нет
+    //   "AF1 (Тип) — 180 м²; AF2 (Тип) — 140 м²"     — метраж по артикулам
+    // Раньше разбирался только второй вариант, и у защит с единым метражом
+    // список артикулов открывался пустым.
+    const parts = (item.sku || "")
+      .split(/;|\s\+\s/)
+      .map((p) => p.trim())
+      .filter(Boolean);
     for (const p of parts) {
-      const m = p.match(/([\w-]+) \(([^)]+)\).*?(\d+(?:\.\d+)?) м²/);
-      if (m) parsed.push({ sku: m[1], type: m[2], area: m[3] });
+      const m = p.match(/^(.+?)\s*\(([^)]*)\)(?:\s*[—-]\s*([\d.,]+)\s*м²)?\s*$/);
+      if (m) {
+        parsed.push({
+          sku: m[1].trim(),
+          type: (m[2] || "").trim(),
+          area: m[3] ? m[3].replace(",", ".") : "",
+        });
+      } else {
+        // артикул без типа, как в старых записях
+        parsed.push({ sku: p, type: "", area: "" });
+      }
     }
     setEditSelectedSkus(parsed);
     setEditComment(item.comment || "");
@@ -1920,7 +2025,8 @@ function App() {
     }
 
     if (total < 50) {
-      return alert("❌ Минимум 50 м²");
+      notify.error("Минимум 50 м²");
+      return;
     }
 
     const payload = {
@@ -1935,7 +2041,7 @@ function App() {
       await load();
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при редактировании защиты";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -1971,7 +2077,7 @@ function App() {
     }
     
     if (Object.keys(payload).length === 0) {
-      alert("❌ Заполните хотя бы одно поле");
+      notify.error("Заполните хотя бы одно поле");
       return;
     }
     
@@ -1979,15 +2085,16 @@ function App() {
       await api.put(`/api/protections/${updateClosedModal.id}/update-closed`, payload);
       setUpdateClosedModal({ open: false, id: null, close_reason: "", success_doc: "", mode: "reason" });
       await load();
-      alert("✅ Защита обновлена");
+      notify.success("Защита обновлена");
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при обновлении защиты";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       // Загружаем данные в зависимости от текущего route
       if (route === "stats") {
@@ -2027,6 +2134,7 @@ function App() {
     } catch (err) {
       // Используем понятное сообщение из interceptor, если есть
       const errorMessage = err.userMessage || err.response?.data?.detail || "Ошибка загрузки данных";
+      setLoadError(typeof errorMessage === "string" ? errorMessage : "Ошибка загрузки данных");
       if (route === "archive" || route === "active") {
         setItems([]);
       }
@@ -2153,14 +2261,20 @@ function App() {
 
     if (emptyFields.length > 0) {
       setErrorFields(emptyFields);
-      alert("⚠️ Заполните обязательные поля: " + emptyFields.join(", "));
-      return;
+      notify.error("Заполните обязательные поля: " + emptyFields.join(", "));
+      return false;
     }
 
     setErrorFields([]);
 
-    if (!form.manager) return alert("Выберите менеджера");
-    if (selectedSkus.length === 0) return alert("Добавьте артикул");
+    if (!form.manager) {
+      notify.error("Выберите менеджера");
+      return false;
+    }
+    if (selectedSkus.length === 0) {
+      notify.error("Добавьте артикул");
+      return false;
+    }
 
     const sku_data = selectedSkus.map((s) => ({
       sku: s.sku,
@@ -2172,7 +2286,10 @@ function App() {
       ? sku_data.reduce((sum, it) => sum + Number(it.area || 0), 0)
       : Number(form.area_m2 || 0);
 
-    if (total_area <= 0) return alert("Укажите метраж");
+    if (total_area <= 0) {
+      notify.error("Укажите метраж");
+      return false;
+    }
 
     const payload = {
       ...form,
@@ -2196,6 +2313,7 @@ function App() {
       setSelectedSkus([]);
       setPerSkuMode(false);
       await load();
+      return true;
     } catch (err) {
       // Используем понятное сообщение из interceptor
       const userMessage = err.userMessage;
@@ -2216,7 +2334,7 @@ function App() {
           requestReason: ""
         });
       } else if (typeof detail === "string") {
-        alert("⚠️ " + detail);
+        notify.error(detail);
       } else if (detail?.msg) {
         const conflictMsg = detail.msg;
         const reason = prompt(
@@ -2230,18 +2348,18 @@ function App() {
               ...payload,
               comment: reason.trim(),
             });
-            alert("✅ Отправлено админу на проверку.");
+            notify.success("Отправлено админу на проверку.");
             await load();
           } catch (subErr) {
             const subUserMessage = subErr.userMessage || subErr.response?.data?.detail || "Ошибка при отправке админу";
-            alert("❌ " + subUserMessage);
+            notify.error(subUserMessage);
           }
         } else {
-          alert("⚠️ Защита не создана (отменено пользователем).");
+          notify.error("Защита не создана (отменено пользователем).");
         }
       } else if (err.response?.status === 400) {
         const msg = userMessage || detail || "Ошибка данных защиты";
-        alert("⚠️ " + msg);
+        notify.error(msg);
         const possibleFields = [
           "partner",
           "partner_city",
@@ -2256,8 +2374,42 @@ function App() {
         if (matched.length > 0) setErrorFields(matched);
       } else {
         const finalMessage = userMessage || detail || "Не удалось создать защиту. Попробуйте позже.";
-        alert("❌ " + finalMessage);
+        notify.error(finalMessage);
       }
+      return false;
+    }
+  };
+
+  // Ручной пропуск конфликта (админ/суперадмин): защита уходит на проверку
+  // и тут же одобряется тем же админом — оба эндпоинта уже есть.
+  // Причина обязательна и остаётся в комментарии и в истории защиты.
+  const skipConflictManually = async (payload, reason) => {
+    const note = `Пропущено вручную: ${reason.trim()}`;
+    const body = {
+      ...payload,
+      comment: payload?.comment ? `${payload.comment} · ${note}` : note,
+    };
+    try {
+      const created = await api.post("/api/protections/pending", body);
+      const pendingId = created?.data?.id;
+      if (!pendingId) throw new Error("Не получен id защиты");
+      await api.post(`/api/admin/pending/${pendingId}/approve`);
+      setSimilarProtectionModal({
+        open: false, similarInfo: null, payload: null, requestReason: "",
+      });
+      setForm({
+        manager: "", client: "", partner: "", partner_city: "", area_m2: "",
+        last4: "", object_city: "", address: "", comment: "",
+      });
+      setSelectedSkus([]);
+      setPerSkuMode(false);
+      await load();
+      return true;
+    } catch (err) {
+      const userMessage =
+        err.userMessage || err.response?.data?.detail || "Не удалось пропустить защиту";
+      notify.error((typeof userMessage === "string" ? userMessage : "Не удалось пропустить защиту"));
+      return false;
     }
   };
 
@@ -2280,14 +2432,14 @@ function App() {
         });
       } else {
         const finalMessage = userMessage || det?.msg || det || "Не удалось продлить защиту";
-        alert("⚠️ " + finalMessage);
+        notify.error(finalMessage);
       }
     }
   };
 
   const submitExtendRequest = async () => {
     if (!extendRequestModal.reason.trim()) {
-      alert("⚠️ Причина не указана — запрос отменён.");
+      notify.error("Причина не указана — запрос отменён.");
       return;
     }
 
@@ -2296,18 +2448,18 @@ function App() {
         days: extendRequestModal.days,
         reason: extendRequestModal.reason.trim(),
       });
-      alert("✅ Запрос на продление отправлен администратору.");
+      notify.success("Запрос на продление отправлен администратору.");
       setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" });
       await load();
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса на продление";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
   const submitSimilarProtectionRequest = async () => {
     if (!similarProtectionModal.requestReason.trim()) {
-      alert("⚠️ Укажите причину для запроса администратору.");
+      notify.error("Укажите причину для запроса администратору.");
       return;
     }
 
@@ -2316,12 +2468,15 @@ function App() {
         ...similarProtectionModal.payload,
         comment: similarProtectionModal.requestReason.trim(),
       });
-      alert("✅ Запрос отправлен администратору на проверку.");
+      // Новый экран показывает результат сам, старому нужен alert
+      if (!newCreate) notify.success("Запрос отправлен администратору на проверку.");
       setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" });
       await load();
+      return true;
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса администратору";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
+      return false;
     }
   };
 
@@ -2341,7 +2496,7 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось закрыть защиту";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2354,7 +2509,7 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось отметить как успешную";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
     }
   };
 
@@ -2367,7 +2522,21 @@ function App() {
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось удалить защиту";
-      alert("❌ " + userMessage);
+      notify.error(userMessage);
+    }
+  };
+
+  // Восстановление закрытой/удалённой защиты — только суперадмин
+  const restoreProtection = async (id) => {
+    try {
+      await api.post(`/api/admin/protections/${id}/restore`);
+      await load();
+      return true;
+    } catch (e) {
+      const userMessage =
+        e.userMessage || e.response?.data?.detail || "Не удалось восстановить защиту";
+      notify.error(userMessage);
+      return false;
     }
   };
 
@@ -2420,8 +2589,29 @@ function App() {
     }
     }, [isTG]);
 
+// На новых экранах глобальный лоадер не нужен: у них есть свои состояния
+// загрузки, а полноэкранная заглушка размонтировала бы экран на каждом
+// обновлении (и сбрасывала бы фильтры и pull-to-refresh).
+const usesNewUi =
+  (route === "home" && newHome) ||
+  (route === "more" && newHome) ||
+  (route === "active" && newList) ||
+  (route === "create" && newCreate) ||
+  (route === "archive" && (newArchive || (newDetail && archiveDetailId != null))) ||
+  (route === "stats" && newAdmin) ||
+  (route === "admin" && newAdmin);
+
+// 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
+if (showUiKit) {
+  return (
+    <Suspense fallback={null}>
+      <UiKitPage onClose={() => setFlag("ui-kit", "off")} />
+    </Suspense>
+  );
+}
+
 // Пока WebApp инициализируется — показываем загрузку
-if (isTG && (!ready || loading)) {
+if (isTG && (!ready || (loading && !usesNewUi))) {
   return (
     <div style={{ 
       padding: 40, 
@@ -2497,8 +2687,63 @@ if (isTG && (!ready || loading)) {
     );
   }
 
+  // Бейдж на вкладке «Защиты»: сколько защит горит
+  const expiringCount = (Array.isArray(items) ? items : []).filter(
+    (it) => it.status === "active" && Number(it.days_left) <= 2
+  ).length;
+
+  // Корневой экран + панель разделов под ним
+  const withTabs = (screen) => (
+    <>
+      {screen}
+      {tabsOn && (
+        <TabBar
+          active={route}
+          onChange={(next) => {
+            if (next === "home") goHome();
+            else if (next === "active") {
+              setListFilter(null);
+              goActive();
+            } else if (next === "archive") goArchive();
+            else goMore();
+          }}
+          badges={{ active: expiringCount }}
+        />
+      )}
+    </>
+  );
+
+  // ==== ЕЩЁ ====
+  if (route === "more") {
+    return withTabs(
+      <Suspense fallback={null}>
+        <MoreScreenNew
+          auth={auth}
+          onStats={goStats}
+          onAdmin={goAdmin}
+          onSettings={() => setRoute("settings")}
+          onExport={exportXlsx}
+          onLogout={() => {
+            localStorage.clear();
+            setAuth({ token: "", role: "", user: null });
+            setTokenValid(false);
+            window.dispatchEvent(new CustomEvent("auth:logout"));
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   // 👑 Админка
   if (route === "admin") {
+    if (newAdmin) {
+      return (
+        <Suspense fallback={null}>
+          <AdminScreenNew auth={auth} onBack={goBackFromSecondary} />
+        </Suspense>
+      );
+    }
+
     return (
       <Suspense fallback={
         <div style={{ 
@@ -2522,6 +2767,53 @@ if (isTG && (!ready || loading)) {
 
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
   if (route === "home") {
+    const doLogout = () => {
+      localStorage.clear();
+      setAuth({ token: "", role: "", user: null });
+      setTokenValid(false);
+      window.dispatchEvent(new CustomEvent("auth:logout"));
+    };
+
+    // Новая главная (?ui-home=new): сводка по защитам вместо шести плиток
+    if (newHome) {
+      return withTabs(
+        <Suspense fallback={null}>
+          <HomeScreenNew
+            auth={auth}
+            items={items}
+            loading={loading}
+            load={load}
+            onCreate={goCreate}
+            onList={(filter) => {
+              setListFilter(filter || null);
+              goActive();
+            }}
+            onArchive={goArchive}
+            onStats={goStats}
+            onAdmin={goAdmin}
+            onSettings={() => setRoute("settings")}
+            onExport={exportXlsx}
+            onLogout={doLogout}
+            newDetail={newDetail}
+            detailId={homeDetailId}
+            setDetailId={setHomeDetailId}
+            act={act}
+            openEditModal={openEditModal}
+            restoreProtection={restoreProtection}
+            sheets={{
+              closeModal, setCloseModal, doClose,
+              successModal, setSuccessModal, doSuccess,
+              deleteModal, setDeleteModal, doDelete,
+              extendRequestModal, setExtendRequestModal, submitExtendRequest,
+              editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
+              editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
+              editComment, setEditComment, submitEdit, skus, onAreaChange,
+            }}
+          />
+        </Suspense>
+      );
+    }
+
     // Используем full_name, которое может быть установлено админом, иначе first_name
     const userName = auth.user?.full_name || auth.user?.first_name || "Пользователь";
     const currentRole = auth.role || auth.user?.role || role;
@@ -2607,6 +2899,32 @@ if (isTG && (!ready || loading)) {
 
   // ==== ПОСТАВИТЬ ЗАЩИТУ ====
   if (route === "create") {
+    if (newCreate) {
+      return (
+        <Suspense fallback={null}>
+          <CreateProtectionNew
+            form={form}
+            setForm={setForm}
+            managers={managers}
+            skus={skus}
+            selectedSkus={selectedSkus}
+            setSelectedSkus={setSelectedSkus}
+            perSkuMode={perSkuMode}
+            setPerSkuMode={setPerSkuMode}
+            onAreaChange={onAreaChange}
+            submit={submit}
+            onBack={goHome}
+            onGoToList={goActive}
+            auth={auth}
+            similarProtectionModal={similarProtectionModal}
+            setSimilarProtectionModal={setSimilarProtectionModal}
+            submitSimilarProtectionRequest={submitSimilarProtectionRequest}
+            skipConflictManually={skipConflictManually}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <CreateProtectionPage
         form={form}
@@ -2633,6 +2951,55 @@ if (isTG && (!ready || loading)) {
 
   // ==== АКТИВНЫЕ ЗАЩИТЫ ====
   if (route === "active") {
+    // Новый экран (?ui-list=new) получает те же данные и те же обработчики,
+    // что и старый: меняется только слой представления.
+    if (newList) {
+      return withTabs(
+        <Suspense fallback={null}>
+          <ProtectionsListNew
+            auth={auth}
+            items={items}
+            managers={managers}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goHome}
+            act={act}
+            openEditModal={openEditModal}
+            closeModal={closeModal}
+            setCloseModal={setCloseModal}
+            doClose={doClose}
+            successModal={successModal}
+            setSuccessModal={setSuccessModal}
+            doSuccess={doSuccess}
+            deleteModal={deleteModal}
+            setDeleteModal={setDeleteModal}
+            doDelete={doDelete}
+            editModal={editModal}
+            setEditModal={setEditModal}
+            editSelectedSkus={editSelectedSkus}
+            setEditSelectedSkus={setEditSelectedSkus}
+            editPerSkuMode={editPerSkuMode}
+            setEditPerSkuMode={setEditPerSkuMode}
+            editAreaUnified={editAreaUnified}
+            setEditAreaUnified={setEditAreaUnified}
+            editComment={editComment}
+            setEditComment={setEditComment}
+            submitEdit={submitEdit}
+            skus={skus}
+            onAreaChange={onAreaChange}
+            extendRequestModal={extendRequestModal}
+            setExtendRequestModal={setExtendRequestModal}
+            submitExtendRequest={submitExtendRequest}
+            restoreProtection={restoreProtection}
+            newDetail={newDetail}
+            initialFilter={listFilter}
+            showBack={!tabsOn}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <ActiveProtectionsPage
         auth={auth}
@@ -2680,7 +3047,30 @@ if (isTG && (!ready || loading)) {
 
   // ==== АРХИВ ЗАЩИТ ====
   if (route === "archive") {
-          return (
+    const archiveDetailItem =
+      archiveDetailId == null
+        ? null
+        : (items || []).find((it) => it.id === archiveDetailId) || null;
+
+    return withTabs(
+      <>
+      {newArchive ? (
+        <Suspense fallback={null}>
+          <ArchiveListNew
+            items={items}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goHome}
+            managers={managers}
+            auth={auth}
+            showBack={!tabsOn}
+            onOpenDetail={(item) =>
+              newDetail ? setArchiveDetailId(item.id) : toggleExpand(item.id)
+            }
+          />
+        </Suspense>
+      ) : (
       <ArchivePage
         items={items}
         expanded={expanded}
@@ -2695,12 +3085,53 @@ if (isTG && (!ready || loading)) {
         updateClosedModal={updateClosedModal}
         setUpdateClosedModal={setUpdateClosedModal}
         onBack={goHome}
+        onOpenDetail={newDetail ? setArchiveDetailId : undefined}
       />
+      )}
+      {/* Новая карточка защиты (?ui-detail=new) — слоем поверх архива,
+          сам архив остаётся смонтированным и не теряет прокрутку. */}
+      {newDetail && archiveDetailItem && (
+        <Suspense fallback={null}>
+          <ProtectionDetailNew
+            item={archiveDetailItem}
+            auth={auth}
+            onBack={() => setArchiveDetailId(null)}
+            act={act}
+            openEditModal={openEditModal}
+            restoreProtection={restoreProtection}
+            sheets={{
+              closeModal, setCloseModal, doClose,
+              successModal, setSuccessModal, doSuccess,
+              deleteModal, setDeleteModal, doDelete,
+              extendRequestModal, setExtendRequestModal, submitExtendRequest,
+              editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
+              editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
+              editComment, setEditComment, submitEdit, skus, onAreaChange,
+              updateClosedModal, setUpdateClosedModal, updateClosedProtection,
+            }}
+          />
+        </Suspense>
+      )}
+      </>
     );
   }
 
   // ==== СТАТИСТИКА ====
   if (route === "stats") {
+    if (newAdmin) {
+      return (
+        <Suspense fallback={null}>
+          <StatsScreenNew
+            stats={stats}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goBackFromSecondary}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <StatsPage
         stats={stats}
@@ -2715,7 +3146,7 @@ if (isTG && (!ready || loading)) {
       <div className="container" style={{ position: "relative", minHeight: "100dvh" }}>
         <ThemeToggle />
         <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-          <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+          <button className="btn secondary pg-legacy-back" onClick={goBackFromSecondary} style={{ marginRight: "auto" }}>
             ← Назад
           </button>
           <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -2725,7 +3156,7 @@ if (isTG && (!ready || loading)) {
         {/* Фиксированная кнопка "назад" на мобильной версии */}
         <button 
           className="fixed-back-button" 
-          onClick={goHome}
+          onClick={goBackFromSecondary}
           aria-label="Назад"
         >
           ←
@@ -2789,7 +3220,7 @@ if (isTG && (!ready || loading)) {
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={goHome} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>

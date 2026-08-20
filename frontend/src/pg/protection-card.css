@@ -1,0 +1,61 @@
+/* ============================================================
+   Карточка защиты. Стили лежат рядом с компонентом: экраны
+   грузятся лениво, и CSS из чужого файла может не приехать.
+   ============================================================ */
+
+.pgl-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding-top: var(--pg-sp-3);
+}
+
+.pgl-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pg-sp-2);
+}
+.pgl-card__partner {
+  font-weight: 700;
+  font-size: var(--pg-fs-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgl-card__client {
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgl-card__meta {
+  display: flex;
+  gap: var(--pg-sp-3);
+  flex-wrap: wrap;
+  color: var(--pg-hint);
+  font-size: var(--pg-fs-xs);
+  margin-top: 10px;
+}
+.pgl-card__m {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.pgl-card__m > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pgl-card__foot {
+  margin-top: var(--pg-sp-3);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.pgl-card__foot .pg-track { flex: 1; }
+.pgl-card__days {
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-text-2);
+  white-space: nowrap;
+}
+

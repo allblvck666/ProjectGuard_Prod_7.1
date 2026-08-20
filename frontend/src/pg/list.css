@@ -1,0 +1,129 @@
+/* ============================================================
+   Этап 2 — список активных защит. Префикс pgl-.
+   ============================================================ */
+
+.pgl {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg-bg);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  overflow: hidden;
+}
+.pgl *, .pgl *::before, .pgl *::after { box-sizing: border-box; }
+
+/* Запасной выход, если шапку Telegram никто не рисует (обычный браузер) */
+.pgl__fallback {
+  flex: 0 0 auto;
+  display: flex;
+  padding: calc(var(--pg-sp-2) + env(safe-area-inset-top, 0px)) var(--pg-sp-2) 0;
+}
+
+/* Липкая часть: сегмент, поиск, чипы */
+.pgl__stuck {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--pg-sp-3) var(--pg-sp-4) var(--pg-sp-3);
+  border-bottom: 1px solid var(--pg-border);
+}
+.pgl__fallback + .pgl__stuck { padding-top: var(--pg-sp-2); }
+
+.pgl__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--pg-sp-4);
+}
+.pgl__pad { height: calc(var(--pg-sp-6) + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- чипы ---------- */
+
+.pgl-chips {
+  display: flex;
+  align-items: center;
+  gap: var(--pg-sp-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pgl-chips::-webkit-scrollbar { display: none; }
+.pgl-chips__count {
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  white-space: nowrap;
+  margin-right: auto;
+}
+
+/* ---------- шит действий ---------- */
+
+.pgl-act__sub {
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  margin-bottom: 10px;
+}
+.pgl-act__meta {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: var(--pg-sp-4);
+}
+.pgl-act__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-2);
+}
+
+/* ---------- список вариантов в шите ---------- */
+
+.pgl-opts {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--pg-sp-2);
+}
+.pgl-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pg-sp-3);
+  min-height: var(--pg-tap);
+  padding: 0 2px;
+  border: none;
+  border-bottom: 1px solid var(--pg-border);
+  background: none;
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pgl-opt:last-child { border-bottom: none; }
+.pgl-opt[aria-selected="true"] { color: var(--pg-accent); font-weight: 600; }
+.pgl-opt:active { background: var(--pg-surface-2); }
+
+/* ---------- архив ---------- */
+
+.pgl-segment--wide .pg-segment__item {
+  padding: 0 var(--pg-sp-2);
+  font-size: var(--pg-fs-xs);
+}
+.pgl-card__foot--archive {
+  justify-content: space-between;
+  gap: var(--pg-sp-3);
+}
+.pgl-card__note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

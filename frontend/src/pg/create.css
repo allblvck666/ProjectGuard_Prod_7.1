@@ -1,0 +1,261 @@
+/* ============================================================
+   Этап 4 — создание защиты и экран конфликта. Префикс pgc-.
+   ============================================================ */
+
+.pgc {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg-bg);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  overflow: hidden;
+}
+.pgc *, .pgc *::before, .pgc *::after { box-sizing: border-box; }
+
+.pgc__fallback {
+  flex: 0 0 auto;
+  display: flex;
+  padding: calc(var(--pg-sp-2) + env(safe-area-inset-top, 0px)) var(--pg-sp-2) 0;
+}
+.pgc__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--pg-sp-4);
+}
+.pgc__pad { height: calc(var(--pg-sp-6) + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- шаги ---------- */
+
+.pgc-steps {
+  display: flex;
+  gap: 6px;
+  padding: var(--pg-sp-4) 0 4px;
+}
+.pgc-steps__i {
+  flex: 1;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--pg-hint);
+  padding-top: 8px;
+  border-top: 2px solid var(--pg-surface-3);
+  transition: color var(--pg-t-fast), border-color var(--pg-t-fast);
+}
+.pgc-steps__i--on {
+  color: var(--pg-accent);
+  border-top-color: var(--pg-accent);
+}
+
+/* ---------- группы полей ---------- */
+
+.pgc-grp {
+  margin-top: var(--pg-sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-3);
+}
+.pgc-grp__h {
+  font-size: var(--pg-fs-sm);
+  font-weight: 600;
+  color: var(--pg-hint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.pgc-mode { margin-bottom: 2px; }
+
+.pgc-err {
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-danger);
+  margin-top: -6px;
+}
+
+/* ---------- подсказка про срок ---------- */
+
+.pgc-rule {
+  display: flex;
+  gap: 10px;
+  padding: var(--pg-sp-3);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-accent-bg);
+  border: 1px solid var(--pg-accent-border);
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  align-items: flex-start;
+}
+.pgc-rule .pg-icon { color: var(--pg-accent); margin-top: 1px; }
+.pgc-rule b { color: var(--pg-text); }
+.pgc-rule__s {
+  font-size: 11px;
+  color: var(--pg-hint);
+  margin-top: 3px;
+}
+
+/* ---------- отправка ---------- */
+
+.pgc-submit {
+  margin-top: var(--pg-sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-3);
+}
+.pgc-submit__note {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.pgc-missing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--pg-sp-2) var(--pg-sp-3);
+  border: 1px solid var(--pg-danger-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-danger-bg);
+  color: var(--pg-danger);
+  font-size: var(--pg-fs-xs);
+}
+
+/* ---------- защита создана ---------- */
+
+.pgc-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--pg-sp-3);
+  padding: 18vh var(--pg-sp-2) 0;
+}
+.pgc-done__ic {
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--pg-success-bg);
+  border: 1px solid var(--pg-success-border);
+  color: var(--pg-success);
+}
+.pgc-done__ic--wait {
+  background: var(--pg-accent-bg);
+  border-color: var(--pg-accent-border);
+  color: var(--pg-accent);
+}
+.pgc-done__title {
+  margin: 0;
+  color: var(--pg-text);
+  font-size: var(--pg-fs-xl);
+  font-weight: 700;
+}
+.pgc-done__text {
+  margin: 0;
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  max-width: 300px;
+}
+.pgc-done__acts {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-2);
+  margin-top: var(--pg-sp-4);
+}
+
+/* ============================================================
+   Экран конфликта
+   ============================================================ */
+
+.pgcf__top {
+  text-align: center;
+  padding: var(--pg-sp-5) 0 var(--pg-sp-4);
+}
+.pgcf__ic {
+  width: 60px;
+  height: 60px;
+  margin: 0 auto var(--pg-sp-3);
+  border-radius: 50%;
+  background: var(--pg-danger-bg);
+  border: 1px solid var(--pg-danger-border);
+  color: var(--pg-danger);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pgcf__title {
+  margin: 0 0 6px;
+  color: var(--pg-text);
+  font-size: var(--pg-fs-xl);
+  font-weight: 700;
+}
+.pgcf__text {
+  margin: 0;
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+}
+.pgcf__text b { color: var(--pg-text); }
+
+.pgcf__partner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--pg-sp-2);
+}
+.pgcf__partner-n {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgcf__partner-c {
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  margin-top: 2px;
+}
+.pgcf__kv { margin-top: var(--pg-sp-2); }
+.pgcf__delta { color: var(--pg-warning); }
+.pgcf__left { color: var(--pg-hint); }
+
+.pgcf__acts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-2);
+  margin-top: var(--pg-sp-4);
+}
+.pgcf__acts .pg-field { margin-bottom: 2px; }
+
+.pgcf__admin {
+  margin-top: var(--pg-sp-6);
+  padding-top: var(--pg-sp-4);
+  border-top: 1px dashed var(--pg-border-strong);
+}
+.pgcf__admin-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--pg-fs-xs);
+  font-weight: 600;
+  color: var(--pg-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: var(--pg-sp-2);
+}
+.pgcf__admin-t {
+  margin: 0 0 var(--pg-sp-3);
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+}
+.pgcf__admin-hint {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--pg-hint);
+}
