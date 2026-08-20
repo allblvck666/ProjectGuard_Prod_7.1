@@ -33,35 +33,74 @@ export function haptic(kind = "impact") {
   }
 }
 
-// Нативная кнопка «Назад» в шапке Telegram
-export function useBackButton(handler, active = true) {
+// ============================================================
+// Нативная кнопка «Назад».
+// Экранов, которым нужна кнопка, может быть несколько сразу
+// (список → карточка → шит), поэтому держим реестр с приоритетами:
+// побеждает самый «верхний» слой. Приоритет надёжнее порядка
+// монтирования — React выполняет эффекты детей раньше родителей.
+// ============================================================
+
+const BACK_PRIORITY = { app: 0, screen: 10, overlay: 20, sheet: 30 };
+
+const backHandlers = new Map(); // id -> { ref, priority }
+let boundBack = null;
+let backSeq = 0;
+
+function syncBackButton() {
+  const bb = getTG()?.BackButton;
+  if (!bb) return;
+
+  let top = null;
+  backHandlers.forEach((entry) => {
+    if (!top || entry.priority >= top.priority) top = entry;
+  });
+
+  try {
+    if (boundBack) {
+      bb.offClick(boundBack);
+      boundBack = null;
+    }
+    if (top) {
+      const current = top;
+      boundBack = () => current.ref.current?.();
+      bb.onClick(boundBack);
+      bb.show();
+    } else {
+      bb.hide();
+    }
+  } catch {
+    // старый клиент — просто без нативной кнопки
+  }
+}
+
+export function useBackButton(handler, active = true, priority = BACK_PRIORITY.screen) {
   const ref = useRef(handler);
   ref.current = handler;
 
-  useEffect(() => {
-    const bb = getTG()?.BackButton;
-    if (!bb || !active) return undefined;
+  const idRef = useRef(null);
+  if (idRef.current === null) idRef.current = ++backSeq;
 
-    const onClick = () => ref.current?.();
-    try {
-      bb.onClick(onClick);
-      bb.show();
-    } catch {
-      return undefined;
-    }
+  useEffect(() => {
+    const id = idRef.current;
+    if (active) backHandlers.set(id, { ref, priority });
+    else backHandlers.delete(id);
+    syncBackButton();
+
     return () => {
-      try {
-        bb.offClick(onClick);
-        bb.hide();
-      } catch {
-        // клиент уже закрыт
-      }
+      backHandlers.delete(id);
+      syncBackButton();
     };
-  }, [active]);
+  }, [active, priority]);
 }
 
+export { BACK_PRIORITY };
+
 // Нативная нижняя кнопка Telegram
-export function useMainButton({ text, onClick, visible = true, disabled = false, loading = false, color }) {
+export function useMainButton({
+  text, onClick, visible = true, disabled = false, loading = false,
+  color = "#667eea", textColor = "#ffffff",
+}) {
   const ref = useRef(onClick);
   ref.current = onClick;
 
@@ -96,7 +135,7 @@ export function useMainButton({ text, onClick, visible = true, disabled = false,
         return;
       }
       if (text) mb.setText(text);
-      if (color) mb.setParams({ color });
+      if (color) mb.setParams({ color, text_color: textColor });
       if (disabled) mb.disable();
       else mb.enable();
       if (loading) mb.showProgress(true);
@@ -105,7 +144,7 @@ export function useMainButton({ text, onClick, visible = true, disabled = false,
     } catch {
       // старые версии клиента
     }
-  }, [text, visible, disabled, loading, color]);
+  }, [text, visible, disabled, loading, color, textColor]);
 }
 
 // Вертикальный свайп закрывает Mini App и мешает pull-to-refresh

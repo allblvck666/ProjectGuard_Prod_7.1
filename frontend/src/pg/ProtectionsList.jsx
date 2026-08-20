@@ -17,7 +17,7 @@ import {
   shortName, skuShort, statusBadge, statusKind, trackTone,
 } from "./format";
 import { usePullToRefresh } from "./usePullToRefresh";
-import { haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes } from "./telegram";
+import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes } from "./telegram";
 import "./list.css";
 
 /* ---------------- карточка списка ---------------- */
@@ -86,7 +86,7 @@ export default function ProtectionsList({
   const currentUserId = auth?.user?.id || auth?.user?.user_id;
   const currentUserName = auth?.user?.full_name || auth?.user?.first_name || "";
 
-  useBackButton(onBack, detailId == null);
+  useBackButton(onBack, detailId == null, BACK_PRIORITY.screen);
   useDisableVerticalSwipes(true);
 
   const { scrollRef, pull, refreshing, dragging, ready } = usePullToRefresh(load);

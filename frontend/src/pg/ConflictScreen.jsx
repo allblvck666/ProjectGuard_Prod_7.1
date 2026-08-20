@@ -11,7 +11,7 @@ import { Badge, Button, Card, Field, Icon, KV, Textarea } from "./ui";
 import {
   daysLeftText, fmtArea, fmtDate, fmtNumber, maskPhone, parseSkuCodes, shortName,
 } from "./format";
-import { isTelegramApp, useBackButton } from "./telegram";
+import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./telegram";
 import "./create.css";
 
 // Насколько метраж действующей защиты отличается от нашего
@@ -45,7 +45,7 @@ export default function ConflictScreen({
 }) {
   const [busy, setBusy] = useState(null);
 
-  useBackButton(onBack);
+  useBackButton(onBack, true, BACK_PRIORITY.overlay);
 
   const myArea = payload?.area_m2
     ? Number(payload.area_m2)

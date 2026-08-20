@@ -11,7 +11,8 @@ import { Badge, Button, Field, Icon, Input, Select, Textarea } from "./ui";
 import SkuPicker from "./SkuPicker";
 import ConflictScreen from "./ConflictScreen";
 import { fmtArea, fmtNumber, managerName, plural } from "./format";
-import { haptic, isTelegramApp, useBackButton } from "./telegram";
+import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useMainButton } from "./telegram";
+import { useNativeNav } from "./useFlags";
 import "./create.css";
 import "./form.css";
 
@@ -53,7 +54,8 @@ export default function CreateProtection({
   const isAdmin = role === "admin" || role === "superadmin";
 
   const conflictOpen = !!similarProtectionModal?.open;
-  useBackButton(onBack, !conflictOpen && !done);
+  const nativeNav = useNativeNav();
+  useBackButton(onBack, !conflictOpen && !done, BACK_PRIORITY.screen);
 
   const set = (field) => (e) => setForm({ ...form, [field]: e.target.value });
   const blur = (field) => () => setTouched((t) => ({ ...t, [field]: true }));
@@ -117,6 +119,14 @@ export default function CreateProtection({
       setDone("created");
     }
   };
+
+  // Нижнюю кнопку рисует Telegram; в браузере остаётся кнопка в странице
+  useMainButton({
+    text: "Создать защиту",
+    onClick: () => onSubmit(),
+    visible: nativeNav && !conflictOpen && !done,
+    loading: saving,
+  });
 
   /* ---------------- экран конфликта ---------------- */
 
@@ -417,15 +427,17 @@ export default function CreateProtection({
               Заполните: {missing.map((f) => REQUIRED_LABELS[f] || f).join(", ")}
             </div>
           )}
-          <Button
-            variant="primary"
-            block
-            icon="shieldCheck"
-            loading={saving}
-            onClick={onSubmit}
-          >
-            Создать защиту
-          </Button>
+          {!nativeNav && (
+            <Button
+              variant="primary"
+              block
+              icon="shieldCheck"
+              loading={saving}
+              onClick={onSubmit}
+            >
+              Создать защиту
+            </Button>
+          )}
           <div className="pgc-submit__note">
             <Badge plain className="pg-num">
               {selectedSkus.length

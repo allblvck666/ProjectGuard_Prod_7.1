@@ -102,7 +102,14 @@ export function initFlags() {
   if (Object.keys(query).length > 0) writeStored(state);
 
   // Отладочный доступ: window.__pgFlags()
-  const api = () => ({ ...state });
+  // Хелперы вешаем и на функцию, и на снимок — чтобы работали обе записи:
+  // window.__pgFlags.set(...) и window.__pgFlags().set(...)
+  const api = () => {
+    const snapshot = { ...state };
+    Object.defineProperty(snapshot, "set", { value: setFlag, enumerable: false });
+    Object.defineProperty(snapshot, "reset", { value: resetFlags, enumerable: false });
+    return snapshot;
+  };
   api.get = (name) => state[name];
   api.set = (name, value) => setFlag(name, value);
   api.reset = () => resetFlags();

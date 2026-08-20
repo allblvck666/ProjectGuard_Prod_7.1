@@ -13,7 +13,8 @@ import {
   daysLeftText, fmtArea, fmtDate, fmtDateShort, maskPhone, parseSkuCodes,
   remainingPercent, statusBadge, statusKind, trackTone,
 } from "./format";
-import { haptic, isTelegramApp, useBackButton } from "./telegram";
+import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useMainButton } from "./telegram";
+import { useNativeNav } from "./useFlags";
 import "./detail.css";
 
 // Менеджер может продлить защиту дважды — дальше только через админа
@@ -120,7 +121,8 @@ function History({ protectionId }) {
 export default function ProtectionDetail({ item, auth, onBack, act, openEditModal, restoreProtection, sheets }) {
   const [restoring, setRestoring] = useState(false);
 
-  useBackButton(onBack);
+  const nativeNav = useNativeNav();
+  useBackButton(onBack, true, BACK_PRIORITY.overlay);
 
   const role = auth?.role || auth?.user?.role || "";
   const isAdmin = role === "admin" || role === "superadmin";
@@ -142,6 +144,14 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
     if (what === "edit") openEditModal(item);
     else act(item.id, what);
   };
+
+  // Продление — главное действие карточки, поэтому уезжает в нижнюю
+  // кнопку Telegram; в браузере остаётся кнопкой в странице
+  useMainButton({
+    text: "Продлить срок",
+    onClick: () => run("extend"),
+    visible: nativeNav && isActive,
+  });
 
   const onRestore = async () => {
     setRestoring(true);
@@ -240,9 +250,11 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
         <div className="pgd__acts">
           {isActive ? (
             <>
-              <Button variant="primary" block icon="hourglass" onClick={() => run("extend")}>
-                Продлить срок
-              </Button>
+              {!nativeNav && (
+                <Button variant="primary" block icon="hourglass" onClick={() => run("extend")}>
+                  Продлить срок
+                </Button>
+              )}
               <div className="pgd__acts-row">
                 <Button variant="secondary" icon="checkCircle" onClick={() => run("success")}>
                   Успешно (1С)

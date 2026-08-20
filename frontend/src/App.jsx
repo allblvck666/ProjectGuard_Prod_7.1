@@ -9,6 +9,7 @@ const AdminPage = lazy(() => import("./AdminPage.jsx"));
 // Новый слой представления (редизайн) — включается флагами, см. pg/flags.js
 import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
+import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
@@ -309,7 +310,7 @@ function CreateProtectionPage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -749,7 +750,7 @@ function ActiveProtectionsPage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1265,7 +1266,7 @@ function ArchivePage({
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1478,7 +1479,7 @@ function StatsPage({ stats, onBack }) {
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={onBack} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={onBack} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -1538,6 +1539,9 @@ function App() {
   const newDetail = useNewUi("ui-detail");
   // Новое создание защиты и экран конфликта: ?ui-create=new
   const newCreate = useNewUi("ui-create");
+  // Нативная навигация Telegram: ?ui-nav=new
+  const newNav = useNewUi("ui-nav");
+  const nativeNav = newNav && isTelegramApp();
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -1623,6 +1627,24 @@ function App() {
       window.removeEventListener("app-theme-change", handleManualThemeChange);
     };
   }, [isTG]);
+
+  // Нативная навигация: «Назад» для всех экранов на самом низком приоритете —
+  // новые экраны перекрывают его своим обработчиком, когда открыт слой поверх.
+  useBackButton(
+    () => setRoute("home"),
+    nativeNav && route !== "home",
+    BACK_PRIORITY.app
+  );
+
+  // Метка для CSS: прячем свои «← Назад» и плавающую стрелку на старых экранах,
+  // но только когда кнопку действительно рисует Telegram.
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    if (nativeNav) root.setAttribute("data-pg-nav", "native");
+    else root.removeAttribute("data-pg-nav");
+    return () => root.removeAttribute("data-pg-nav");
+  }, [nativeNav]);
 
   // 🔍 Проверка валидности токена при загрузке (только для браузера)
   useEffect(() => {
@@ -2934,7 +2956,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
       <div className="container" style={{ position: "relative", minHeight: "100dvh" }}>
         <ThemeToggle />
         <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-          <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+          <button className="btn secondary pg-legacy-back" onClick={goHome} style={{ marginRight: "auto" }}>
             ← Назад
           </button>
           <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -3008,7 +3030,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
   return (
     <div className="container">
       <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-        <button className="btn secondary" onClick={goHome} style={{ marginRight: "auto" }}>
+        <button className="btn secondary pg-legacy-back" onClick={goHome} style={{ marginRight: "auto" }}>
           ← Назад
         </button>
         <h1 style={{ margin: 0, fontWeight: 700 }}>

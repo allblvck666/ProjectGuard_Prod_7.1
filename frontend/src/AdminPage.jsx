@@ -2859,7 +2859,7 @@ export default function AdminPage({ onBack }) {
           )}
           {tab === "pulse" && (
             <button 
-              className="admin-btn-secondary" 
+              className="admin-btn-secondary pg-legacy-back" 
               onClick={back}
               style={{ fontSize: "clamp(13px, 3vw, 14px)", padding: "10px 16px", minHeight: "44px" }}
             >
