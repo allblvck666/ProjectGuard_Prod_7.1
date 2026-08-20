@@ -44,42 +44,6 @@
 }
 .pgl__pad { height: calc(var(--pg-sp-6) + env(safe-area-inset-bottom, 0px)); }
 
-/* ---------- поиск ---------- */
-
-.pgl-search {
-  position: relative;
-  display: flex;
-  align-items: center;
-  color: var(--pg-hint);
-}
-.pgl-search__ic {
-  position: absolute;
-  left: 12px;
-  pointer-events: none;
-}
-.pgl-search .pg-input {
-  padding-left: 38px;
-  padding-right: 44px;
-}
-.pgl-search__btn {
-  position: absolute;
-  right: 4px;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--pg-r-sm);
-  background: transparent;
-  color: var(--pg-hint);
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.pgl-search__btn:active { background: var(--pg-surface-3); }
-.pgl-search__btn:disabled { opacity: 0.5; cursor: default; }
-.pgl-search__btn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
-
 /* ---------- чипы ---------- */
 
 .pgl-chips {
@@ -96,15 +60,6 @@
   white-space: nowrap;
   margin-right: auto;
 }
-.pgl-chip {
-  border: none;
-  background: none;
-  padding: 0;
-  cursor: pointer;
-  -webkit-tap-highlight-color: transparent;
-}
-.pgl-chip:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; border-radius: var(--pg-r-full); }
-.pgl-chip .pg-badge { max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
 
 /* ---------- pull-to-refresh ---------- */
 
@@ -199,7 +154,6 @@
   flex-direction: column;
   gap: var(--pg-sp-2);
 }
-.pgl-act__danger { color: var(--pg-danger); }
 
 /* ---------- список вариантов в шите ---------- */
 
@@ -228,3 +182,23 @@
 .pgl-opt:last-child { border-bottom: none; }
 .pgl-opt[aria-selected="true"] { color: var(--pg-accent); font-weight: 600; }
 .pgl-opt:active { background: var(--pg-surface-2); }
+
+/* ---------- архив ---------- */
+
+.pgl-segment--wide .pg-segment__item {
+  padding: 0 var(--pg-sp-2);
+  font-size: var(--pg-fs-xs);
+}
+.pgl-card__foot--archive {
+  justify-content: space-between;
+  gap: var(--pg-sp-3);
+}
+.pgl-card__note {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

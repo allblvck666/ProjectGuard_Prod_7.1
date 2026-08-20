@@ -14,6 +14,9 @@ const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
 const CreateProtectionNew = lazy(() => import("./pg/CreateProtection.jsx"));
+const ArchiveListNew = lazy(() => import("./pg/ArchiveList.jsx"));
+const StatsScreenNew = lazy(() => import("./pg/StatsScreen.jsx"));
+const AdminScreenNew = lazy(() => import("./pg/AdminScreen.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1539,6 +1542,10 @@ function App() {
   const newDetail = useNewUi("ui-detail");
   // Новое создание защиты и экран конфликта: ?ui-create=new
   const newCreate = useNewUi("ui-create");
+  // Новый архив: ?ui-archive=new
+  const newArchive = useNewUi("ui-archive");
+  // Новая админка и статистика: ?ui-admin=new
+  const newAdmin = useNewUi("ui-admin");
   // Нативная навигация Telegram: ?ui-nav=new
   const newNav = useNewUi("ui-nav");
   const nativeNav = newNav && isTelegramApp();
@@ -2545,7 +2552,9 @@ function App() {
 const usesNewUi =
   (route === "active" && newList) ||
   (route === "create" && newCreate) ||
-  (route === "archive" && newDetail && archiveDetailId != null);
+  (route === "archive" && (newArchive || (newDetail && archiveDetailId != null))) ||
+  (route === "stats" && newAdmin) ||
+  (route === "admin" && newAdmin);
 
 // 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
 if (showUiKit) {
@@ -2635,6 +2644,14 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
   // 👑 Админка
   if (route === "admin") {
+    if (newAdmin) {
+      return (
+        <Suspense fallback={null}>
+          <AdminScreenNew auth={auth} onBack={goHome} />
+        </Suspense>
+      );
+    }
+
     return (
       <Suspense fallback={
         <div style={{ 
@@ -2896,6 +2913,22 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
     return (
       <>
+      {newArchive ? (
+        <Suspense fallback={null}>
+          <ArchiveListNew
+            items={items}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goHome}
+            managers={managers}
+            auth={auth}
+            onOpenDetail={(item) =>
+              newDetail ? setArchiveDetailId(item.id) : toggleExpand(item.id)
+            }
+          />
+        </Suspense>
+      ) : (
       <ArchivePage
         items={items}
         expanded={expanded}
@@ -2912,6 +2945,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
         onBack={goHome}
         onOpenDetail={newDetail ? setArchiveDetailId : undefined}
       />
+      )}
       {/* Новая карточка защиты (?ui-detail=new) — слоем поверх архива,
           сам архив остаётся смонтированным и не теряет прокрутку. */}
       {newDetail && archiveDetailItem && (
@@ -2942,6 +2976,20 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
   // ==== СТАТИСТИКА ====
   if (route === "stats") {
+    if (newAdmin) {
+      return (
+        <Suspense fallback={null}>
+          <StatsScreenNew
+            stats={stats}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goHome}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <StatsPage
         stats={stats}

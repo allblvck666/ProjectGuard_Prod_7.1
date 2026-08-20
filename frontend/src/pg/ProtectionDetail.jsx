@@ -268,7 +268,7 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
                   Редактировать
                 </Button>
                 {(isAdmin || isAuthor) && (
-                  <Button variant="ghost" icon="trash" className="pgd__danger" onClick={() => run("delete")}>
+                  <Button variant="ghost" icon="trash" className="pg-btn--danger-text" onClick={() => run("delete")}>
                     Удалить
                   </Button>
                 )}

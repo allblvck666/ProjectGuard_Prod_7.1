@@ -131,7 +131,6 @@
   gap: var(--pg-sp-2);
 }
 .pgd__acts-row > .pg-btn { flex: 1 1 0; min-width: 0; }
-.pgd__danger { color: var(--pg-danger); }
 
 .pgd__note {
   display: flex;

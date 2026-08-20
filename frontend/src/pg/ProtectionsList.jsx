@@ -242,8 +242,8 @@ export default function ProtectionsList({
           ]}
         />
 
-        <div className="pgl-search">
-          <Icon name="search" size={18} className="pgl-search__ic" />
+        <div className="pg-search">
+          <Icon name="search" size={18} className="pg-search__ic" />
           <Input
             placeholder="Партнёр, клиент или артикул"
             value={search}
@@ -253,7 +253,7 @@ export default function ProtectionsList({
           {search ? (
             <button
               type="button"
-              className="pgl-search__btn"
+              className="pg-search__btn"
               onClick={() => setSearch("")}
               aria-label="Очистить поиск"
             >
@@ -262,7 +262,7 @@ export default function ProtectionsList({
           ) : (
             <button
               type="button"
-              className="pgl-search__btn"
+              className="pg-search__btn"
               onClick={load}
               disabled={loading || refreshing}
               aria-label="Обновить список"
@@ -277,7 +277,7 @@ export default function ProtectionsList({
             {filtered.length} {plural(filtered.length, "защита", "защиты", "защит")}
           </span>
           {isAdmin && tab === "all" && (
-            <button type="button" className="pgl-chip" onClick={() => setManagerSheet(true)}>
+            <button type="button" className="pg-chip" onClick={() => setManagerSheet(true)}>
               <Badge tone={managerFilter ? "accent" : undefined} plain>
                 {managerFilter ? `Менеджер: ${managerFilter}` : "Менеджер: все"}
                 <Icon name="chevronDown" size={12} />
@@ -342,7 +342,7 @@ export default function ProtectionsList({
                 Редактировать
               </Button>
               {canDelete(actionsFor) && (
-                <Button variant="ghost" block icon="trash" className="pgl-act__danger" onClick={() => runAction("delete")}>
+                <Button variant="ghost" block icon="trash" className="pg-btn--danger-text" onClick={() => runAction("delete")}>
                   Удалить
                 </Button>
               )}

@@ -210,6 +210,12 @@
   width: 100%;
 }
 
+/* Тихое деструктивное действие: ghost-кнопка красным.
+   Объявляем после --ghost, иначе тот перебьёт цвет. */
+.pg-btn--danger-text {
+  color: var(--pg-danger);
+}
+
 /* ================= Карточка ================= */
 
 .pg-card {
@@ -385,6 +391,68 @@
   color: #0f172a;
   background: #ffffff;
 }
+
+/* ================= Поле поиска ================= */
+
+.pg-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--pg-hint);
+}
+.pg-search__ic {
+  position: absolute;
+  left: 12px;
+  pointer-events: none;
+}
+.pg-search .pg-input {
+  padding-left: 38px;
+  padding-right: 44px;
+}
+.pg-search__btn {
+  position: absolute;
+  right: 4px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--pg-r-sm);
+  background: transparent;
+  color: var(--pg-hint);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pg-search__btn:active { background: var(--pg-surface-3); }
+.pg-search__btn:disabled { opacity: 0.5; cursor: default; }
+.pg-search__btn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: -2px; }
+
+/* ================= Чип-кнопка (фильтр, сортировка) ================= */
+
+.pg-chip {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pg-chip:focus-visible {
+  outline: 2px solid var(--pg-accent);
+  outline-offset: 2px;
+  border-radius: var(--pg-r-full);
+}
+.pg-chip .pg-badge { cursor: pointer; max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
+
+/* Ряд чипов с горизонтальной прокруткой */
+.pg-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pg-chips::-webkit-scrollbar { display: none; }
 
 /* ================= Сегмент-контрол (табы) ================= */
 

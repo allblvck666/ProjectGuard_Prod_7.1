@@ -1,0 +1,161 @@
+/* ============================================================
+   Этап 6 — статистика. Префикс pgs-.
+   ============================================================ */
+
+.pgs {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg-bg);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  overflow: hidden;
+}
+.pgs *, .pgs *::before, .pgs *::after { box-sizing: border-box; }
+
+.pgs__fallback {
+  flex: 0 0 auto;
+  display: flex;
+  padding: calc(var(--pg-sp-2) + env(safe-area-inset-top, 0px)) var(--pg-sp-2) 0;
+}
+.pgs__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--pg-sp-4);
+}
+.pgs__pad { height: calc(var(--pg-sp-6) + env(safe-area-inset-bottom, 0px)); }
+.pgs__pad-top { padding-top: var(--pg-sp-4); }
+
+/* ---------- герой ---------- */
+
+.pgs-hero {
+  padding: var(--pg-sp-5) 0 var(--pg-sp-4);
+  text-align: center;
+}
+.pgs-hero__label { font-size: var(--pg-fs-sm); color: var(--pg-hint); }
+.pgs-hero__value {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 52px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+}
+.pgs-hero__unit { font-size: var(--pg-fs-lg); font-weight: 600; color: var(--pg-text-2); }
+.pgs-hero__sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: var(--pg-sp-3);
+}
+.pgs-hero__area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: var(--pg-sp-3);
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+}
+
+/* ---------- сортировка ---------- */
+
+.pgs-sort {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+.pgs-sort::-webkit-scrollbar { display: none; }
+
+/* ---------- карточки менеджеров ---------- */
+
+.pgs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-top: var(--pg-sp-3);
+}
+.pgs-card { padding-bottom: var(--pg-sp-3); }
+
+.pgs-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--pg-sp-2);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pgs-card__name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  font-size: var(--pg-fs-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgs-card__chev { color: var(--pg-hint); }
+
+.pgs-bar {
+  display: flex;
+  height: 6px;
+  margin-top: var(--pg-sp-3);
+  border-radius: var(--pg-r-full);
+  overflow: hidden;
+  background: var(--pg-surface-3);
+}
+.pgs-bar__seg { height: 100%; }
+.pgs-bar__seg--success { background: var(--pg-success); }
+.pgs-bar__seg--active { background: var(--pg-accent); }
+.pgs-bar__seg--closed { background: var(--pg-danger); }
+
+.pgs-legend {
+  display: flex;
+  gap: var(--pg-sp-3);
+  flex-wrap: wrap;
+  margin-top: var(--pg-sp-2);
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+}
+.pgs-legend__i { display: inline-flex; align-items: center; gap: 5px; }
+.pgs-legend__i::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.pgs-legend__i--success::before { background: var(--pg-success); }
+.pgs-legend__i--active::before { background: var(--pg-accent); }
+.pgs-legend__i--closed::before { background: var(--pg-danger); }
+
+.pgs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--pg-sp-3);
+  margin-top: var(--pg-sp-4);
+  padding-top: var(--pg-sp-3);
+  border-top: 1px solid var(--pg-border);
+}
+.pgs-grid__i { display: flex; flex-direction: column; gap: 2px; }
+.pgs-grid__i span { font-size: var(--pg-fs-xs); color: var(--pg-hint); }
+.pgs-grid__i b { font-size: var(--pg-fs-lg); font-weight: 700; }
