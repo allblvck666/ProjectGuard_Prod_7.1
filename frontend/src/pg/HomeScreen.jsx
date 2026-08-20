@@ -13,7 +13,7 @@ import ProtectionDetail from "./ProtectionDetail";
 import ActionSheets from "./ActionSheets";
 import { EXPIRING_DAYS, fmtArea, fmtNumber, initials, plural } from "./format";
 import { usePullToRefresh } from "./usePullToRefresh";
-import { BACK_PRIORITY, haptic, useBackButton, useDisableVerticalSwipes } from "./telegram";
+import { BACK_PRIORITY, useBackButton, useDisableVerticalSwipes } from "./telegram";
 import "./home.css";
 
 const ROLE_LABEL = {
@@ -27,7 +27,7 @@ const PREVIEW = 3; // сколько карточек показываем в с
 
 export default function HomeScreen({
   auth, items, loading, load,
-  onCreate, onList, onArchive, onStats, onAdmin, onSettings, onExport, onLogout,
+  onCreate, onList, onExport, onLogout,
   newDetail, detailId, setDetailId, act, openEditModal, restoreProtection, sheets,
 }) {
   const [logoutOpen, setLogoutOpen] = useState(false);
@@ -35,7 +35,6 @@ export default function HomeScreen({
   const user = auth?.user || {};
   const role = auth?.role || user.role || "";
   const name = user.full_name || user.first_name || "Пользователь";
-  const isAdmin = role === "admin" || role === "superadmin";
 
   useBackButton(() => {}, false, BACK_PRIORITY.screen);
   useDisableVerticalSwipes(true);
@@ -74,15 +73,6 @@ export default function HomeScreen({
     if (newDetail) setDetailId(item.id);
     else onList();
   };
-
-  const menu = [
-    { icon: "archive", label: "Архив", hint: "Закрытые и успешные защиты", onClick: onArchive },
-    { icon: "chart", label: "Статистика", hint: "Конверсия по менеджерам", onClick: onStats },
-    ...(isAdmin
-      ? [{ icon: "crown", label: "Админка", hint: "Люди, заявки, запросы", onClick: onAdmin }]
-      : []),
-    { icon: "settings", label: "Настройки", hint: "Профиль и параметры", onClick: onSettings },
-  ];
 
   const firstLoad = loading && active.length === 0;
 
@@ -228,31 +218,6 @@ export default function HomeScreen({
             </section>
           </>
         )}
-
-        {/* ---- разделы ---- */}
-        <section className="pgh-sect">
-          <div className="pgh-sect__h"><span>Разделы</span></div>
-          <div className="pgh-menu">
-            {menu.map((m) => (
-              <button
-                key={m.label}
-                type="button"
-                className="pgh-menu__i"
-                onClick={() => {
-                  haptic("select");
-                  m.onClick();
-                }}
-              >
-                <span className="pgh-menu__ic"><Icon name={m.icon} size={18} /></span>
-                <span className="pgh-menu__t">
-                  <b>{m.label}</b>
-                  <i>{m.hint}</i>
-                </span>
-                <Icon name="chevronRight" size={16} />
-              </button>
-            ))}
-          </div>
-        </section>
 
         <div className="pgh__pad" />
       </div>

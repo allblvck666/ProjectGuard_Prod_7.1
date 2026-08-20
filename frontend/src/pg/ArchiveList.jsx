@@ -68,12 +68,12 @@ function ArchiveCard({ item, onOpen }) {
 }
 
 export default function ArchiveList({
-  items, loading, loadError, load, onBack, onOpenDetail, managers, auth,
+  items, loading, loadError, load, onBack, onOpenDetail, managers, auth, showBack = true,
 }) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
 
-  useBackButton(onBack, true, BACK_PRIORITY.screen);
+  useBackButton(onBack, showBack, BACK_PRIORITY.screen);
   useDisableVerticalSwipes(true);
   const { scrollRef, pull, refreshing, dragging, ready } = usePullToRefresh(load);
 
@@ -161,7 +161,7 @@ export default function ArchiveList({
 
   return (
     <div className="pgl">
-      {!isTelegramApp() && (
+      {!isTelegramApp() && showBack && (
         <div className="pgl__fallback">
           <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>
             Назад

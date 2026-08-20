@@ -33,7 +33,7 @@ export default function ProtectionsList({
   editComment, setEditComment, submitEdit, skus, onAreaChange,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
-  restoreProtection, newDetail, loadError, initialFilter,
+  restoreProtection, newDetail, loadError, initialFilter, showBack = true,
 }) {
   const [tab, setTab] = useState(initialFilter?.expiring ? "all" : "my"); // "my" | "all"
   // Пришли с главной по «Истекают» — сразу показываем только горящие
@@ -49,7 +49,7 @@ export default function ProtectionsList({
   const currentUserId = auth?.user?.id || auth?.user?.user_id;
   const currentUserName = auth?.user?.full_name || auth?.user?.first_name || "";
 
-  useBackButton(onBack, detailId == null, BACK_PRIORITY.screen);
+  useBackButton(onBack, showBack && detailId == null, BACK_PRIORITY.screen);
   useDisableVerticalSwipes(true);
 
   const { scrollRef, pull, refreshing, dragging, ready } = usePullToRefresh(load);
@@ -188,7 +188,7 @@ export default function ProtectionsList({
 
   return (
     <div className="pgl">
-      {!isTelegramApp() && (
+      {!isTelegramApp() && showBack && (
         // В браузере нативной шапки Telegram нет — оставляем минимальный выход
         <div className="pgl__fallback">
           <Button variant="ghost" size="sm" icon="chevronLeft" onClick={onBack}>

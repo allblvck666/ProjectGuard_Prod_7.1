@@ -11,6 +11,7 @@ import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
 import { notify } from "./pg/notify";
+import TabBar, { TABBAR_ROUTES } from "./pg/TabBar";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
@@ -19,6 +20,7 @@ const ArchiveListNew = lazy(() => import("./pg/ArchiveList.jsx"));
 const StatsScreenNew = lazy(() => import("./pg/StatsScreen.jsx"));
 const AdminScreenNew = lazy(() => import("./pg/AdminScreen.jsx"));
 const HomeScreenNew = lazy(() => import("./pg/HomeScreen.jsx"));
+const MoreScreenNew = lazy(() => import("./pg/MoreScreen.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1639,13 +1641,31 @@ function App() {
     };
   }, [isTG]);
 
+  // Панель разделов внизу — только на корневых экранах нового UI.
+  // На вложенных (карточка защиты, создание, админка) её нет: назад ведёт Telegram.
+  const tabsOn =
+    TABBAR_ROUTES.includes(route) &&
+    ((route === "home" && newHome) ||
+      (route === "active" && newList) ||
+      (route === "archive" && newArchive) ||
+      route === "more");
+
   // Нативная навигация: «Назад» для всех экранов на самом низком приоритете —
   // новые экраны перекрывают его своим обработчиком, когда открыт слой поверх.
   useBackButton(
     () => setRoute("home"),
-    nativeNav && route !== "home",
+    nativeNav && route !== "home" && !tabsOn,
     BACK_PRIORITY.app
   );
+
+  // Экраны поджимаются на высоту панели разделов, чтобы контент не уезжал под неё
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const root = document.documentElement;
+    if (tabsOn) root.setAttribute("data-pg-tabs", "on");
+    else root.removeAttribute("data-pg-tabs");
+    return () => root.removeAttribute("data-pg-tabs");
+  }, [tabsOn]);
 
   // Метка для CSS: прячем свои «← Назад» и плавающую стрелку на старых экранах,
   // но только когда кнопку действительно рисует Telegram.
@@ -1880,6 +1900,9 @@ function App() {
     setListFilter(null);
     setRoute("home");
   };
+  const goMore = () => setRoute("more");
+  // Статистика, админка и настройки живут в «Ещё» — назад логичнее туда
+  const goBackFromSecondary = () => (newHome ? goMore() : goHome());
   const goCreate = () => setRoute("create");
   const goActive = () => setRoute("active");
   const goArchive = () => setRoute("archive");
@@ -2571,6 +2594,7 @@ function App() {
 // обновлении (и сбрасывала бы фильтры и pull-to-refresh).
 const usesNewUi =
   (route === "home" && newHome) ||
+  (route === "more" && newHome) ||
   (route === "active" && newList) ||
   (route === "create" && newCreate) ||
   (route === "archive" && (newArchive || (newDetail && archiveDetailId != null))) ||
@@ -2663,12 +2687,59 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
     );
   }
 
+  // Бейдж на вкладке «Защиты»: сколько защит горит
+  const expiringCount = (Array.isArray(items) ? items : []).filter(
+    (it) => it.status === "active" && Number(it.days_left) <= 2
+  ).length;
+
+  // Корневой экран + панель разделов под ним
+  const withTabs = (screen) => (
+    <>
+      {screen}
+      {tabsOn && (
+        <TabBar
+          active={route}
+          onChange={(next) => {
+            if (next === "home") goHome();
+            else if (next === "active") {
+              setListFilter(null);
+              goActive();
+            } else if (next === "archive") goArchive();
+            else goMore();
+          }}
+          badges={{ active: expiringCount }}
+        />
+      )}
+    </>
+  );
+
+  // ==== ЕЩЁ ====
+  if (route === "more") {
+    return withTabs(
+      <Suspense fallback={null}>
+        <MoreScreenNew
+          auth={auth}
+          onStats={goStats}
+          onAdmin={goAdmin}
+          onSettings={() => setRoute("settings")}
+          onExport={exportXlsx}
+          onLogout={() => {
+            localStorage.clear();
+            setAuth({ token: "", role: "", user: null });
+            setTokenValid(false);
+            window.dispatchEvent(new CustomEvent("auth:logout"));
+          }}
+        />
+      </Suspense>
+    );
+  }
+
   // 👑 Админка
   if (route === "admin") {
     if (newAdmin) {
       return (
         <Suspense fallback={null}>
-          <AdminScreenNew auth={auth} onBack={goHome} />
+          <AdminScreenNew auth={auth} onBack={goBackFromSecondary} />
         </Suspense>
       );
     }
@@ -2705,7 +2776,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
     // Новая главная (?ui-home=new): сводка по защитам вместо шести плиток
     if (newHome) {
-      return (
+      return withTabs(
         <Suspense fallback={null}>
           <HomeScreenNew
             auth={auth}
@@ -2883,7 +2954,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
     // Новый экран (?ui-list=new) получает те же данные и те же обработчики,
     // что и старый: меняется только слой представления.
     if (newList) {
-      return (
+      return withTabs(
         <Suspense fallback={null}>
           <ProtectionsListNew
             auth={auth}
@@ -2923,6 +2994,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
             restoreProtection={restoreProtection}
             newDetail={newDetail}
             initialFilter={listFilter}
+            showBack={!tabsOn}
           />
         </Suspense>
       );
@@ -2980,7 +3052,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
         ? null
         : (items || []).find((it) => it.id === archiveDetailId) || null;
 
-    return (
+    return withTabs(
       <>
       {newArchive ? (
         <Suspense fallback={null}>
@@ -2992,6 +3064,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
             onBack={goHome}
             managers={managers}
             auth={auth}
+            showBack={!tabsOn}
             onOpenDetail={(item) =>
               newDetail ? setArchiveDetailId(item.id) : toggleExpand(item.id)
             }
@@ -3053,7 +3126,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
             loading={loading}
             loadError={loadError}
             load={load}
-            onBack={goHome}
+            onBack={goBackFromSecondary}
           />
         </Suspense>
       );
@@ -3073,7 +3146,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
       <div className="container" style={{ position: "relative", minHeight: "100dvh" }}>
         <ThemeToggle />
         <div className="header sticky" style={{ gap: 8, alignItems: "center" }}>
-          <button className="btn secondary pg-legacy-back" onClick={goHome} style={{ marginRight: "auto" }}>
+          <button className="btn secondary pg-legacy-back" onClick={goBackFromSecondary} style={{ marginRight: "auto" }}>
             ← Назад
           </button>
           <h1 style={{ margin: 0, fontWeight: 700 }}>
@@ -3083,7 +3156,7 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
         {/* Фиксированная кнопка "назад" на мобильной версии */}
         <button 
           className="fixed-back-button" 
-          onClick={goHome}
+          onClick={goBackFromSecondary}
           aria-label="Назад"
         >
           ←
