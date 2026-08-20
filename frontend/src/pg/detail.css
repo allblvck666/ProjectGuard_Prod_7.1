@@ -1,0 +1,146 @@
+/* ============================================================
+   Этап 3 — карточка защиты. Префикс pgd-.
+   Лежит поверх списка/архива, поэтому фиксированный слой.
+   ============================================================ */
+
+.pgd {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg-bg);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  overflow: hidden;
+}
+.pgd *, .pgd *::before, .pgd *::after { box-sizing: border-box; }
+
+.pgd__fallback {
+  flex: 0 0 auto;
+  display: flex;
+  padding: calc(var(--pg-sp-2) + env(safe-area-inset-top, 0px)) var(--pg-sp-2) 0;
+}
+
+.pgd__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 var(--pg-sp-4);
+}
+.pgd__pad { height: calc(var(--pg-sp-6) + env(safe-area-inset-bottom, 0px)); }
+
+/* ---------- шапка ---------- */
+
+.pgd__head { padding: var(--pg-sp-4) 0 var(--pg-sp-4); }
+.pgd__badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.pgd__title {
+  margin: 0;
+  /* styles.css задаёт цвет для голых h1..h6 — возвращаем свой */
+  color: var(--pg-text);
+  font-size: var(--pg-fs-h);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  word-break: break-word;
+}
+.pgd__sub {
+  color: var(--pg-text-2);
+  font-size: var(--pg-fs-sm);
+  margin-top: 4px;
+}
+
+/* ---------- срок ---------- */
+
+.pgd__timer { margin-bottom: 10px; }
+.pgd__days {
+  font-size: var(--pg-fs-lg);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.pgd__days span { font-size: 28px; }
+.pgd__dates {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--pg-sp-3);
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  margin-top: 8px;
+}
+.pgd__timer .pgd__dates:first-child { margin-top: 0; }
+
+/* ---------- факты ---------- */
+
+.pgd__facts {
+  padding-top: 4px;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+}
+
+/* ---------- секции ---------- */
+
+.pgd__sect { margin-top: var(--pg-sp-5); }
+.pgd__sect-h {
+  font-size: var(--pg-fs-sm);
+  font-weight: 600;
+  color: var(--pg-hint);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 10px;
+}
+
+/* ---------- история ---------- */
+
+.pgd-hist { display: flex; flex-direction: column; }
+.pgd-hist__row {
+  display: flex;
+  gap: var(--pg-sp-3);
+  padding: 7px 0;
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  align-items: baseline;
+}
+.pgd-hist__d { color: var(--pg-hint); flex: 0 0 44px; }
+.pgd-hist__t { flex: 1; }
+.pgd-hist__t i {
+  display: block;
+  font-style: normal;
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+  margin-top: 1px;
+}
+.pgd-hist__empty {
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-hint);
+  padding: 2px 0;
+}
+
+/* ---------- действия ---------- */
+
+.pgd__acts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-2);
+  margin-top: var(--pg-sp-5);
+}
+.pgd__acts-row {
+  display: flex;
+  gap: var(--pg-sp-2);
+}
+.pgd__acts-row > .pg-btn { flex: 1 1 0; min-width: 0; }
+.pgd__danger { color: var(--pg-danger); }
+
+.pgd__note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--pg-sp-3);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-surface-2);
+  color: var(--pg-hint);
+  font-size: var(--pg-fs-sm);
+}

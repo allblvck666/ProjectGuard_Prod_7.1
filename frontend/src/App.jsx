@@ -11,6 +11,7 @@ import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
+const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1240,7 +1241,10 @@ function ActiveProtectionsPage({
 function ArchivePage({
   items, expanded, toggleExpand, search, setSearch,
   managerFilter, setManagerFilter, managers, load, loading, onBack,
-  updateClosedModal, setUpdateClosedModal
+  updateClosedModal, setUpdateClosedModal,
+  // Передаётся только при ?ui-detail=new: тап по карточке открывает
+  // новую карточку защиты вместо разворачивания подробностей.
+  onOpenDetail
 }) {
   // Фильтруем только закрытые защиты (не active)
   let filteredItems = items.filter(it => it.status !== "active");
@@ -1324,7 +1328,10 @@ function ArchivePage({
             
             return (
               <div key={it.id} className="item">
-                <div className="line" onClick={() => toggleExpand(it.id)}>
+                <div
+                  className="line"
+                  onClick={() => (onOpenDetail ? onOpenDetail(it.id) : toggleExpand(it.id))}
+                >
                   <div>
                     <b>{it.partner || "—"}</b> — {it.sku || "—"}{" "}
                     {it.area_m2 ? `(${it.area_m2} м²)` : ""}
@@ -1348,11 +1355,11 @@ function ArchivePage({
                     )}
                   </div>
                   <div className="small arrow">
-                    {expanded[it.id] ? "▲" : "▼"}
+                    {onOpenDetail ? "›" : expanded[it.id] ? "▲" : "▼"}
                   </div>
                 </div>
 
-                {expanded[it.id] && (
+                {!onOpenDetail && expanded[it.id] && (
                   <div className="details">
                     {it.partner && (
                       <div className="small">
@@ -1526,6 +1533,8 @@ function App() {
   const showUiKit = useNewUi("ui-kit");
   // Новый список активных защит: ?ui-list=new
   const newList = useNewUi("ui-list");
+  // Новая карточка защиты: ?ui-detail=new
+  const newDetail = useNewUi("ui-detail");
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -1843,6 +1852,8 @@ function App() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+  // Карточка защиты, открытая из архива (в списке она живёт внутри экрана списка)
+  const [archiveDetailId, setArchiveDetailId] = useState(null);
   const [managers, setManagers] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [managerFilter, setManagerFilter] = useState("");
@@ -1895,10 +1906,27 @@ function App() {
   const openEditModal = (item) => {
     setEditModal({ open: true, id: item.id });
     const parsed = [];
-    const parts = (item.sku || "").split(";").map((p) => p.trim());
+    // Бэкенд склеивает артикулы двумя способами:
+    //   "AF1 (Тип) + AF2 (Тип)"                      — единый метраж, «м²» в строке нет
+    //   "AF1 (Тип) — 180 м²; AF2 (Тип) — 140 м²"     — метраж по артикулам
+    // Раньше разбирался только второй вариант, и у защит с единым метражом
+    // список артикулов открывался пустым.
+    const parts = (item.sku || "")
+      .split(/;|\s\+\s/)
+      .map((p) => p.trim())
+      .filter(Boolean);
     for (const p of parts) {
-      const m = p.match(/([\w-]+) \(([^)]+)\).*?(\d+(?:\.\d+)?) м²/);
-      if (m) parsed.push({ sku: m[1], type: m[2], area: m[3] });
+      const m = p.match(/^(.+?)\s*\(([^)]*)\)(?:\s*[—-]\s*([\d.,]+)\s*м²)?\s*$/);
+      if (m) {
+        parsed.push({
+          sku: m[1].trim(),
+          type: (m[2] || "").trim(),
+          area: m[3] ? m[3].replace(",", ".") : "",
+        });
+      } else {
+        // артикул без типа, как в старых записях
+        parsed.push({ sku: p, type: "", area: "" });
+      }
     }
     setEditSelectedSkus(parsed);
     setEditComment(item.comment || "");
@@ -2385,6 +2413,20 @@ function App() {
     }
   };
 
+  // Восстановление закрытой/удалённой защиты — только суперадмин
+  const restoreProtection = async (id) => {
+    try {
+      await api.post(`/api/admin/protections/${id}/restore`);
+      await load();
+      return true;
+    } catch (e) {
+      const userMessage =
+        e.userMessage || e.response?.data?.detail || "Не удалось восстановить защиту";
+      alert("❌ " + userMessage);
+      return false;
+    }
+  };
+
   const act = async (id, what) => {
     if (what === "extend") return extendAction(id, 10);
     if (what === "success") return openSuccessModal(id);
@@ -2437,7 +2479,9 @@ function App() {
 // На новых экранах глобальный лоадер не нужен: у них есть свои состояния
 // загрузки, а полноэкранная заглушка размонтировала бы экран на каждом
 // обновлении (и сбрасывала бы фильтры и pull-to-refresh).
-const usesNewUi = route === "active" && newList;
+const usesNewUi =
+  (route === "active" && newList) ||
+  (route === "archive" && newDetail && archiveDetailId != null);
 
 // 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
 if (showUiKit) {
@@ -2701,6 +2745,8 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
             extendRequestModal={extendRequestModal}
             setExtendRequestModal={setExtendRequestModal}
             submitExtendRequest={submitExtendRequest}
+            restoreProtection={restoreProtection}
+            newDetail={newDetail}
           />
         </Suspense>
       );
@@ -2753,7 +2799,13 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
   // ==== АРХИВ ЗАЩИТ ====
   if (route === "archive") {
-          return (
+    const archiveDetailItem =
+      archiveDetailId == null
+        ? null
+        : (items || []).find((it) => it.id === archiveDetailId) || null;
+
+    return (
+      <>
       <ArchivePage
         items={items}
         expanded={expanded}
@@ -2768,7 +2820,33 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
         updateClosedModal={updateClosedModal}
         setUpdateClosedModal={setUpdateClosedModal}
         onBack={goHome}
+        onOpenDetail={newDetail ? setArchiveDetailId : undefined}
       />
+      {/* Новая карточка защиты (?ui-detail=new) — слоем поверх архива,
+          сам архив остаётся смонтированным и не теряет прокрутку. */}
+      {newDetail && archiveDetailItem && (
+        <Suspense fallback={null}>
+          <ProtectionDetailNew
+            item={archiveDetailItem}
+            auth={auth}
+            onBack={() => setArchiveDetailId(null)}
+            act={act}
+            openEditModal={openEditModal}
+            restoreProtection={restoreProtection}
+            sheets={{
+              closeModal, setCloseModal, doClose,
+              successModal, setSuccessModal, doSuccess,
+              deleteModal, setDeleteModal, doDelete,
+              extendRequestModal, setExtendRequestModal, submitExtendRequest,
+              editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
+              editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
+              editComment, setEditComment, submitEdit, skus, onAreaChange,
+              updateClosedModal, setUpdateClosedModal, updateClosedProtection,
+            }}
+          />
+        </Suspense>
+      )}
+      </>
     );
   }
 

@@ -624,3 +624,25 @@
   }
   .pg-spin { animation-duration: 2s; }
 }
+
+/* ============================================================
+   Изоляция от styles.css
+   Старый лист в светлой теме красит голые элементы (p, label span)
+   через !important — возвращаем новому слою его собственные цвета.
+   Класс-префиксы от этого не спасают: селекторы там по тегам.
+   ============================================================ */
+
+body.light-theme .pg-field__label {
+  color: var(--pg-text-2) !important;
+}
+body.light-theme .pg-field__hint {
+  color: var(--pg-hint) !important;
+}
+body.light-theme .pg-field__hint--error,
+body.light-theme .pg-field__req {
+  color: var(--pg-danger) !important;
+}
+body.light-theme .pg-sheet__text,
+body.light-theme .pg-state__text {
+  color: var(--pg-text-2) !important;
+}

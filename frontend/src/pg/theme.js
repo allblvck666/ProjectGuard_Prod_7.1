@@ -66,9 +66,20 @@ export function initPgTheme() {
   const tg = window.Telegram?.WebApp;
   tg?.onEvent?.("themeChanged", sync);
 
+  // Страховка от рассинхрона: ThemeToggle умеет менять body.light-theme
+  // молча, без события. Тогда старый слой был бы в одной теме, новый — в другой.
+  let observer = null;
+  if (document.body && typeof MutationObserver === "function") {
+    observer = new MutationObserver(() => {
+      applyPgTheme(document.body.classList.contains("light-theme") ? "light" : "dark");
+    });
+    observer.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
+
   return () => {
     window.removeEventListener("app-theme-sync", sync);
     window.removeEventListener("app-theme-change", sync);
     tg?.offEvent?.("themeChanged", sync);
+    observer?.disconnect();
   };
 }

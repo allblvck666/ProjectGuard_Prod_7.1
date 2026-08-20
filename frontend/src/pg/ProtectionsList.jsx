@@ -7,10 +7,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Badge, Button, Card, EmptyState, ErrorState, Field, Icon,
-  Input, LoadingState, Segment, Sheet, Textarea, Track,
+  Badge, Button, Card, EmptyState, ErrorState, Icon,
+  Input, LoadingState, Segment, Sheet, Track,
 } from "./ui";
-import SkuPicker from "./SkuPicker";
+import ActionSheets from "./ActionSheets";
+import ProtectionDetail from "./ProtectionDetail";
 import {
   daysLeftText, fmtArea, fmtDateShort, managerName, plural, remainingPercent,
   shortName, skuShort, statusBadge, statusKind, trackTone,
@@ -18,7 +19,6 @@ import {
 import { usePullToRefresh } from "./usePullToRefresh";
 import { haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes } from "./telegram";
 import "./list.css";
-import "./form.css";
 
 /* ---------------- карточка списка ---------------- */
 
@@ -71,20 +71,22 @@ export default function ProtectionsList({
   editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
   editComment, setEditComment, submitEdit, skus, onAreaChange,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
-  loadError,
+  updateClosedModal, setUpdateClosedModal, updateClosedProtection,
+  restoreProtection, newDetail, loadError,
 }) {
   const [tab, setTab] = useState("my");           // "my" | "all"
   const [search, setSearch] = useState("");
   const [managerFilter, setManagerFilter] = useState("");
   const [actionsFor, setActionsFor] = useState(null);
   const [managerSheet, setManagerSheet] = useState(false);
+  const [detailId, setDetailId] = useState(null);
 
   const role = auth?.role || auth?.user?.role || "";
   const isAdmin = role === "admin" || role === "superadmin";
   const currentUserId = auth?.user?.id || auth?.user?.user_id;
   const currentUserName = auth?.user?.full_name || auth?.user?.first_name || "";
 
-  useBackButton(onBack);
+  useBackButton(onBack, detailId == null);
   useDisableVerticalSwipes(true);
 
   const { scrollRef, pull, refreshing, dragging, ready } = usePullToRefresh(load);
@@ -141,6 +143,22 @@ export default function ProtectionsList({
     if (tab !== "all" && managerFilter) setManagerFilter("");
   }, [tab, managerFilter]);
 
+  // Карточка защиты открывается поверх списка: список остаётся смонтированным,
+  // фильтры и позиция прокрутки не теряются. Если защита исчезла из выдачи
+  // (удалили, закрыли) — карточка закрывается сама.
+  const detailItem = useMemo(
+    () => (detailId == null ? null : (items || []).find((it) => it.id === detailId) || null),
+    [items, detailId]
+  );
+  useEffect(() => {
+    if (detailId != null && !detailItem && !loading) setDetailId(null);
+  }, [detailId, detailItem, loading]);
+
+  const openItem = (item) => {
+    if (newDetail) setDetailId(item.id);
+    else setActionsFor(item);
+  };
+
   const closeActions = () => setActionsFor(null);
 
   const runAction = (what) => {
@@ -163,7 +181,7 @@ export default function ProtectionsList({
       return (
         <div className="pgl-cards">
           {filtered.map((it) => (
-            <ProtectionCard key={it.id} item={it} onOpen={setActionsFor} />
+            <ProtectionCard key={it.id} item={it} onOpen={openItem} />
           ))}
         </div>
       );
@@ -366,165 +384,44 @@ export default function ProtectionsList({
         </div>
       </Sheet>
 
-      {/* ---- подтверждения действий ---- */}
-      <Sheet
-        open={!!closeModal?.open}
-        title="Закрыть защиту"
-        onClose={() => setCloseModal({ open: false, id: null, reason: "" })}
-        actions={
-          <>
-            <Button variant="primary" block onClick={doClose}>Закрыть защиту</Button>
-            <Button variant="ghost" block onClick={() => setCloseModal({ open: false, id: null, reason: "" })}>
-              Отмена
-            </Button>
-          </>
-        }
-      >
-        <Field label="Причина закрытия">
-          <Input
-            placeholder="Например: клиент выбрал другого поставщика"
-            value={closeModal?.reason || ""}
-            onChange={(e) => setCloseModal({ ...closeModal, reason: e.target.value })}
-          />
-        </Field>
-      </Sheet>
+      <ActionSheets
+        closeModal={closeModal}
+        setCloseModal={setCloseModal}
+        doClose={doClose}
+        successModal={successModal}
+        setSuccessModal={setSuccessModal}
+        doSuccess={doSuccess}
+        deleteModal={deleteModal}
+        setDeleteModal={setDeleteModal}
+        doDelete={doDelete}
+        extendRequestModal={extendRequestModal}
+        setExtendRequestModal={setExtendRequestModal}
+        submitExtendRequest={submitExtendRequest}
+        editModal={editModal}
+        setEditModal={setEditModal}
+        editSelectedSkus={editSelectedSkus}
+        setEditSelectedSkus={setEditSelectedSkus}
+        editPerSkuMode={editPerSkuMode}
+        setEditPerSkuMode={setEditPerSkuMode}
+        editAreaUnified={editAreaUnified}
+        setEditAreaUnified={setEditAreaUnified}
+        editComment={editComment}
+        setEditComment={setEditComment}
+        submitEdit={submitEdit}
+        skus={skus}
+        onAreaChange={onAreaChange}
+      />
 
-      <Sheet
-        open={!!successModal?.open}
-        title="Отметить как успешную"
-        onClose={() => setSuccessModal({ open: false, id: null, doc: "" })}
-        actions={
-          <>
-            <Button variant="primary" block onClick={doSuccess}>Подтвердить</Button>
-            <Button variant="ghost" block onClick={() => setSuccessModal({ open: false, id: null, doc: "" })}>
-              Отмена
-            </Button>
-          </>
-        }
-      >
-        <Field label="Документ 1С" hint="Необязательно — можно добавить позже">
-          <Input
-            placeholder="Номер документа"
-            value={successModal?.doc || ""}
-            onChange={(e) => setSuccessModal({ ...successModal, doc: e.target.value })}
-          />
-        </Field>
-      </Sheet>
-
-      <Sheet
-        open={!!deleteModal?.open}
-        title="Удалить защиту?"
-        onClose={() => setDeleteModal({ open: false, id: null, reason: "" })}
-        actions={
-          <>
-            <Button variant="danger" block onClick={doDelete}>Удалить</Button>
-            <Button variant="ghost" block onClick={() => setDeleteModal({ open: false, id: null, reason: "" })}>
-              Отмена
-            </Button>
-          </>
-        }
-      >
-        <p className="pg-sheet__text">
-          Защита уйдёт в архив. Восстановить её сможет только суперадмин.
-        </p>
-        <Field label="Причина удаления" hint="Попадёт в историю защиты">
-          <Input
-            placeholder="Например: дубль, создано по ошибке"
-            value={deleteModal?.reason || ""}
-            onChange={(e) => setDeleteModal({ ...deleteModal, reason: e.target.value })}
-          />
-        </Field>
-      </Sheet>
-
-      <Sheet
-        open={!!extendRequestModal?.open}
-        title="Запрос на продление"
-        onClose={() =>
-          setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" })
-        }
-        actions={
-          <>
-            <Button variant="primary" block icon="send" onClick={submitExtendRequest}>
-              Отправить админу
-            </Button>
-            <Button
-              variant="ghost"
-              block
-              onClick={() =>
-                setExtendRequestModal({ open: false, id: null, reason: "", days: 10, message: "" })
-              }
-            >
-              Отмена
-            </Button>
-          </>
-        }
-      >
-        {extendRequestModal?.message && (
-          <p className="pg-sheet__text">{extendRequestModal.message}</p>
-        )}
-        <Field label="Причина продления" required>
-          <Textarea
-            placeholder="Клиент ждёт оплату, перенос поставки и т.п."
-            value={extendRequestModal?.reason || ""}
-            onChange={(e) => setExtendRequestModal({ ...extendRequestModal, reason: e.target.value })}
-          />
-        </Field>
-      </Sheet>
-
-      {/* ---- редактирование ---- */}
-      <Sheet
-        open={!!editModal?.open}
-        title="Редактировать защиту"
-        onClose={() => setEditModal({ open: false, id: null })}
-        actions={
-          <>
-            <Button variant="primary" block icon="check" onClick={submitEdit}>Сохранить</Button>
-            <Button variant="ghost" block onClick={() => setEditModal({ open: false, id: null })}>
-              Отмена
-            </Button>
-          </>
-        }
-      >
-        <div className="pgf-group">
-          <Segment
-            value={editPerSkuMode ? "per" : "one"}
-            onChange={(v) => setEditPerSkuMode(v === "per")}
-            options={[
-              { value: "one", label: "Единый метраж" },
-              { value: "per", label: "По артикулам" },
-            ]}
-          />
-
-          <Field label="Артикулы" required>
-            <SkuPicker
-              skus={skus}
-              selected={editSelectedSkus}
-              setSelected={setEditSelectedSkus}
-              perSkuMode={editPerSkuMode}
-              onAreaChange={onAreaChange}
-            />
-          </Field>
-
-          {!editPerSkuMode && (
-            <Field label="Единый метраж (м²)" required hint="Минимум 50 м² суммарно">
-              <Input
-                numeric
-                inputMode="numeric"
-                value={editAreaUnified}
-                onChange={(e) => setEditAreaUnified(e.target.value)}
-              />
-            </Field>
-          )}
-
-          <Field label="Комментарий">
-            <Textarea
-              placeholder="Необязательно"
-              value={editComment}
-              onChange={(e) => setEditComment(e.target.value)}
-            />
-          </Field>
-        </div>
-      </Sheet>
+      {detailItem && (
+        <ProtectionDetail
+          item={detailItem}
+          auth={auth}
+          onBack={() => setDetailId(null)}
+          act={act}
+          openEditModal={openEditModal}
+          restoreProtection={restoreProtection}
+        />
+      )}
     </div>
   );
 }
