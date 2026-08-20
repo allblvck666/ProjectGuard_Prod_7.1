@@ -6,6 +6,11 @@ import { api, fetchMe, adminUsersAPI } from "./api";
 import { lazy, Suspense, memo, useMemo, useEffect } from "react";
 const AdminPage = lazy(() => import("./AdminPage.jsx"));
 
+// Новый слой представления (редизайн) — включается флагами, см. pg/flags.js
+import { useNewUi } from "./pg/useFlags";
+import { setFlag } from "./pg/flags";
+const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
+
 import { useState } from "react";
 import "./App.css";
 import LoginPage from "./LoginPage";
@@ -1516,6 +1521,9 @@ function App() {
 
   const [route, setRoute] = useState("home"); // "home" | "create" | "active" | "archive" | "stats" | "admin"
 
+  // Витрина дизайн-системы: ?ui-kit=1
+  const showUiKit = useNewUi("ui-kit");
+
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
 
@@ -2419,6 +2427,15 @@ function App() {
       setLoading(false);
     }
     }, [isTG]);
+
+// 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
+if (showUiKit) {
+  return (
+    <Suspense fallback={null}>
+      <UiKitPage onClose={() => setFlag("ui-kit", "off")} />
+    </Suspense>
+  );
+}
 
 // Пока WebApp инициализируется — показываем загрузку
 if (isTG && (!ready || loading)) {

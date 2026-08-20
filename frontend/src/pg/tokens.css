@@ -1,0 +1,625 @@
+/* ============================================================
+   ProjectGuard UI — токены (Этап 1)
+   Тема (light/dark) выбирается из Telegram themeParams / colorScheme
+   в theme.js и вешается как data-pg-theme на <html>.
+   Значения цветов — из утверждённого макета.
+   ============================================================ */
+
+:root {
+  /* --- Бренд (не зависит от темы) --- */
+  --pg-accent: #667eea;
+  --pg-accent-2: #764ba2;
+  --pg-grad: linear-gradient(135deg, var(--pg-accent) 0%, var(--pg-accent-2) 100%);
+
+  --pg-success: #22c55e;
+  --pg-danger: #ef4444;
+  --pg-warning: #f59e0b;
+
+  /* --- Геометрия --- */
+  --pg-r-sm: 8px;
+  --pg-r-md: 12px;
+  --pg-r-lg: 16px;
+  --pg-r-full: 999px;
+
+  --pg-sp-1: 4px;
+  --pg-sp-2: 8px;
+  --pg-sp-3: 12px;
+  --pg-sp-4: 16px;
+  --pg-sp-5: 20px;
+  --pg-sp-6: 24px;
+
+  --pg-tap: 44px;           /* минимальная тач-цель */
+  --pg-stripe: 3px;         /* левый акцент статуса на карточке */
+
+  /* --- Типографика (системный стек, как в Telegram) --- */
+  --pg-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --pg-fs-xs: 12px;
+  --pg-fs-sm: 13px;
+  --pg-fs-md: 15px;
+  --pg-fs-lg: 17px;
+  --pg-fs-xl: 20px;
+  --pg-fs-h: 24px;
+  --pg-lh: 1.4;
+
+  /* --- Анимация --- */
+  --pg-t-fast: 120ms ease;
+  --pg-t-med: 200ms ease;
+}
+
+/* ---------- Тёмная тема (по умолчанию) ---------- */
+:root,
+[data-pg-theme="dark"] {
+  --pg-bg: #0a0e1a;
+  --pg-surface: #0f172a;                      /* карточки */
+  --pg-surface-2: rgba(255, 255, 255, 0.06);  /* поля ввода, сегменты */
+  --pg-surface-3: rgba(255, 255, 255, 0.10);  /* hover / нажатие */
+
+  --pg-border: rgba(255, 255, 255, 0.10);
+  --pg-border-strong: rgba(255, 255, 255, 0.18);
+
+  --pg-text: #ffffff;
+  --pg-text-2: rgba(255, 255, 255, 0.72);
+  --pg-hint: rgba(255, 255, 255, 0.55);
+
+  --pg-success-bg: rgba(34, 197, 94, 0.12);
+  --pg-success-border: rgba(34, 197, 94, 0.35);
+  --pg-danger-bg: rgba(239, 68, 68, 0.12);
+  --pg-danger-border: rgba(239, 68, 68, 0.35);
+  --pg-warning-bg: rgba(245, 158, 11, 0.14);
+  --pg-warning-border: rgba(245, 158, 11, 0.40);
+  --pg-accent-bg: rgba(102, 126, 234, 0.14);
+  --pg-accent-border: rgba(102, 126, 234, 0.40);
+
+  --pg-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --pg-backdrop: rgba(0, 0, 0, 0.55);
+
+  color-scheme: dark;
+}
+
+/* ---------- Светлая тема ---------- */
+[data-pg-theme="light"] {
+  --pg-bg: #f8fafc;
+  --pg-surface: #ffffff;
+  --pg-surface-2: rgba(15, 23, 42, 0.05);
+  --pg-surface-3: rgba(15, 23, 42, 0.09);
+
+  --pg-border: rgba(15, 23, 42, 0.12);
+  --pg-border-strong: rgba(15, 23, 42, 0.22);
+
+  --pg-text: #0f172a;
+  --pg-text-2: rgba(15, 23, 42, 0.74);
+  --pg-hint: rgba(15, 23, 42, 0.55);
+
+  --pg-success-bg: rgba(34, 197, 94, 0.10);
+  --pg-success-border: rgba(34, 197, 94, 0.30);
+  --pg-danger-bg: rgba(239, 68, 68, 0.08);
+  --pg-danger-border: rgba(239, 68, 68, 0.30);
+  --pg-warning-bg: rgba(245, 158, 11, 0.12);
+  --pg-warning-border: rgba(245, 158, 11, 0.35);
+  --pg-accent-bg: rgba(102, 126, 234, 0.10);
+  --pg-accent-border: rgba(102, 126, 234, 0.35);
+
+  --pg-shadow: 0 8px 24px rgba(15, 23, 42, 0.10);
+  --pg-backdrop: rgba(15, 23, 42, 0.35);
+
+  color-scheme: light;
+}
+
+/* Числовые данные (метраж, дни, счётчики) — табличные цифры */
+.pg-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   ProjectGuard UI — базовые компоненты (Этап 1)
+   Все классы с префиксом pg- : не конфликтуют со старыми стилями,
+   старые экраны переезжают на них поэтапно.
+   ============================================================ */
+
+.pg-icon {
+  flex: 0 0 auto;
+  display: block;
+}
+
+/* ================= Кнопки ================= */
+
+.pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pg-sp-2);
+  min-height: var(--pg-tap);
+  padding: 0 var(--pg-sp-4);
+  border: 1px solid transparent;
+  border-radius: var(--pg-r-md);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--pg-text);
+  background: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--pg-t-fast), border-color var(--pg-t-fast),
+    opacity var(--pg-t-fast), transform var(--pg-t-fast);
+}
+.pg-btn:active {
+  transform: scale(0.97);
+}
+.pg-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+.pg-btn:focus-visible {
+  outline: 2px solid var(--pg-accent);
+  outline-offset: 2px;
+}
+
+.pg-btn--primary {
+  background: var(--pg-grad);
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(102, 126, 234, 0.35);
+}
+.pg-btn--primary:active {
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.30);
+}
+
+.pg-btn--secondary {
+  background: var(--pg-surface-2);
+  border-color: var(--pg-border);
+  color: var(--pg-text);
+}
+.pg-btn--secondary:active {
+  background: var(--pg-surface-3);
+}
+
+.pg-btn--danger {
+  background: var(--pg-danger);
+  color: #ffffff;
+}
+
+/* тихий деструктив (вторичное место, например в списке действий) */
+.pg-btn--danger-soft {
+  background: var(--pg-danger-bg);
+  border-color: var(--pg-danger-border);
+  color: var(--pg-danger);
+}
+
+/* призрачная кнопка (иконка в шапке и т.п.) */
+.pg-btn--ghost {
+  background: transparent;
+  color: var(--pg-text-2);
+  padding: 0 var(--pg-sp-2);
+}
+.pg-btn--ghost:active {
+  background: var(--pg-surface-2);
+}
+
+.pg-btn--sm {
+  min-height: 36px;
+  padding: 0 var(--pg-sp-3);
+  font-size: var(--pg-fs-sm);
+  border-radius: var(--pg-r-sm);
+}
+
+.pg-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+/* ================= Карточка ================= */
+
+.pg-card {
+  position: relative;
+  background: var(--pg-surface);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-lg);
+  padding: var(--pg-sp-4);
+}
+
+/* цветной левый акцент по статусу */
+.pg-card--stripe {
+  padding-left: calc(var(--pg-sp-4) + var(--pg-stripe));
+  overflow: hidden;
+}
+.pg-card--stripe::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: var(--pg-stripe);
+  background: var(--pg-border-strong);
+}
+.pg-card--stripe[data-status="active"]::before { background: var(--pg-success); }
+.pg-card--stripe[data-status="expiring"]::before { background: var(--pg-warning); }
+.pg-card--stripe[data-status="success"]::before { background: var(--pg-accent); }
+.pg-card--stripe[data-status="closed"]::before,
+.pg-card--stripe[data-status="deleted"]::before { background: var(--pg-danger); }
+
+.pg-card--tap {
+  cursor: pointer;
+  transition: background var(--pg-t-fast), transform var(--pg-t-fast);
+  width: 100%;
+  text-align: left;
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  color: var(--pg-text);
+  -webkit-tap-highlight-color: transparent;
+}
+.pg-card--tap:active {
+  transform: scale(0.985);
+  background: color-mix(in srgb, var(--pg-surface) 92%, var(--pg-text) 8%);
+}
+.pg-card--tap:focus-visible {
+  outline: 2px solid var(--pg-accent);
+  outline-offset: 2px;
+}
+
+/* ================= Бейдж статуса ================= */
+
+.pg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-full);
+  font-size: var(--pg-fs-xs);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--pg-text-2);
+  background: var(--pg-surface-2);
+  white-space: nowrap;
+}
+.pg-badge::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pg-badge--success {
+  color: var(--pg-success);
+  background: var(--pg-success-bg);
+  border-color: var(--pg-success-border);
+}
+.pg-badge--warning {
+  color: var(--pg-warning);
+  background: var(--pg-warning-bg);
+  border-color: var(--pg-warning-border);
+}
+.pg-badge--danger {
+  color: var(--pg-danger);
+  background: var(--pg-danger-bg);
+  border-color: var(--pg-danger-border);
+}
+.pg-badge--accent {
+  color: var(--pg-accent);
+  background: var(--pg-accent-bg);
+  border-color: var(--pg-accent-border);
+}
+.pg-badge--plain::before {
+  display: none;
+}
+
+/* ================= Поля ввода ================= */
+
+.pg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pg-field__label {
+  font-size: var(--pg-fs-sm);
+  font-weight: 500;
+  color: var(--pg-text-2);
+}
+.pg-field__req {
+  color: var(--pg-danger);
+}
+
+.pg-input,
+.pg-textarea,
+.pg-select {
+  width: 100%;
+  min-height: var(--pg-tap);
+  padding: 10px var(--pg-sp-3);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-surface-2);
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  outline: none;
+  transition: border-color var(--pg-t-fast), background var(--pg-t-fast);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.pg-textarea {
+  resize: vertical;
+  min-height: 88px;
+}
+.pg-input::placeholder,
+.pg-textarea::placeholder {
+  color: var(--pg-hint);
+}
+.pg-input:focus,
+.pg-textarea:focus,
+.pg-select:focus {
+  border-color: var(--pg-accent);
+  background: var(--pg-surface);
+  box-shadow: 0 0 0 3px var(--pg-accent-bg);
+}
+
+.pg-field--error .pg-input,
+.pg-field--error .pg-textarea,
+.pg-field--error .pg-select {
+  border-color: var(--pg-danger);
+}
+.pg-field--error .pg-input:focus,
+.pg-field--error .pg-textarea:focus {
+  box-shadow: 0 0 0 3px var(--pg-danger-bg);
+}
+.pg-field__hint {
+  font-size: var(--pg-fs-xs);
+  color: var(--pg-hint);
+}
+.pg-field__hint--error {
+  color: var(--pg-danger);
+}
+
+.pg-select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23888f9f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+.pg-select option {
+  color: #0f172a;
+  background: #ffffff;
+}
+
+/* ================= Сегмент-контрол (табы) ================= */
+
+.pg-segment {
+  display: flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--pg-surface-2);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-md);
+}
+.pg-segment__item {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--pg-sp-3);
+  border: none;
+  border-radius: calc(var(--pg-r-md) - 3px);
+  background: transparent;
+  color: var(--pg-text-2);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--pg-t-fast), color var(--pg-t-fast);
+}
+.pg-segment__item[aria-selected="true"] {
+  background: var(--pg-surface);
+  color: var(--pg-text);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+[data-pg-theme="light"] .pg-segment__item[aria-selected="true"] {
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.12);
+}
+.pg-segment__item:focus-visible {
+  outline: 2px solid var(--pg-accent);
+  outline-offset: -2px;
+}
+
+/* ================= Боттом-шит ================= */
+
+.pg-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: var(--pg-backdrop);
+  animation: pg-fade-in var(--pg-t-med);
+}
+.pg-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 91;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--pg-surface);
+  border: 1px solid var(--pg-border);
+  border-bottom: none;
+  border-radius: var(--pg-r-lg) var(--pg-r-lg) 0 0;
+  padding: var(--pg-sp-2) var(--pg-sp-4)
+    calc(var(--pg-sp-4) + env(safe-area-inset-bottom, 0px));
+  animation: pg-slide-up var(--pg-t-med);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  line-height: var(--pg-lh);
+  color: var(--pg-text);
+}
+.pg-sheet__handle {
+  width: 36px;
+  height: 4px;
+  border-radius: var(--pg-r-full);
+  background: var(--pg-border-strong);
+  margin: 4px auto var(--pg-sp-3);
+}
+.pg-sheet__title {
+  margin: 0 0 var(--pg-sp-3);
+  font-size: var(--pg-fs-lg);
+  font-weight: 700;
+  color: var(--pg-text);
+}
+.pg-sheet__body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.pg-sheet__text {
+  margin: 0 0 var(--pg-sp-4);
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+}
+.pg-sheet__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-2);
+}
+
+@keyframes pg-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pg-slide-up {
+  from { transform: translateY(24px); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* ================= Состояния: скелетон / пусто / ошибка ================= */
+
+.pg-skeleton {
+  border-radius: var(--pg-r-sm);
+  background: var(--pg-surface-2);
+  position: relative;
+  overflow: hidden;
+}
+.pg-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--pg-surface-3),
+    transparent
+  );
+  animation: pg-shimmer 1.4s infinite;
+}
+@keyframes pg-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.pg-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--pg-sp-3);
+  padding: var(--pg-sp-6) var(--pg-sp-4);
+}
+.pg-state__icon {
+  width: 56px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--pg-surface-2);
+  color: var(--pg-hint);
+}
+.pg-state--error .pg-state__icon {
+  background: var(--pg-danger-bg);
+  color: var(--pg-danger);
+}
+.pg-state__title {
+  margin: 0;
+  font-size: var(--pg-fs-lg);
+  font-weight: 700;
+  color: var(--pg-text);
+}
+.pg-state__text {
+  margin: 0;
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  max-width: 280px;
+}
+
+/* ================= Спиннер (loading в кнопке) ================= */
+
+.pg-spin {
+  animation: pg-rotate 0.9s linear infinite;
+}
+@keyframes pg-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* ================= Полоса срока (burn-down) ================= */
+
+.pg-track {
+  height: 3px;
+  border-radius: var(--pg-r-full);
+  background: var(--pg-surface-3);
+  overflow: hidden;
+}
+.pg-track__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--pg-success);
+  transition: width var(--pg-t-med);
+}
+.pg-track--warning .pg-track__fill { background: var(--pg-warning); }
+.pg-track--danger .pg-track__fill { background: var(--pg-danger); }
+
+/* ================= Строка «ключ — значение» ================= */
+
+.pg-kv {
+  display: flex;
+  gap: var(--pg-sp-3);
+  padding: 11px 0;
+  border-bottom: 1px solid var(--pg-border);
+  font-size: var(--pg-fs-md);
+}
+.pg-kv:last-child { border-bottom: none; }
+.pg-kv__k { flex: 0 0 42%; color: var(--pg-hint); font-size: var(--pg-fs-sm); }
+.pg-kv__v { flex: 1; text-align: right; word-break: break-word; }
+
+/* ================= Доступность ================= */
+
+.pg-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .pg-btn,
+  .pg-card--tap,
+  .pg-sheet,
+  .pg-sheet-backdrop {
+    transition: none;
+    animation: none;
+  }
+  .pg-skeleton::after {
+    animation: none;
+  }
+  .pg-spin { animation-duration: 2s; }
+}
