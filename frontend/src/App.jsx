@@ -10,6 +10,7 @@ const AdminPage = lazy(() => import("./AdminPage.jsx"));
 import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
+const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1523,6 +1524,8 @@ function App() {
 
   // Витрина дизайн-системы: ?ui-kit=1
   const showUiKit = useNewUi("ui-kit");
+  // Новый список активных защит: ?ui-list=new
+  const newList = useNewUi("ui-list");
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -1839,6 +1842,7 @@ function App() {
   const [stats, setStats] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   const [managers, setManagers] = useState([]);
   const [expanded, setExpanded] = useState({});
   const [managerFilter, setManagerFilter] = useState("");
@@ -1996,6 +2000,7 @@ function App() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       // Загружаем данные в зависимости от текущего route
       if (route === "stats") {
@@ -2035,6 +2040,7 @@ function App() {
     } catch (err) {
       // Используем понятное сообщение из interceptor, если есть
       const errorMessage = err.userMessage || err.response?.data?.detail || "Ошибка загрузки данных";
+      setLoadError(typeof errorMessage === "string" ? errorMessage : "Ошибка загрузки данных");
       if (route === "archive" || route === "active") {
         setItems([]);
       }
@@ -2428,6 +2434,11 @@ function App() {
     }
     }, [isTG]);
 
+// На новых экранах глобальный лоадер не нужен: у них есть свои состояния
+// загрузки, а полноэкранная заглушка размонтировала бы экран на каждом
+// обновлении (и сбрасывала бы фильтры и pull-to-refresh).
+const usesNewUi = route === "active" && newList;
+
 // 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
 if (showUiKit) {
   return (
@@ -2438,7 +2449,7 @@ if (showUiKit) {
 }
 
 // Пока WebApp инициализируется — показываем загрузку
-if (isTG && (!ready || loading)) {
+if (isTG && (!ready || (loading && !usesNewUi))) {
   return (
     <div style={{ 
       padding: 40, 
@@ -2650,6 +2661,51 @@ if (isTG && (!ready || loading)) {
 
   // ==== АКТИВНЫЕ ЗАЩИТЫ ====
   if (route === "active") {
+    // Новый экран (?ui-list=new) получает те же данные и те же обработчики,
+    // что и старый: меняется только слой представления.
+    if (newList) {
+      return (
+        <Suspense fallback={null}>
+          <ProtectionsListNew
+            auth={auth}
+            items={items}
+            managers={managers}
+            loading={loading}
+            loadError={loadError}
+            load={load}
+            onBack={goHome}
+            act={act}
+            openEditModal={openEditModal}
+            closeModal={closeModal}
+            setCloseModal={setCloseModal}
+            doClose={doClose}
+            successModal={successModal}
+            setSuccessModal={setSuccessModal}
+            doSuccess={doSuccess}
+            deleteModal={deleteModal}
+            setDeleteModal={setDeleteModal}
+            doDelete={doDelete}
+            editModal={editModal}
+            setEditModal={setEditModal}
+            editSelectedSkus={editSelectedSkus}
+            setEditSelectedSkus={setEditSelectedSkus}
+            editPerSkuMode={editPerSkuMode}
+            setEditPerSkuMode={setEditPerSkuMode}
+            editAreaUnified={editAreaUnified}
+            setEditAreaUnified={setEditAreaUnified}
+            editComment={editComment}
+            setEditComment={setEditComment}
+            submitEdit={submitEdit}
+            skus={skus}
+            onAreaChange={onAreaChange}
+            extendRequestModal={extendRequestModal}
+            setExtendRequestModal={setExtendRequestModal}
+            submitExtendRequest={submitExtendRequest}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <ActiveProtectionsPage
         auth={auth}

@@ -1,0 +1,119 @@
+/* ============================================================
+   Формы нового UI: выбор артикулов, группы полей. Префикс pgf-.
+   Используется на этапах 2 (редактирование) и 4 (создание).
+   ============================================================ */
+
+.pgf-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--pg-sp-3);
+}
+
+/* ---------- выбор артикулов ---------- */
+
+.pgf-sku { position: relative; display: flex; flex-direction: column; gap: var(--pg-sp-2); }
+
+.pgf-sku__list { display: flex; flex-direction: column; gap: 6px; }
+.pgf-sku__item { display: flex; align-items: center; gap: var(--pg-sp-2); }
+
+.pgf-sku__chip {
+  height: 32px;
+  padding-right: 4px;
+  gap: 6px;
+  max-width: 100%;
+  overflow: hidden;
+}
+.pgf-sku__chip > span:first-child {
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgf-sku__type {
+  color: var(--pg-hint);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pgf-sku__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pgf-sku__x:active { background: var(--pg-surface-3); }
+.pgf-sku__area {
+  flex: 0 0 92px;
+  min-height: 36px;
+  padding: 6px var(--pg-sp-2);
+  text-align: center;
+}
+
+.pgf-sku__search { position: relative; }
+.pgf-sku__drop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--pg-surface);
+  border: 1px solid var(--pg-border);
+  border-radius: var(--pg-r-md);
+  box-shadow: var(--pg-shadow);
+}
+.pgf-sku__opt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px var(--pg-sp-3);
+  border: none;
+  border-bottom: 1px solid var(--pg-border);
+  background: none;
+  color: var(--pg-text);
+  font-family: var(--pg-font);
+  font-size: var(--pg-fs-md);
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.pgf-sku__opt:last-child { border-bottom: none; }
+.pgf-sku__opt:active { background: var(--pg-surface-2); }
+.pgf-sku__opt-code { font-weight: 600; }
+.pgf-sku__opt-meta { font-size: var(--pg-fs-xs); color: var(--pg-hint); }
+
+.pgf-sku__limit {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--pg-sp-2) var(--pg-sp-3);
+  border: 1px solid var(--pg-warning-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-warning-bg);
+  color: var(--pg-warning);
+  font-size: var(--pg-fs-xs);
+}
+
+.pgf-sku__choose {
+  padding: var(--pg-sp-3);
+  border: 1px solid var(--pg-accent-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-accent-bg);
+}
+.pgf-sku__choose-h {
+  font-size: var(--pg-fs-sm);
+  color: var(--pg-text-2);
+  margin-bottom: var(--pg-sp-2);
+}
+.pgf-sku__choose-b { display: flex; flex-wrap: wrap; gap: var(--pg-sp-2); }
