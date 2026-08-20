@@ -77,6 +77,22 @@ export default function SkuPicker({
 
   const notice = (msg) => (onNotice ? onNotice(msg) : notify.error(msg));
 
+  // Мы добавляем артикул уже на касании, и подсказка сразу исчезает.
+  // Отставший click после этого попал бы в то, что оказалось под пальцем
+  // (в шите правки под списком — «Сохранить»), поэтому гасим ровно один.
+  const swallowNextClick = () => {
+    const handler = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      document.removeEventListener("click", handler, true);
+      clearTimeout(timer);
+    };
+    const timer = setTimeout(() => {
+      document.removeEventListener("click", handler, true);
+    }, 300);
+    document.addEventListener("click", handler, true);
+  };
+
   // В подсказке уже выбран конкретный вариант — добавляем как есть,
   // переспрашивать про тип не нужно
   const addSku = (skuObj) => {
@@ -163,7 +179,21 @@ export default function SkuPicker({
                     type="button"
                     className="pgf-sku__opt"
                     key={variantKey(s)}
-                    onClick={() => addSku(s)}
+                    // Реагируем на касание, а не на click: на телефоне при тапе
+                    // по подсказке закрывается клавиатура, страница подпрыгивает,
+                    // и click уходит уже мимо кнопки. preventDefault удерживает
+                    // фокус в поле, поэтому ничего не прыгает.
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      swallowNextClick();
+                      addSku(s);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        addSku(s);
+                      }
+                    }}
                   >
                     <span className="pgf-sku__opt-head">
                       <b className="pgf-sku__opt-code">{s.sku}</b>
