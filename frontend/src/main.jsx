@@ -9,9 +9,12 @@ import './pg/tokens.css'
 import { initFlags } from './pg/flags'
 import { initPgTheme } from './pg/theme'
 import { ToastHost } from './pg/notify'
+import { checkForUpdate } from './pg/updateCheck'
 
 initFlags()
 initPgTheme()
+// Telegram кэширует Mini App: если на сервере уже новая сборка, перезагрузимся
+checkForUpdate()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
