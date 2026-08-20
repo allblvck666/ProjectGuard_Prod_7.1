@@ -646,3 +646,7 @@ body.light-theme .pg-sheet__text,
 body.light-theme .pg-state__text {
   color: var(--pg-text-2) !important;
 }
+
+/* На узких экранах styles.css задаёт `p, label { font-size: 1rem !important }`.
+   Поэтому в новом слое текстовые блоки — div, а не p; labels остаются,
+   их размер шрифта ни на что не влияет (дети задают свой). */

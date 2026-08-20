@@ -34,7 +34,8 @@ export function fmtNumber(value) {
 
 export function fmtArea(value) {
   if (value == null || value === "") return "—";
-  return `${fmtNumber(value)} м²`;
+  // неразрывный пробел: «320 м²» не должно разрываться переносом строки
+  return `${fmtNumber(value)}\u00A0м²`;
 }
 
 export function plural(n, one, few, many) {

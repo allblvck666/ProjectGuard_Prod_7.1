@@ -12,6 +12,7 @@ import { setFlag } from "./pg/flags";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
+const CreateProtectionNew = lazy(() => import("./pg/CreateProtection.jsx"));
 
 import { useState } from "react";
 import "./App.css";
@@ -1535,6 +1536,8 @@ function App() {
   const newList = useNewUi("ui-list");
   // Новая карточка защиты: ?ui-detail=new
   const newDetail = useNewUi("ui-detail");
+  // Новое создание защиты и экран конфликта: ?ui-create=new
+  const newCreate = useNewUi("ui-create");
 
   const [tokenVerified, setTokenVerified] = useState(false);
   const [tokenValid, setTokenValid] = useState(false);
@@ -2238,6 +2241,7 @@ function App() {
       setSelectedSkus([]);
       setPerSkuMode(false);
       await load();
+      return true;
     } catch (err) {
       // Используем понятное сообщение из interceptor
       const userMessage = err.userMessage;
@@ -2300,6 +2304,40 @@ function App() {
         const finalMessage = userMessage || detail || "Не удалось создать защиту. Попробуйте позже.";
         alert("❌ " + finalMessage);
       }
+      return false;
+    }
+  };
+
+  // Ручной пропуск конфликта (админ/суперадмин): защита уходит на проверку
+  // и тут же одобряется тем же админом — оба эндпоинта уже есть.
+  // Причина обязательна и остаётся в комментарии и в истории защиты.
+  const skipConflictManually = async (payload, reason) => {
+    const note = `Пропущено вручную: ${reason.trim()}`;
+    const body = {
+      ...payload,
+      comment: payload?.comment ? `${payload.comment} · ${note}` : note,
+    };
+    try {
+      const created = await api.post("/api/protections/pending", body);
+      const pendingId = created?.data?.id;
+      if (!pendingId) throw new Error("Не получен id защиты");
+      await api.post(`/api/admin/pending/${pendingId}/approve`);
+      setSimilarProtectionModal({
+        open: false, similarInfo: null, payload: null, requestReason: "",
+      });
+      setForm({
+        manager: "", client: "", partner: "", partner_city: "", area_m2: "",
+        last4: "", object_city: "", address: "", comment: "",
+      });
+      setSelectedSkus([]);
+      setPerSkuMode(false);
+      await load();
+      return true;
+    } catch (err) {
+      const userMessage =
+        err.userMessage || err.response?.data?.detail || "Не удалось пропустить защиту";
+      alert("❌ " + (typeof userMessage === "string" ? userMessage : "Не удалось пропустить защиту"));
+      return false;
     }
   };
 
@@ -2358,12 +2396,15 @@ function App() {
         ...similarProtectionModal.payload,
         comment: similarProtectionModal.requestReason.trim(),
       });
-      alert("✅ Запрос отправлен администратору на проверку.");
+      // Новый экран показывает результат сам, старому нужен alert
+      if (!newCreate) alert("✅ Запрос отправлен администратору на проверку.");
       setSimilarProtectionModal({ open: false, similarInfo: null, payload: null, requestReason: "" });
       await load();
+      return true;
     } catch (err) {
       const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при отправке запроса администратору";
       alert("❌ " + userMessage);
+      return false;
     }
   };
 
@@ -2481,6 +2522,7 @@ function App() {
 // обновлении (и сбрасывала бы фильтры и pull-to-refresh).
 const usesNewUi =
   (route === "active" && newList) ||
+  (route === "create" && newCreate) ||
   (route === "archive" && newDetail && archiveDetailId != null);
 
 // 🎨 Витрина дизайн-системы (?ui-kit=1). Отдельный экран, прод-роуты не трогает.
@@ -2679,6 +2721,32 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
   // ==== ПОСТАВИТЬ ЗАЩИТУ ====
   if (route === "create") {
+    if (newCreate) {
+      return (
+        <Suspense fallback={null}>
+          <CreateProtectionNew
+            form={form}
+            setForm={setForm}
+            managers={managers}
+            skus={skus}
+            selectedSkus={selectedSkus}
+            setSelectedSkus={setSelectedSkus}
+            perSkuMode={perSkuMode}
+            setPerSkuMode={setPerSkuMode}
+            onAreaChange={onAreaChange}
+            submit={submit}
+            onBack={goHome}
+            onGoToList={goActive}
+            auth={auth}
+            similarProtectionModal={similarProtectionModal}
+            setSimilarProtectionModal={setSimilarProtectionModal}
+            submitSimilarProtectionRequest={submitSimilarProtectionRequest}
+            skipConflictManually={skipConflictManually}
+          />
+        </Suspense>
+      );
+    }
+
     return (
       <CreateProtectionPage
         form={form}

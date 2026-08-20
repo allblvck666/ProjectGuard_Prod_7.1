@@ -54,9 +54,9 @@ export default function UiKit({ onClose }) {
             { value: "light", label: "Светлая", icon: "sun" },
           ]}
         />
-        <p className="pgk__note">
+        <div className="pgk__note">
           В Mini App тему выбирает Telegram (themeParams / colorScheme), здесь — руками, для проверки обеих палитр.
-        </p>
+        </div>
       </Section>
 
       <Section title="Кнопки">
@@ -173,9 +173,9 @@ export default function UiKit({ onClose }) {
             </>
           }
         >
-          <p className="pg-sheet__text">
+          <div className="pg-sheet__text">
             Защита ООО «Паркет-Центр» на 320 м² уйдёт в архив. Восстановить сможет только суперадмин.
-          </p>
+          </div>
         </Sheet>
       </Section>
 

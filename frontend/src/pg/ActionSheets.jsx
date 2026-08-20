@@ -83,9 +83,9 @@ export default function ActionSheets({
           </>
         }
       >
-        <p className="pg-sheet__text">
+        <div className="pg-sheet__text">
           Защита уйдёт в архив. Восстановить её сможет только суперадмин.
-        </p>
+        </div>
         <Field label="Причина удаления" hint="Попадёт в историю защиты">
           <Input
             placeholder="Например: дубль, создано по ошибке"
@@ -112,7 +112,7 @@ export default function ActionSheets({
         }
       >
         {extendRequestModal?.message && (
-          <p className="pg-sheet__text">{extendRequestModal.message}</p>
+          <div className="pg-sheet__text">{extendRequestModal.message}</div>
         )}
         <Field label="Причина продления" required>
           <Textarea

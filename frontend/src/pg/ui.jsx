@@ -214,7 +214,7 @@ export function StateBlock({ variant = "empty", icon, title, text, action }) {
         <Icon name={icon || fallbackIcon} size={26} />
       </div>
       {title && <h3 className="pg-state__title">{title}</h3>}
-      {text && <p className="pg-state__text">{text}</p>}
+      {text && <div className="pg-state__text">{text}</div>}
       {action}
     </div>
   );
