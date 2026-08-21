@@ -2006,21 +2006,24 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
             # Удаляем все защиты этого менеджера
             protections_delete_query = _adapt_query("DELETE FROM protections WHERE manager=?")
             cur.execute(protections_delete_query, (name,))
-        else:
-            # Мягкое удаление: переводим защиты на другого менеджера
-            if cnt > 0:
-                if not transfer_to:
-                    conn.close()
-                    raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
-                query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
-                cur.execute(query_to, (transfer_to,))
-                row_to = cur.fetchone()
-                if not row_to:
-                    conn.close()
-                    raise HTTPException(status_code=404, detail="transfer_to manager not found")
-                new_name = row_to["name"]
-                update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
-                cur.execute(update_query, (new_name, name))
+    else:
+        # Мягкое удаление: переводим защиты на другого менеджера.
+        # Раньше эта ветка была вложена в if hard_delete и никогда не
+        # выполнялась — менеджер удалялся, а его защиты оставались
+        # привязанными к исчезнувшему имени.
+        if cnt > 0:
+            if not transfer_to:
+                conn.close()
+                raise HTTPException(status_code=400, detail="Нужно выбрать менеджера для перевода всех защит")
+            query_to = _adapt_query("SELECT * FROM managers WHERE id=?")
+            cur.execute(query_to, (transfer_to,))
+            row_to = cur.fetchone()
+            if not row_to:
+                conn.close()
+                raise HTTPException(status_code=404, detail="transfer_to manager not found")
+            new_name = row_to["name"]
+            update_query = _adapt_query("UPDATE protections SET manager=? WHERE manager=?")
+            cur.execute(update_query, (new_name, name))
     
     # Удаляем менеджера
     delete_query = _adapt_query("DELETE FROM managers WHERE id=?")
@@ -2745,6 +2748,74 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     return [row_to_out(r, history_map.get(r["id"], {})) for r in rows]
 
 # --- история
+@app.get("/api/export")
+def export_protections(search: str = "", manager: str = "", status: str = ""):
+    """Выгрузка защит таблицей. CSV с BOM — Excel открывает его как есть,
+    без дополнительных библиотек в зависимостях."""
+    import csv
+    import io as _io
+    from fastapi.responses import StreamingResponse
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    sql = "SELECT * FROM protections WHERE 1=1"
+    params: list = []
+    if not status:
+        sql += " AND status != 'deleted'"
+    elif status == "archived":
+        sql += " AND (status = 'archived' OR status = 'success' OR status = 'closed' OR status = 'deleted')"
+    else:
+        sql += " AND status = ?"
+        params.append(status)
+    if manager:
+        sql += " AND manager = ?"
+        params.append(manager)
+    if search:
+        like = f"%{search}%"
+        sql += " AND (partner LIKE ? OR client LIKE ? OR sku LIKE ? OR object_city LIKE ?)"
+        params.extend([like, like, like, like])
+    sql += " ORDER BY created_at DESC"
+
+    cur.execute(_adapt_query(sql), tuple(params))
+    rows = cur.fetchall()
+    conn.close()
+
+    STATUS_RU = {
+        "active": "Активна", "success": "Успешно", "closed": "Закрыта",
+        "deleted": "Удалена", "pending": "На проверке", "rejected": "Отклонена",
+    }
+
+    buf = _io.StringIO()
+    buf.write("\ufeff")  # BOM, иначе Excel показывает кириллицу кракозябрами
+    writer = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+    writer.writerow([
+        "ID", "Статус", "Менеджер", "Партнёр", "Город партнёра", "Клиент",
+        "Город объекта", "Адрес", "Артикулы", "Метраж, м²", "Телефон (4 цифры)",
+        "Создана", "Истекает", "Закрыта", "Продлений", "Комментарий",
+    ])
+    for r in rows:
+        d = dict(r)
+        writer.writerow([
+            d.get("id", ""),
+            STATUS_RU.get(d.get("status", ""), d.get("status", "")),
+            d.get("manager", ""), d.get("partner", ""), d.get("partner_city", ""),
+            d.get("client", ""), d.get("object_city", ""), d.get("address", ""),
+            d.get("sku", ""), d.get("area_m2", ""), d.get("last4", ""),
+            (d.get("created_at") or "")[:10], (d.get("expires_at") or "")[:10],
+            (d.get("closed_at") or "")[:10], d.get("extend_count", 0),
+            (d.get("comment") or "").replace("\n", " "),
+        ])
+
+    buf.seek(0)
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    return StreamingResponse(
+        _io.BytesIO(buf.getvalue().encode("utf-8")),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="protections-{stamp}.csv"'},
+    )
+
+
 @app.get("/api/history")
 def history(protection_id: Optional[int] = None):
     conn = get_conn()
@@ -3377,6 +3448,23 @@ def admin_extend_requests(user=Depends(get_admin_user)):
 
 
 
+def _drop_extend_request(cur, pid: int):
+    """Снимает последний запрос на продление из очереди админки.
+
+    Очередь собирается из history по action='extend_request'. Telegram-ветки
+    удаляют запись после решения, а веб-эндпоинты — нет, поэтому продлённые
+    и отклонённые заявки оставались в списке навсегда."""
+    cur.execute(_adapt_query("""
+        DELETE FROM history
+        WHERE protection_id=? AND action='extend_request'
+        AND id = (
+            SELECT id FROM history
+            WHERE protection_id=? AND action='extend_request'
+            ORDER BY at DESC LIMIT 1
+        )
+    """), (pid, pid))
+
+
 @app.post("/api/admin/protections/{pid}/extend-any", response_model=ProtectionOut)
 def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user), background_tasks: BackgroundTasks = None):
     # админ без лимита
@@ -3385,6 +3473,8 @@ def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user), bac
     # Отправляем уведомление менеджеру о продлении через админку
     conn = get_conn()
     cur = conn.cursor()
+    _drop_extend_request(cur, pid)
+    conn.commit()
     query = _adapt_query("SELECT * FROM protections WHERE id=?")
     cur.execute(query, (pid,))
     row = cur.fetchone()
@@ -3470,6 +3560,7 @@ def admin_reject_extend_request(pid: int, data: dict = Body(...), user=Depends(g
         "reason": reason,
         "rejected_by": user.get("full_name", user.get("first_name", "Admin"))
     })
+    _drop_extend_request(cur, pid)
     
     # Отправляем уведомление менеджеру в Telegram
     manager_name = row.get("manager", "")
@@ -3742,8 +3833,8 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
             INSERT INTO protections(
                 manager, client, partner, partner_city, sku, area_m2, last4,
                 object_city, address, comment, status, created_at, expires_at,
-                closed_at, extend_count, auto_closed
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'pending', %s, %s, NULL, 0, 0)
+                closed_at, extend_count, auto_closed, manager_id
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'pending', %s, %s, NULL, 0, 0, %s)
             RETURNING id
         """
     else:
@@ -3751,8 +3842,8 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         INSERT INTO protections(
             manager, client, partner, partner_city, sku, area_m2, last4,
             object_city, address, comment, status, created_at, expires_at,
-            closed_at, extend_count, auto_closed
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0)
+            closed_at, extend_count, auto_closed, manager_id
+        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0, ?)
         """)
     
     cur.execute(insert_sql, (
@@ -3768,6 +3859,9 @@ def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depend
         (payload.comment or "отправлено админу").strip(),
         created,
         expires,
+        # без manager_id защита, созданная через экран конфликта, не попадала
+        # в «Мои» — там фильтр именно по владельцу, а не по имени менеджера
+        current_user_id,
     ))
 
     # Получаем ID в зависимости от типа БД
