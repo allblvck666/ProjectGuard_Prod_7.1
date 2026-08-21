@@ -74,12 +74,9 @@
 
 .pgs-sort {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding-bottom: 2px;
 }
-.pgs-sort::-webkit-scrollbar { display: none; }
 
 /* ---------- карточки менеджеров ---------- */
 

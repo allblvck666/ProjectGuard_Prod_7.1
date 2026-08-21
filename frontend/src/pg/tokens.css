@@ -442,17 +442,15 @@
   outline-offset: 2px;
   border-radius: var(--pg-r-full);
 }
-.pg-chip .pg-badge { cursor: pointer; max-width: 62vw; overflow: hidden; text-overflow: ellipsis; }
+.pg-chip .pg-badge { cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
-/* Ряд чипов с горизонтальной прокруткой */
+/* Ряд чипов: переносится на вторую строку, а не уезжает за экран */
 .pg-chips {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-.pg-chips::-webkit-scrollbar { display: none; }
 
 /* ================= Сегмент-контрол (табы) ================= */
 

@@ -9,6 +9,7 @@ import {
 } from "../ui";
 import { fmtArea, fmtDateShort, plural, shortName, skuShort } from "../format";
 import { notify } from "../notify";
+import { errText } from "../errors";
 
 export default function RequestsTab() {
   const [rows, setRows] = useState(null);
@@ -24,7 +25,7 @@ export default function RequestsTab() {
       const r = await api.get("/api/admin/extend-requests");
       setRows(Array.isArray(r.data) ? r.data : []);
     } catch (e) {
-      setFailed(e.userMessage || e.response?.data?.detail || "Не удалось загрузить запросы");
+      setFailed(errText(e, "Не удалось загрузить запросы"));
       setRows([]);
     }
   };
@@ -41,7 +42,7 @@ export default function RequestsTab() {
       });
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось продлить");
+      notify.error(errText(e, "Не удалось продлить"));
     } finally {
       setBusy(0);
     }
@@ -56,7 +57,7 @@ export default function RequestsTab() {
       setReject(null);
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось отклонить");
+      notify.error(errText(e, "Не удалось отклонить"));
     } finally {
       setBusy(0);
     }
@@ -69,7 +70,7 @@ export default function RequestsTab() {
       setDrop(null);
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось снять запрос");
+      notify.error(errText(e, "Не удалось снять запрос"));
     } finally {
       setBusy(0);
     }

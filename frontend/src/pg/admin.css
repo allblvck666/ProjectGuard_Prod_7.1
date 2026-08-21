@@ -78,12 +78,9 @@
 
 .pga-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  overflow-x: auto;
-  scrollbar-width: none;
-  padding-bottom: 2px;
 }
-.pga-tabs::-webkit-scrollbar { display: none; }
 .pga-tab {
   flex: 0 0 auto;
   display: inline-flex;

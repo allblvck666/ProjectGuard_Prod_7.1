@@ -49,11 +49,9 @@
 .pgl-chips {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--pg-sp-2);
-  overflow-x: auto;
-  scrollbar-width: none;
 }
-.pgl-chips::-webkit-scrollbar { display: none; }
 .pgl-chips__count {
   font-size: var(--pg-fs-xs);
   color: var(--pg-hint);

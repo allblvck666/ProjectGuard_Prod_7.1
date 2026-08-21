@@ -10,6 +10,7 @@ import {
 } from "../ui";
 import { fmtDate, initials, plural } from "../format";
 import { notify } from "../notify";
+import { errText } from "../errors";
 
 const ROLES = [
   { value: "manager", label: "Менеджер" },
@@ -71,7 +72,7 @@ export default function UsersTab({ role, currentUserId }) {
       setUsers(u.data?.users || []);
       setManagers(Array.isArray(m.data) ? m.data : m.data?.managers || []);
     } catch (e) {
-      setFailed(e.userMessage || e.response?.data?.detail || "Не удалось загрузить пользователей");
+      setFailed(errText(e, "Не удалось загрузить пользователей"));
       setUsers([]);
     }
   };
@@ -84,14 +85,15 @@ export default function UsersTab({ role, currentUserId }) {
     setBusy(true);
     try {
       const res = await api.patch(`/api/admin/users/${id}`, data);
-      const updated = res.data?.user;
-      setUsers((prev) =>
-        (prev || []).map((u) => (u.id === id ? { ...u, ...(updated || data) } : u))
-      );
-      setOpened((prev) => (prev && prev.id === id ? { ...prev, ...(updated || data) } : prev));
+      const updated = res.data?.user || {};
+      // Бэкенд возвращает пользователя без manager_ids и receive_notifications,
+      // поэтому отправленные поля кладём последними — иначе выбор откатывался
+      const merge = (u) => ({ ...u, ...updated, ...data });
+      setUsers((prev) => (prev || []).map((u) => (u.id === id ? merge(u) : u)));
+      setOpened((prev) => (prev && prev.id === id ? merge(prev) : prev));
       return true;
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось сохранить");
+      notify.error(errText(e, "Не удалось сохранить"));
       return false;
     } finally {
       setBusy(false);
@@ -110,7 +112,7 @@ export default function UsersTab({ role, currentUserId }) {
       setConfirm(null);
       setOpened(null);
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось удалить");
+      notify.error(errText(e, "Не удалось удалить"));
     } finally {
       setBusy(false);
     }
@@ -124,7 +126,7 @@ export default function UsersTab({ role, currentUserId }) {
       setClearWord("");
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось очистить");
+      notify.error(errText(e, "Не удалось очистить"));
     } finally {
       setBusy(false);
     }
@@ -324,7 +326,10 @@ export default function UsersTab({ role, currentUserId }) {
                   variant="secondary"
                   block
                   icon="edit"
-                  onClick={() => setRename({ id: opened.id, full_name: opened.full_name || "" })}
+                  onClick={() => {
+                    setRename({ id: opened.id, full_name: opened.full_name || "" });
+                    setOpened(null);
+                  }}
                 >
                   Переименовать
                 </Button>
@@ -333,7 +338,10 @@ export default function UsersTab({ role, currentUserId }) {
                   block
                   icon={opened.is_active === 1 ? "lock" : "check"}
                   disabled={busy || opened.id === currentUserId}
-                  onClick={() => setConfirm({ kind: "block", user: opened })}
+                  onClick={() => {
+                    setConfirm({ kind: "block", user: opened });
+                    setOpened(null);
+                  }}
                 >
                   {opened.is_active === 1 ? "Заблокировать" : "Разблокировать"}
                 </Button>
@@ -343,7 +351,10 @@ export default function UsersTab({ role, currentUserId }) {
                   icon="trash"
                   className="pg-btn--danger-text"
                   disabled={busy || opened.id === currentUserId}
-                  onClick={() => setConfirm({ kind: "delete", user: opened })}
+                  onClick={() => {
+                    setConfirm({ kind: "delete", user: opened });
+                    setOpened(null);
+                  }}
                 >
                   Удалить
                 </Button>

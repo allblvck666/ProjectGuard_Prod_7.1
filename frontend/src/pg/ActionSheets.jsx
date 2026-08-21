@@ -5,7 +5,7 @@
 // только рисует. Рендерится один раз на экране (список или карточка).
 // ============================================================
 
-import { Button, Field, Input, Segment, Sheet, Textarea } from "./ui";
+import { Button, Field, Icon, Input, Segment, Sheet, Textarea } from "./ui";
 import SkuPicker from "./SkuPicker";
 import "./form.css";
 
@@ -17,6 +17,23 @@ const emptyUpdateClosed = {
   open: false, id: null, close_reason: "", success_doc: "", mode: "reason",
 };
 
+const MIN_AREA = 50;
+
+// Те же правила, что проверяет submitEdit и бэкенд, — показываем их
+// до нажатия, а не после
+function editProblem({ selected, perSkuMode, unified }) {
+  if (!selected || selected.length === 0) return "Добавьте хотя бы один артикул";
+  const total = perSkuMode
+    ? selected.reduce((sum, s) => sum + Number(s.area || 0), 0)
+    : Number(unified || 0);
+  if (perSkuMode && selected.some((s) => !Number(s.area))) {
+    return "Укажите метраж для каждого артикула";
+  }
+  if (!total) return "Укажите метраж";
+  if (total < MIN_AREA) return `Защита ставится от ${MIN_AREA} м²`;
+  return null;
+}
+
 export default function ActionSheets({
   closeModal, setCloseModal, doClose,
   successModal, setSuccessModal, doSuccess,
@@ -27,6 +44,14 @@ export default function ActionSheets({
   editComment, setEditComment, submitEdit, skus, onAreaChange,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
 }) {
+  const editIssue = editModal?.open
+    ? editProblem({
+        selected: editSelectedSkus,
+        perSkuMode: editPerSkuMode,
+        unified: editAreaUnified,
+      })
+    : null;
+
   return (
     <>
       {/* ---- закрытие ---- */}
@@ -102,7 +127,13 @@ export default function ActionSheets({
         onClose={() => setExtendRequestModal(emptyExtend)}
         actions={
           <>
-            <Button variant="primary" block icon="send" onClick={submitExtendRequest}>
+            <Button
+              variant="primary"
+              block
+              icon="send"
+              disabled={!String(extendRequestModal?.reason || "").trim()}
+              onClick={submitExtendRequest}
+            >
               Отправить админу
             </Button>
             <Button variant="ghost" block onClick={() => setExtendRequestModal(emptyExtend)}>
@@ -132,7 +163,21 @@ export default function ActionSheets({
         onClose={() => setEditModal({ open: false, id: null })}
         actions={
           <>
-            <Button variant="primary" block icon="check" onClick={submitEdit}>Сохранить</Button>
+            {editIssue && (
+              <div className="pgf-warn">
+                <Icon name="alert" size={14} />
+                {editIssue}
+              </div>
+            )}
+            <Button
+              variant="primary"
+              block
+              icon="check"
+              disabled={!!editIssue}
+              onClick={submitEdit}
+            >
+              Сохранить
+            </Button>
             <Button variant="ghost" block onClick={() => setEditModal({ open: false, id: null })}>
               Отмена
             </Button>

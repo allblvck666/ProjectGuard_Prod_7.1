@@ -135,3 +135,16 @@
   color: var(--pg-warning);
   font-size: var(--pg-fs-xs);
 }
+
+/* Подсказка, почему кнопка сохранения недоступна */
+.pgf-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--pg-sp-2) var(--pg-sp-3);
+  border: 1px solid var(--pg-warning-border);
+  border-radius: var(--pg-r-md);
+  background: var(--pg-warning-bg);
+  color: var(--pg-warning);
+  font-size: var(--pg-fs-xs);
+}

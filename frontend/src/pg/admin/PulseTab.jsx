@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { Badge, Card, EmptyState, ErrorState, Icon, LoadingState, Segment, Track } from "../ui";
 import { fmtArea, fmtNumber, parseSkuCodes, plural } from "../format";
+import { errText } from "../errors";
 
 const PERIODS = [
   { value: "today", label: "Сегодня" },
@@ -58,7 +59,7 @@ export default function PulseTab() {
     api
       .get("/api/protections")
       .then((r) => setRows(Array.isArray(r.data) ? r.data : []))
-      .catch((e) => setFailed(e.userMessage || "Не удалось загрузить защиты"));
+      .catch((e) => setFailed(errText(e, "Не удалось загрузить защиты")));
   };
 
   useEffect(load, []);

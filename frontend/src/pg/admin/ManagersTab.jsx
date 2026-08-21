@@ -10,6 +10,8 @@ import {
 } from "../ui";
 import { fmtArea, fmtDateShort, plural, skuShort, statusBadge } from "../format";
 import { notify } from "../notify";
+import { errText } from "../errors";
+import { invalidateDicts } from "../dicts";
 
 export default function ManagersTab() {
   const [managers, setManagers] = useState(null);
@@ -31,7 +33,7 @@ export default function ManagersTab() {
       const r = await api.get("/api/admin/managers");
       setManagers(Array.isArray(r.data) ? r.data : r.data?.managers || []);
     } catch (e) {
-      setFailed(e.userMessage || e.response?.data?.detail || "Не удалось загрузить менеджеров");
+      setFailed(errText(e, "Не удалось загрузить менеджеров"));
       setManagers([]);
     }
   };
@@ -59,9 +61,10 @@ export default function ManagersTab() {
       await api.post("/api/admin/managers", { name });
       setNewName("");
       setAddOpen(false);
+      invalidateDicts();
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось добавить");
+      notify.error(errText(e, "Не удалось добавить"));
     } finally {
       setBusy(false);
     }
@@ -74,9 +77,10 @@ export default function ManagersTab() {
     try {
       await api.patch(`/api/admin/managers/${rename.id}`, { name });
       setRename(null);
+      invalidateDicts();
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось переименовать");
+      notify.error(errText(e, "Не удалось переименовать"));
     } finally {
       setBusy(false);
     }
@@ -89,9 +93,10 @@ export default function ManagersTab() {
       await api.delete(`/api/admin/managers/${removing.id}`, { params });
       setRemoving(null);
       setTransferTo("");
+      invalidateDicts();
       await load();
     } catch (e) {
-      notify.error(e.userMessage || e.response?.data?.detail || "Не удалось удалить");
+      notify.error(errText(e, "Не удалось удалить"));
     } finally {
       setBusy(false);
     }

@@ -162,6 +162,24 @@ export default function ProtectionsList({
         />
       );
     }
+
+    // Частый случай: защиты есть, но за пользователем не числятся —
+    // у старых записей не проставлен manager_id. Пустой экран без
+    // объяснения выглядит как поломка, поэтому предлагаем «Все».
+    if (tab === "my" && !search && !onlyExpiring) {
+      return (
+        <EmptyState
+          icon="shield"
+          title="За вами защит не числится"
+          text={`Всего активных — ${total}. Возможно, они оформлены на другого менеджера.`}
+          action={
+            <Button variant="primary" size="sm" icon="shield" onClick={() => setTab("all")}>
+              Показать все
+            </Button>
+          }
+        />
+      );
+    }
     return (
       <EmptyState
         icon="search"

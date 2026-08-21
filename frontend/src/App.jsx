@@ -11,6 +11,7 @@ import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
 import { notify } from "./pg/notify";
+import { onDictsChanged } from "./pg/dicts";
 import TabBar, { TABBAR_ROUTES } from "./pg/TabBar";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
@@ -2148,9 +2149,16 @@ function App() {
     // Загружаем данные при смене route
     load();
 
-    // Загружаем справочники только один раз (кэшируем в localStorage)
-    const cachedSkus = localStorage.getItem("cached_skus");
-    const cachedManagers = localStorage.getItem("cached_managers");
+    loadDicts();
+
+    if (showHistory) loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route, managerFilter, statusFilter, search]); // Загружаем при смене route и фильтров
+
+  // Справочники: кэш на 5 минут, но после правок в админке читаем заново
+  function loadDicts(force = false) {
+    const cachedSkus = force ? null : localStorage.getItem("cached_skus");
+    const cachedManagers = force ? null : localStorage.getItem("cached_managers");
     const cacheTime = 5 * 60 * 1000; // 5 минут
     
     if (cachedSkus) {
@@ -2204,10 +2212,10 @@ function App() {
         localStorage.setItem("cached_managers", JSON.stringify({ data: normalized, timestamp: Date.now() }));
       });
     }
+  }
 
-    if (showHistory) loadHistory();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, managerFilter, statusFilter, search]); // Загружаем при смене route и фильтров
+  // Админка правит справочники — перечитываем их сразу, не дожидаясь кэша
+  useEffect(() => onDictsChanged(() => loadDicts(true)), []);
 
   // Обработчик события выхода
   useEffect(() => {
@@ -2542,7 +2550,21 @@ function App() {
     )}&manager=${encodeURIComponent(
       managerFilter
     )}&status=${encodeURIComponent(statusFilter)}`;
-    window.open(url, "_blank");
+
+    // В Telegram window.open блокируется вебвью — файл открывается через openLink
+    const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
+    if (tg?.openLink) {
+      try {
+        tg.openLink(url);
+        return;
+      } catch {
+        // старый клиент — падаем на обычное открытие
+      }
+    }
+    const win = window.open(url, "_blank");
+    if (!win) {
+      notify.error("Браузер заблокировал открытие файла. Разрешите всплывающие окна.");
+    }
   };
 
   const errorClass = (field) =>
@@ -2706,7 +2728,6 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
           auth={auth}
           onStats={goStats}
           onAdmin={goAdmin}
-          onSettings={() => setRoute("settings")}
           onExport={exportXlsx}
           onLogout={() => {
             localStorage.clear();

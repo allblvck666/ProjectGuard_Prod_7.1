@@ -34,7 +34,7 @@ function readThemeChoice() {
   }
 }
 
-export default function MoreScreen({ auth, onStats, onAdmin, onSettings, onExport, onLogout }) {
+export default function MoreScreen({ auth, onStats, onAdmin, onExport, onLogout }) {
   const [theme, setTheme] = useState(readThemeChoice);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
@@ -80,12 +80,6 @@ export default function MoreScreen({ auth, onStats, onAdmin, onSettings, onExpor
           ? [{ icon: "crown", label: "Админка", hint: "Люди, заявки, запросы", onClick: onAdmin }]
           : []),
         { icon: "download", label: "Выгрузка в XLSX", hint: "Все защиты за период", onClick: onExport },
-      ],
-    },
-    {
-      title: "Приложение",
-      items: [
-        { icon: "settings", label: "Настройки", hint: "Профиль и параметры", onClick: onSettings },
       ],
     },
   ];
