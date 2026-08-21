@@ -44,6 +44,17 @@ export default function ActionSheets({
   editComment, setEditComment, submitEdit, skus, onAreaChange,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
 }) {
+  // Метраж по артикулам правим в editSelectedSkus: общий onAreaChange из App
+  // пишет в состояние формы создания, поэтому поле в шите не заполнялось
+  const setEditArea = (skuObj, value) =>
+    setEditSelectedSkus((prev) =>
+      (prev || []).map((s) =>
+        s.sku === skuObj.sku && s.type === skuObj.type
+          ? { ...s, area: String(value).replace(",", ".") }
+          : s
+      )
+    );
+
   const editIssue = editModal?.open
     ? editProblem({
         selected: editSelectedSkus,
@@ -61,12 +72,19 @@ export default function ActionSheets({
         onClose={() => setCloseModal(emptyClose)}
         actions={
           <>
-            <Button variant="primary" block onClick={doClose}>Закрыть защиту</Button>
+            <Button
+              variant="primary"
+              block
+              disabled={!String(closeModal?.reason || "").trim()}
+              onClick={doClose}
+            >
+              Закрыть защиту
+            </Button>
             <Button variant="ghost" block onClick={() => setCloseModal(emptyClose)}>Отмена</Button>
           </>
         }
       >
-        <Field label="Причина закрытия" hint="Попадёт в историю защиты">
+        <Field label="Причина закрытия" required hint="Попадёт в историю защиты">
           <Input
             placeholder="Например: клиент выбрал другого поставщика"
             value={closeModal?.reason || ""}
@@ -82,12 +100,19 @@ export default function ActionSheets({
         onClose={() => setSuccessModal(emptySuccess)}
         actions={
           <>
-            <Button variant="primary" block onClick={doSuccess}>Подтвердить</Button>
+            <Button
+              variant="primary"
+              block
+              disabled={!String(successModal?.doc || "").trim()}
+              onClick={doSuccess}
+            >
+              Подтвердить
+            </Button>
             <Button variant="ghost" block onClick={() => setSuccessModal(emptySuccess)}>Отмена</Button>
           </>
         }
       >
-        <Field label="Документ 1С" hint="Необязательно — можно добавить позже">
+        <Field label="Документ 1С" required hint="Без номера 1С защиту закрыть нельзя">
           <Input
             placeholder="Номер документа"
             value={successModal?.doc || ""}
@@ -194,13 +219,13 @@ export default function ActionSheets({
             ]}
           />
 
-          <Field label="Артикулы" required>
+          <Field as="div" label="Артикулы" required>
             <SkuPicker
               skus={skus}
               selected={editSelectedSkus}
               setSelected={setEditSelectedSkus}
               perSkuMode={editPerSkuMode}
-              onAreaChange={onAreaChange}
+              onAreaChange={setEditArea}
             />
           </Field>
 
@@ -210,7 +235,9 @@ export default function ActionSheets({
                 numeric
                 inputMode="numeric"
                 value={editAreaUnified}
-                onChange={(e) => setEditAreaUnified(e.target.value)}
+                onChange={(e) =>
+                  setEditAreaUnified(e.target.value.replace(/[^\d.,]/g, "").replace(",", "."))
+                }
               />
             </Field>
           )}

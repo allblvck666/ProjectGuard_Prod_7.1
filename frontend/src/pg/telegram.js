@@ -47,14 +47,19 @@ const backHandlers = new Map(); // id -> { ref, priority }
 let boundBack = null;
 let backSeq = 0;
 
-function syncBackButton() {
-  const bb = getTG()?.BackButton;
-  if (!bb) return;
-
+function topBackHandler() {
   let top = null;
   backHandlers.forEach((entry) => {
     if (!top || entry.priority >= top.priority) top = entry;
   });
+  return top;
+}
+
+function syncBackButton() {
+  const bb = getTG()?.BackButton;
+  if (!bb) return;
+
+  const top = topBackHandler();
 
   try {
     if (boundBack) {

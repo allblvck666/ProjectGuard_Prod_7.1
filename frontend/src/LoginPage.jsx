@@ -1,6 +1,7 @@
 // frontend/src/LoginPage.jsx
 import { useState, useEffect } from "react";
 import { registerOrLogin, login as loginByCredentials } from "./api";
+import { isTelegramApp } from "./pg/telegram";
 
 // Функция для нормализации номера телефона (убираем все нецифровые символы)
 function normalizePhone(phone) {
@@ -53,11 +54,9 @@ function handlePhoneInput(value, setPhone) {
 
 export default function LoginPage({ onLogin }) {
   // Простая и надежная проверка Telegram WebApp
-  const [isTG, setIsTG] = useState(() => {
-    // Проверяем сразу при инициализации
-    if (typeof window === "undefined") return false;
-    return window.Telegram?.WebApp != null;
-  });
+  // Сам объект window.Telegram.WebApp есть и в обычном браузере — скрипт
+  // подключён в index.html. Отличает настоящий Telegram только platform.
+  const [isTG, setIsTG] = useState(isTelegramApp);
   
   // Проверяем Telegram WebApp при загрузке - агрессивная проверка
   useEffect(() => {
@@ -65,7 +64,7 @@ export default function LoginPage({ onLogin }) {
       if (typeof window === "undefined") return;
       
       // Множественные проверки для определения Telegram WebApp
-      const hasTelegram = window.Telegram?.WebApp != null;
+      const hasTelegram = isTelegramApp();
       const hasTelegramObject = window.Telegram != null;
       
       // Дополнительные проверки по URL и другим признакам
@@ -194,7 +193,10 @@ export default function LoginPage({ onLogin }) {
 
       // Проверяем Telegram WebApp еще раз (на случай, если он загрузился позже)
       const tg = window.Telegram?.WebApp;
-      const isTelegramWebApp = tg != null;
+      // Раньше здесь проверяли наличие объекта: в браузере ветка уходила
+      // в Telegram-логин, не находила tg_id и вход по имени и телефону
+      // становился недостижимым
+      const isTelegramWebApp = isTelegramApp();
       
       if (isTelegramWebApp) {
         const tgUser = tg?.initDataUnsafe?.user;

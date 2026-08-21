@@ -7,11 +7,11 @@ import {
   Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input,
   LoadingState, Sheet, Textarea,
 } from "../ui";
-import { fmtArea, fmtDateShort, plural, shortName, skuShort } from "../format";
+import { fmtDateShort, plural, shortName, skuShort } from "../format";
 import { notify } from "../notify";
 import { errText } from "../errors";
 
-export default function RequestsTab() {
+export default function RequestsTab({ onChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(null);
   const [search, setSearch] = useState("");
@@ -24,6 +24,7 @@ export default function RequestsTab() {
     try {
       const r = await api.get("/api/admin/extend-requests");
       setRows(Array.isArray(r.data) ? r.data : []);
+      onChanged?.();
     } catch (e) {
       setFailed(errText(e, "Не удалось загрузить запросы"));
       setRows([]);
@@ -40,6 +41,7 @@ export default function RequestsTab() {
       await api.post(`/api/admin/protections/${req.protection_id}/extend-any`, null, {
         params: { days: req.days || 10 },
       });
+      notify.success(`Защита продлена на ${req.days || 10} ${plural(req.days || 10, "день", "дня", "дней")}`);
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось продлить"));
@@ -55,6 +57,7 @@ export default function RequestsTab() {
         reason: reject.reason.trim(),
       });
       setReject(null);
+      notify.success("Запрос отклонён");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось отклонить"));
@@ -68,6 +71,7 @@ export default function RequestsTab() {
     try {
       await api.delete(`/api/admin/protections/${drop.protection_id}/delete-extend-request`);
       setDrop(null);
+      notify.success("Запрос снят");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось снять запрос"));

@@ -9,6 +9,8 @@
 // так что оба слоя всегда показывают одну и ту же тему.
 // ============================================================
 
+import { isTelegramApp } from "./telegram";
+
 const ATTR = "data-pg-theme";
 
 function getStoredTheme() {
@@ -38,6 +40,18 @@ function isTelegramLight(tg) {
 export function resolvePgTheme() {
   const saved = getStoredTheme();
   if (saved) return saved;
+
+  // Вне Telegram смотреть в пустой WebApp бессмысленно: у него colorScheme
+  // всегда "light", и «как в Telegram» в браузере включало светлую тему,
+  // пока старый слой оставался тёмным. Там спрашиваем систему.
+  if (!isTelegramApp()) {
+    const dark =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: light)").matches;
+    return dark ? "light" : "dark";
+  }
+
   const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
   return isTelegramLight(tg) ? "light" : "dark";
 }

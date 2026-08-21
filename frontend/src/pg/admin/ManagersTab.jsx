@@ -46,7 +46,11 @@ export default function ManagersTab() {
     setOpened(m);
     setProtections(null);
     try {
-      const r = await api.get("/api/admin/manager-protections", { params: { manager: m.name } });
+      // Эндпоинт принимает manager_id; с параметром manager отвечал 422,
+      // и список всегда выглядел пустым
+      const r = await api.get("/api/admin/manager-protections", {
+        params: { manager_id: m.id },
+      });
       setProtections(Array.isArray(r.data) ? r.data : r.data?.protections || []);
     } catch {
       setProtections([]);
@@ -62,6 +66,7 @@ export default function ManagersTab() {
       setNewName("");
       setAddOpen(false);
       invalidateDicts();
+      notify.success(`Менеджер ${name} добавлен`);
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось добавить"));
@@ -78,6 +83,7 @@ export default function ManagersTab() {
       await api.patch(`/api/admin/managers/${rename.id}`, { name });
       setRename(null);
       invalidateDicts();
+      notify.success("Имя обновлено");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось переименовать"));
@@ -90,10 +96,12 @@ export default function ManagersTab() {
     setBusy(true);
     try {
       const params = transferTo ? { transfer_to: transferTo } : {};
+      const name = removing?.name || "Менеджер";
       await api.delete(`/api/admin/managers/${removing.id}`, { params });
       setRemoving(null);
       setTransferTo("");
       invalidateDicts();
+      notify.success(transferTo ? `${name} удалён, защиты переданы` : `${name} удалён`);
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось удалить"));
@@ -101,6 +109,8 @@ export default function ManagersTab() {
       setBusy(false);
     }
   };
+
+  const removingHasProtections = Number(removing?.total) > 0;
 
   const filtered = useMemo(() => {
     const list = managers || [];
@@ -159,7 +169,12 @@ export default function ManagersTab() {
                 <div className="pga-row">
                   <div className="pga-row__t">
                     <div className="pga-row__n">{m.name}</div>
-                    <div className="pga-row__s pg-num">ID {m.id}</div>
+                    <div className="pga-row__s pg-num">
+                      {Number(m.total) > 0
+                        ? `${m.total} ${plural(Number(m.total), "защита", "защиты", "защит")}` +
+                          (Number(m.active) > 0 ? ` · ${m.active} активных` : "")
+                        : "защит нет"}
+                    </div>
                   </div>
                   <Button variant="ghost" size="sm" icon="shield" onClick={() => openProtections(m)}>
                     Защиты
@@ -233,7 +248,13 @@ export default function ManagersTab() {
         onClose={() => setRemoving(null)}
         actions={
           <>
-            <Button variant="danger" block icon="trash" disabled={busy} onClick={doRemove}>
+            <Button
+              variant="danger"
+              block
+              icon="trash"
+              disabled={busy || (removingHasProtections && !transferTo)}
+              onClick={doRemove}
+            >
               {transferTo ? "Перенести и удалить" : "Удалить"}
             </Button>
             <Button variant="ghost" block onClick={() => setRemoving(null)}>Отмена</Button>
@@ -241,12 +262,27 @@ export default function ManagersTab() {
         }
       >
         <div className="pg-sheet__text">
-          Менеджер <b>{removing?.name}</b> исчезнет из справочника. Его защиты можно
-          передать другому — иначе они останутся без ответственного.
+          {removingHasProtections ? (
+            <>
+              Менеджер <b>{removing?.name}</b> исчезнет из справочника, но за ним
+              числится {removing?.total}{" "}
+              {plural(Number(removing?.total), "защита", "защиты", "защит")}. Их нужно
+              передать другому менеджеру — иначе они останутся без ответственного.
+            </>
+          ) : (
+            <>
+              Менеджер <b>{removing?.name}</b> исчезнет из справочника. Защит за ним
+              не числится, передавать нечего.
+            </>
+          )}
         </div>
-        <Field label="Передать защиты" hint="Необязательно">
+        <Field
+          label="Передать защиты"
+          required={removingHasProtections}
+          hint={removingHasProtections ? "Без этого удалить нельзя" : "Необязательно"}
+        >
           <Select value={transferTo} onChange={(e) => setTransferTo(e.target.value)}>
-            <option value="">— не передавать</option>
+            <option value="">{removingHasProtections ? "— выберите менеджера" : "— не передавать"}</option>
             {(managers || [])
               .filter((m) => m.id !== removing?.id)
               .map((m) => (

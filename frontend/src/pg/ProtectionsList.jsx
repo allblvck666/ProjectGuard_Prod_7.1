@@ -18,6 +18,7 @@ import {
   skuShort, statusBadge,
 } from "./format";
 import { usePullToRefresh } from "./usePullToRefresh";
+import { usePaged } from "./usePaged";
 import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes } from "./telegram";
 import "./list.css";
 
@@ -126,6 +127,9 @@ export default function ProtectionsList({
     else setActionsFor(item);
   };
 
+  // Список рисуем страницами: при сотнях защит иначе тормозит прокрутка
+  const paged = usePaged(filtered, `${tab}|${search}|${managerFilter}|${onlyExpiring}`);
+
   const closeActions = () => setActionsFor(null);
 
   const runAction = (what) => {
@@ -146,11 +150,20 @@ export default function ProtectionsList({
     if (loadError && total === 0) return <ErrorState text={loadError} onRetry={load} />;
     if (filtered.length > 0) {
       return (
-        <div className="pgl-cards">
-          {filtered.map((it) => (
-            <ProtectionCard key={it.id} item={it} onOpen={openItem} />
-          ))}
-        </div>
+        <>
+          <div className="pgl-cards">
+            {paged.visible.map((it) => (
+              <ProtectionCard key={it.id} item={it} onOpen={openItem} />
+            ))}
+          </div>
+          {paged.hasMore && (
+            <div className="pgl-more">
+              <Button variant="secondary" block icon="chevronDown" onClick={paged.showMore}>
+                Показать ещё {Math.min(paged.rest, 30)} из {paged.rest}
+              </Button>
+            </div>
+          )}
+        </>
       );
     }
     if (total === 0) {

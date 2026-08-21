@@ -6,6 +6,7 @@
 
 import { useEffect, useRef } from "react";
 import { Icon } from "./icons";
+import { BACK_PRIORITY, useBackButton } from "./telegram";
 
 const cx = (...parts) => parts.filter(Boolean).join(" ");
 
@@ -91,9 +92,13 @@ export function Badge({ tone, plain = false, className, children, ...rest }) {
 
 /* ================= Поля ================= */
 
-export function Field({ label, required = false, hint, error, className, children }) {
+export function Field({ label, required = false, hint, error, className, children, as }) {
+  // <label> активирует первый интерактивный элемент внутри. Для простого поля
+  // это удобно (клик по подписи ставит фокус), но если внутри есть кнопки —
+  // клик по подписи нажимает первую из них. Такие поля рисуем как div.
+  const Tag = as === "div" ? "div" : "label";
   return (
-    <label className={cx("pg-field", error && "pg-field--error", className)}>
+    <Tag className={cx("pg-field", error && "pg-field--error", className)}>
       {label && (
         <span className="pg-field__label">
           {label} {required && <span className="pg-field__req">*</span>}
@@ -105,7 +110,7 @@ export function Field({ label, required = false, hint, error, className, childre
       ) : (
         hint && <span className="pg-field__hint">{hint}</span>
       )}
-    </label>
+    </Tag>
   );
 }
 
@@ -151,6 +156,9 @@ export function Segment({ value, onChange, options, className, ...rest }) {
 
 export function Sheet({ open, title, onClose, children, actions }) {
   const sheetRef = useRef(null);
+
+  // Пока шит открыт, «Назад» в шапке Telegram закрывает его, а не экран под ним
+  useBackButton(onClose, !!open, BACK_PRIORITY.sheet);
 
   useEffect(() => {
     if (!open) return undefined;

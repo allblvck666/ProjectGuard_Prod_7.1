@@ -5,7 +5,7 @@
 // только слой представления. Каждая вкладка грузит свои данные сама.
 // ============================================================
 
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { Badge, Button, Icon, LoadingState, Sheet } from "./ui";
 import { initials } from "./format";
 import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton } from "./telegram";
@@ -44,7 +44,12 @@ export default function AdminScreen({ auth, onBack }) {
 
   useBackButton(onBack, true, BACK_PRIORITY.screen);
 
-  // Счётчики в навигации: сколько ждёт решения
+  // Счётчики в навигации: сколько ждёт решения.
+  // Пересчитываем и после действий во вкладках — иначе бейдж «Заявки 5»
+  // висел, когда в очереди уже пусто.
+  const [countsTick, setCountsTick] = useState(0);
+  const refreshCounts = useCallback(() => setCountsTick((n) => n + 1), []);
+
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -66,7 +71,7 @@ export default function AdminScreen({ auth, onBack }) {
     return () => {
       alive = false;
     };
-  }, [tab]);
+  }, [tab, countsTick]);
 
   // Старый дашборд умел переключать вкладки событием — сохраняем поведение
   useEffect(() => {
@@ -78,9 +83,9 @@ export default function AdminScreen({ auth, onBack }) {
   }, []);
 
   const logout = () => {
-    localStorage.clear();
+    // Чистит и ставит отметку выхода сам App — иначе автологин Telegram
+    // тут же возвращал бы того же пользователя
     window.dispatchEvent(new CustomEvent("auth:logout"));
-    onBack?.();
   };
 
   return (
@@ -141,8 +146,8 @@ export default function AdminScreen({ auth, onBack }) {
           {tab === "pulse" && <PulseTab />}
           {tab === "users" && <UsersTab role={role} currentUserId={user.id} />}
           {tab === "managers" && <ManagersTab />}
-          {tab === "requests" && <RequestsTab />}
-          {tab === "pending" && <PendingTab />}
+          {tab === "requests" && <RequestsTab onChanged={refreshCounts} />}
+          {tab === "pending" && <PendingTab onChanged={refreshCounts} />}
         </Suspense>
         <div className="pga__pad" />
       </div>

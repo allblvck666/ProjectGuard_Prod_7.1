@@ -81,7 +81,7 @@ export default function UsersTab({ role, currentUserId }) {
     load();
   }, []);
 
-  const patch = async (id, data) => {
+  const patch = async (id, data, message) => {
     setBusy(true);
     try {
       const res = await api.patch(`/api/admin/users/${id}`, data);
@@ -91,6 +91,7 @@ export default function UsersTab({ role, currentUserId }) {
       const merge = (u) => ({ ...u, ...updated, ...data });
       setUsers((prev) => (prev || []).map((u) => (u.id === id ? merge(u) : u)));
       setOpened((prev) => (prev && prev.id === id ? merge(prev) : prev));
+      if (message) notify.success(message);
       return true;
     } catch (e) {
       notify.error(errText(e, "Не удалось сохранить"));
@@ -111,6 +112,7 @@ export default function UsersTab({ role, currentUserId }) {
       );
       setConfirm(null);
       setOpened(null);
+      notify.success(hard ? "Пользователь удалён" : "Пользователь отключён");
     } catch (e) {
       notify.error(errText(e, "Не удалось удалить"));
     } finally {
@@ -124,6 +126,7 @@ export default function UsersTab({ role, currentUserId }) {
       await api.post("/api/admin/clear-all-users");
       setClearOpen(false);
       setClearWord("");
+      notify.success("Список пользователей очищен");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось очистить"));
@@ -276,7 +279,7 @@ export default function UsersTab({ role, currentUserId }) {
             <Field label="Роль">
               <Select
                 value={opened.role || ""}
-                onChange={(e) => patch(opened.id, { role: e.target.value })}
+                onChange={(e) => patch(opened.id, { role: e.target.value }, "Роль изменена")}
                 disabled={busy || opened.id === currentUserId}
               >
                 {ROLES.map((r) => (
@@ -307,7 +310,11 @@ export default function UsersTab({ role, currentUserId }) {
                       const dup = next.findIndex((id) => id === value);
                       if (value && dup !== -1 && dup !== i) next[dup] = null;
                       next[i] = value;
-                      patch(opened.id, { manager_ids: JSON.stringify(next.slice(0, MANAGER_SLOTS)) });
+                      patch(
+                        opened.id,
+                        { manager_ids: JSON.stringify(next.slice(0, MANAGER_SLOTS)) },
+                        "Менеджеры сохранены"
+                      );
                     }}
                     aria-label={`Менеджер ${i + 1}`}
                   >
@@ -377,7 +384,7 @@ export default function UsersTab({ role, currentUserId }) {
               icon="check"
               disabled={busy || !String(rename?.full_name || "").trim()}
               onClick={async () => {
-                const ok = await patch(rename.id, { full_name: rename.full_name.trim() });
+                const ok = await patch(rename.id, { full_name: rename.full_name.trim() }, "Имя обновлено");
                 if (ok) setRename(null);
               }}
             >
@@ -415,9 +422,11 @@ export default function UsersTab({ role, currentUserId }) {
                 block
                 disabled={busy}
                 onClick={async () => {
-                  const ok = await patch(confirm.user.id, {
-                    is_active: confirm.user.is_active === 1 ? 0 : 1,
-                  });
+                  const ok = await patch(
+                    confirm.user.id,
+                    { is_active: confirm.user.is_active === 1 ? 0 : 1 },
+                    confirm.user.is_active === 1 ? "Доступ закрыт" : "Доступ восстановлен"
+                  );
                   if (ok) setConfirm(null);
                 }}
               >

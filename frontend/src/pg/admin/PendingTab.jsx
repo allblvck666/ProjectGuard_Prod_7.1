@@ -11,7 +11,7 @@ import { fmtArea, fmtDateShort, maskPhone, plural, shortName, skuShort } from ".
 import { notify } from "../notify";
 import { errText } from "../errors";
 
-export default function PendingTab() {
+export default function PendingTab({ onChanged }) {
   const [rows, setRows] = useState(null);
   const [failed, setFailed] = useState(null);
   const [busy, setBusy] = useState(0);
@@ -23,6 +23,7 @@ export default function PendingTab() {
       const r = await api.get("/api/protections", { params: { status: "pending" } });
       const data = Array.isArray(r.data) ? r.data : [];
       setRows(data.filter((p) => p.status === "pending"));
+      onChanged?.();
     } catch (e) {
       setFailed(errText(e, "Не удалось загрузить заявки"));
       setRows([]);
@@ -37,6 +38,7 @@ export default function PendingTab() {
     setBusy(p.id);
     try {
       await api.post(`/api/admin/pending/${p.id}/approve`);
+      notify.success("Защита одобрена");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось одобрить"));
@@ -50,6 +52,7 @@ export default function PendingTab() {
     try {
       await api.post(`/api/admin/pending/${reject.id}/reject`, { reason: reject.reason.trim() });
       setReject(null);
+      notify.success("Заявка отклонена");
       await load();
     } catch (e) {
       notify.error(errText(e, "Не удалось отклонить"));

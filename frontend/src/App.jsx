@@ -9,10 +9,12 @@ const AdminPage = lazy(() => import("./AdminPage.jsx"));
 // Новый слой представления (редизайн) — включается флагами, см. pg/flags.js
 import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
+import { resolvePgTheme } from "./pg/theme";
 import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
 import { notify } from "./pg/notify";
 import { onDictsChanged } from "./pg/dicts";
 import TabBar, { TABBAR_ROUTES } from "./pg/TabBar";
+import LoggedOut from "./pg/LoggedOut";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
@@ -1525,7 +1527,11 @@ function App() {
   // =====================================
   //   🔍 ДИАГНОСТИКА
   // =====================================
-  const isTG = typeof window !== "undefined" && window.Telegram?.WebApp != null;
+  // Скрипт telegram-web-app.js подключён и в обычном браузере, поэтому
+  // window.Telegram.WebApp там тоже существует — с platform "unknown".
+  // Проверка на объект считала браузер Telegram-ом: страница логина не
+  // показывалась никогда, а тему брали из пустого WebApp.
+  const isTG = isTelegramApp();
 
   const [auth, setAuth] = useState(() => {
     const token = localStorage.getItem("jwt_token") || "";
@@ -1558,6 +1564,10 @@ function App() {
   const nativeNav = newNav && isTelegramApp();
 
   const [tokenVerified, setTokenVerified] = useState(false);
+  // Пользователь вышел сам — не пускаем автологин обратно
+  const [loggedOut, setLoggedOut] = useState(false);
+  // Имя для экрана «вы вышли»: auth к этому моменту уже очищен
+  const [lastUserName, setLastUserName] = useState("");
   const [tokenValid, setTokenValid] = useState(false);
 
   useEffect(() => {
@@ -1579,9 +1589,21 @@ function App() {
 
     if (!isTG) {
       body.removeAttribute("data-telegram-webapp");
-      const savedTheme = getStoredTheme();
-      applyTheme(savedTheme === "light" ? "light" : "dark");
-      return undefined;
+      // «Авто» разрешаем той же функцией, что и новый слой, иначе body и
+      // data-pg-theme расходятся: один слой светлый, другой тёмный
+      const applyStored = () => applyTheme(getStoredTheme() || resolvePgTheme());
+      applyStored();
+
+      // Переключатель темы на новых экранах шлёт это событие. Без слушателя
+      // в браузере менялся только data-pg-theme, а body.light-theme старого
+      // слоя оставался прежним — половина интерфейса не перекрашивалась.
+      const onManual = (event) => {
+        const next = event?.detail?.theme;
+        if (next === "light" || next === "dark") applyTheme(next);
+        else applyStored();
+      };
+      window.addEventListener("app-theme-change", onManual);
+      return () => window.removeEventListener("app-theme-change", onManual);
     }
 
     const tg = window.Telegram?.WebApp;
@@ -1727,6 +1749,9 @@ function App() {
   // 🔐 Telegram Auto-Login (только если есть Telegram WebApp)
   useEffect(() => {
     if (!isTG) return;
+    // После явного выхода не входим обратно автоматически: иначе кнопка
+    // «Выйти» просто возвращала на главную под тем же аккаунтом
+    if (loggedOut) return;
 
     // Если уже есть валидный токен - не делаем повторный логин
     if (auth.token) {
@@ -1814,7 +1839,7 @@ function App() {
     } catch (err) {
       // Ошибка инициализации Telegram WebApp
     }
-  }, [isTG, auth.token]);
+  }, [isTG, auth.token, loggedOut]);
 
   // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
   const devLogin = async () => {
@@ -2146,6 +2171,10 @@ function App() {
   };
 
   useEffect(() => {
+    // После явного выхода данные не тянем: setRoute("home") запускал этот
+    // эффект заново, и справочники снова оседали в localStorage
+    if (loggedOut) return;
+
     // Загружаем данные при смене route
     load();
 
@@ -2153,7 +2182,7 @@ function App() {
 
     if (showHistory) loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, managerFilter, statusFilter, search]); // Загружаем при смене route и фильтров
+  }, [route, managerFilter, statusFilter, search, loggedOut]); // Загружаем при смене route и фильтров
 
   // Справочники: кэш на 5 минут, но после правок в админке читаем заново
   function loadDicts(force = false) {
@@ -2220,10 +2249,28 @@ function App() {
   // Обработчик события выхода
   useEffect(() => {
     const handleLogout = () => {
-      localStorage.clear();
+      // Имя читаем до очистки: оно нужно экрану «вы вышли» в Telegram
+      try {
+        const raw = localStorage.getItem("auth_user");
+        const u = raw ? JSON.parse(raw) : null;
+        setLastUserName(u?.full_name || u?.first_name || u?.name || "");
+      } catch {
+        setLastUserName("");
+      }
+
+      // Тему и флаги интерфейса при выходе не сбрасываем — это настройки
+      // устройства, а не аккаунта
+      ["jwt_token", "role", "auth_user", "cached_managers", "cached_skus"].forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch {
+          // приватный режим
+        }
+      });
+      setLoggedOut(true);
       setAuth({ token: "", role: "", user: null });
       setTokenValid(false);
-      // Не устанавливаем route, чтобы показалась страница логина
+      setRoute("home");
     };
 
     window.addEventListener("auth:logout", handleLogout);
@@ -2640,6 +2687,21 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
   );
 }
 
+// В Telegram страницы логина нет — вход идёт по профилю мессенджера.
+// Без этого экрана после «Выйти» приложение оставалось открытым, но уже
+// без токена: запросы отваливались, кнопки «не срабатывали».
+if (isTG && loggedOut) {
+  return (
+    <LoggedOut
+      name={lastUserName}
+      onLogin={() => {
+        setLoggedOut(false);
+        setRoute("home");
+      }}
+    />
+  );
+}
+
 
   // ⏳ Пока проверяем токен - показываем загрузку (только для браузера)
   if (!isTG && !tokenVerified) {
@@ -2730,9 +2792,6 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
           onAdmin={goAdmin}
           onExport={exportXlsx}
           onLogout={() => {
-            localStorage.clear();
-            setAuth({ token: "", role: "", user: null });
-            setTokenValid(false);
             window.dispatchEvent(new CustomEvent("auth:logout"));
           }}
         />
@@ -2774,9 +2833,6 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
   // ==== ГЛАВНЫЙ ЭКРАН С КАРТОЧКАМИ ====
   if (route === "home") {
     const doLogout = () => {
-      localStorage.clear();
-      setAuth({ token: "", role: "", user: null });
-      setTokenValid(false);
       window.dispatchEvent(new CustomEvent("auth:logout"));
     };
 
@@ -2827,9 +2883,6 @@ if (isTG && (!ready || (loading && !usesNewUi))) {
 
     const handleLogout = () => {
       if (window.confirm("Вы уверены, что хотите выйти из аккаунта?")) {
-        localStorage.clear();
-        setAuth({ token: "", role: "", user: null });
-        setTokenValid(false);
         window.dispatchEvent(new CustomEvent("auth:logout"));
         // Не устанавливаем route, чтобы показалась страница логина
       }

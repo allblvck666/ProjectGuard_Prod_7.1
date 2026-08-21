@@ -1,0 +1,41 @@
+/* Экран после выхода (Telegram). Держим по центру экрана. */
+.pglo {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 20px calc(32px + env(safe-area-inset-bottom, 0px));
+  text-align: center;
+  background: var(--pg-bg);
+}
+
+.pglo__badge {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  display: grid;
+  place-items: center;
+  background: var(--pg-surface-2);
+  color: var(--pg-text-2);
+  margin-bottom: 4px;
+}
+
+.pglo__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--pg-text);
+}
+
+.pglo__text {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--pg-text-2);
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.pglo .pg-btn {
+  max-width: 320px;
+}

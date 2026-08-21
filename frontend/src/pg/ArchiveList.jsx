@@ -13,6 +13,7 @@ import {
   fmtArea, fmtDateShort, plural, shortName, skuShort, statusBadge, statusKind,
 } from "./format";
 import { usePullToRefresh } from "./usePullToRefresh";
+import { usePaged } from "./usePaged";
 import {
   BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useDisableVerticalSwipes,
 } from "./telegram";
@@ -116,16 +117,28 @@ export default function ArchiveList({
     });
   }, [archived, tab, search]);
 
+  // В архиве бывают сотни записей — рисуем страницами
+  const paged = usePaged(filtered, `${tab}|${search}`);
+
   const body = () => {
     if (loading && filtered.length === 0) return <LoadingState rows={4} />;
     if (loadError && archived.length === 0) return <ErrorState text={loadError} onRetry={load} />;
     if (filtered.length > 0) {
       return (
-        <div className="pgl-cards">
-          {filtered.map((it) => (
-            <ArchiveCard key={it.id} item={it} onOpen={onOpenDetail} />
-          ))}
-        </div>
+        <>
+          <div className="pgl-cards">
+            {paged.visible.map((it) => (
+              <ArchiveCard key={it.id} item={it} onOpen={onOpenDetail} />
+            ))}
+          </div>
+          {paged.hasMore && (
+            <div className="pgl-more">
+              <Button variant="secondary" block icon="chevronDown" onClick={paged.showMore}>
+                Показать ещё {Math.min(paged.rest, 30)} из {paged.rest}
+              </Button>
+            </div>
+          )}
+        </>
       );
     }
     if (archived.length === 0) {

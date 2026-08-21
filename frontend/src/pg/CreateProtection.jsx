@@ -346,6 +346,7 @@ export default function CreateProtection({
           </div>
 
           <Field
+            as="div"
             label="Артикулы"
             required
             error={errorFor("skus")}
@@ -374,7 +375,11 @@ export default function CreateProtection({
                 placeholder="0"
                 value={form.area_m2 || ""}
                 onChange={(e) =>
-                  setForm({ ...form, area_m2: e.target.value.replace(/[^\d.,]/g, "") })
+                  setForm({
+                    ...form,
+                    // запятая под рукой в русской раскладке, но Number("120,5") — NaN
+                    area_m2: e.target.value.replace(/[^\d.,]/g, "").replace(",", "."),
+                  })
                 }
                 onBlur={blur("area")}
               />

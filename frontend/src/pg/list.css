@@ -125,3 +125,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* «Показать ещё» под списком */
+.pgl-more { padding-top: var(--pg-sp-3); }
