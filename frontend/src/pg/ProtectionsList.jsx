@@ -159,7 +159,7 @@ export default function ProtectionsList({
           {paged.hasMore && (
             <div className="pgl-more">
               <Button variant="secondary" block icon="chevronDown" onClick={paged.showMore}>
-                Показать ещё {Math.min(paged.rest, 30)} из {paged.rest}
+                {paged.moreLabel}
               </Button>
             </div>
           )}

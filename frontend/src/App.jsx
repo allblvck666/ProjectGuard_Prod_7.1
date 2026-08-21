@@ -2447,6 +2447,7 @@ function App() {
       });
       setSelectedSkus([]);
       setPerSkuMode(false);
+      notify.success("Защита создана в обход конфликта");
       await load();
       return true;
     } catch (err) {
@@ -2460,6 +2461,7 @@ function App() {
   const extendAction = async (id, days = 10) => {
     try {
       await api.post(`/api/protections/${id}/extend?days=${days}`);
+      notify.success(`Защита продлена на ${days} ${days === 1 ? "день" : "дней"}`);
       await load();
     } catch (err) {
       const userMessage = err.userMessage;
@@ -2537,6 +2539,7 @@ function App() {
         reason: closeModal.reason,
       });
       setCloseModal({ open: false, id: null, reason: "" });
+      notify.success("Защита закрыта");
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось закрыть защиту";
@@ -2550,6 +2553,7 @@ function App() {
         doc_1c: successModal.doc,
       });
       setSuccessModal({ open: false, id: null, doc: "" });
+      notify.success("Защита отмечена как успешная");
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось отметить как успешную";
@@ -2563,6 +2567,7 @@ function App() {
         params: { reason: deleteModal.reason || "not provided" },
       });
       setDeleteModal({ open: false, id: null, reason: "" });
+      notify.success("Защита удалена");
       await load();
     } catch (e) {
       const userMessage = e.userMessage || e.response?.data?.detail || "Не удалось удалить защиту";
@@ -2574,6 +2579,7 @@ function App() {
   const restoreProtection = async (id) => {
     try {
       await api.post(`/api/admin/protections/${id}/restore`);
+      notify.success("Защита восстановлена");
       await load();
       return true;
     } catch (e) {

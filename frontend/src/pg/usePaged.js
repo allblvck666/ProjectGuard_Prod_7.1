@@ -22,10 +22,16 @@ export function usePaged(items, resetKey) {
   const list = Array.isArray(items) ? items : [];
   const visible = useMemo(() => list.slice(0, limit), [list, limit]);
 
+  const rest = Math.max(0, list.length - limit);
+
   return {
     visible,
-    hasMore: list.length > limit,
-    rest: Math.max(0, list.length - limit),
+    hasMore: rest > 0,
+    rest,
+    // «Показать ещё 2 из 2» звучит нелепо — про остаток говорим,
+    // только когда он не помещается в одну страницу
+    moreLabel:
+      rest > PAGE_SIZE ? `Показать ещё ${PAGE_SIZE} из ${rest}` : `Показать ещё ${rest}`,
     showMore: () => setLimit((l) => l + PAGE_SIZE),
   };
 }
