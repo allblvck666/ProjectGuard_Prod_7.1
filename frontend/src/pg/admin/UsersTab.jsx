@@ -4,10 +4,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
-import {
-  Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input,
-  LoadingState, Select, Sheet,
-} from "../ui";
+import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, LoadingState, Select, Sheet, Switch } from "../ui";
 import { fmtDate, initials, plural } from "../format";
 import { notify } from "../notify";
 import { errText } from "../errors";
@@ -292,6 +289,22 @@ export default function UsersTab({ role, currentUserId }) {
                 <Icon name="info" size={13} />
                 Свою роль изменить нельзя
               </div>
+            )}
+
+            {(opened.role === "admin" || opened.role === "superadmin") && (
+              <Switch
+                label="Получать уведомления"
+                hint="Сообщения в Telegram о новых защитах и запросах"
+                checked={opened.receive_notifications !== 0}
+                disabled={busy}
+                onChange={(on) =>
+                  patch(
+                    opened.id,
+                    { receive_notifications: on ? 1 : 0 },
+                    on ? "Уведомления включены" : "Уведомления выключены"
+                  )
+                }
+              />
             )}
 
             <div className="pga-section">

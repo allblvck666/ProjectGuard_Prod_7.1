@@ -130,6 +130,31 @@ export function Select({ className, children, ...rest }) {
   );
 }
 
+/* ================= Переключатель ================= */
+
+// Тумблер «включено / выключено». Своя разметка вместо голого чекбокса:
+// у чекбокса не покрасить галочку, да и попасть по нему пальцем сложнее.
+export function Switch({ checked, onChange, disabled = false, label, hint }) {
+  return (
+    <label className={cx("pg-switch", disabled && "pg-switch--off")}>
+      <span className="pg-switch__t">
+        <span className="pg-switch__label">{label}</span>
+        {hint && <span className="pg-switch__hint">{hint}</span>}
+      </span>
+      <input
+        type="checkbox"
+        className="pg-switch__input"
+        checked={!!checked}
+        disabled={disabled}
+        onChange={(e) => onChange?.(e.target.checked)}
+      />
+      <span className="pg-switch__track" aria-hidden="true">
+        <span className="pg-switch__knob" />
+      </span>
+    </label>
+  );
+}
+
 /* ================= Сегмент-контрол ================= */
 
 export function Segment({ value, onChange, options, className, ...rest }) {

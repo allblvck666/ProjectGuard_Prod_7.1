@@ -7,7 +7,7 @@
 import { useState } from "react";
 import {
   Badge, Button, Card, CardSkeleton, EmptyState, ErrorState, Field,
-  Icon, Input, KV, Segment, Select, Sheet, Skeleton, Textarea, Track,
+  Icon, Input, KV, Segment, Select, Sheet, Skeleton, Switch, Textarea, Track,
 } from "./ui";
 import { ICON_NAMES } from "./icons";
 import { setFlag } from "./flags";
@@ -26,6 +26,7 @@ function Section({ title, children }) {
 export default function UiKit({ onClose }) {
   const [theme, setTheme] = useState(resolvePgTheme);
   const [seg, setSeg] = useState("my");
+  const [notify, setNotify] = useState(true);
   const [sheet, setSheet] = useState(false);
   const [text, setText] = useState("");
   const [bad, setBad] = useState("12");
@@ -147,6 +148,16 @@ export default function UiKit({ onClose }) {
             { value: "all", label: "Все" },
           ]}
         />
+      </Section>
+
+      <Section title="Переключатель">
+        <Switch
+          label="Получать уведомления"
+          hint="Сообщения в Telegram о новых защитах и запросах"
+          checked={notify}
+          onChange={setNotify}
+        />
+        <Switch label="Выключенный" hint="disabled" checked={false} disabled />
       </Section>
 
       <Section title="Строки «ключ — значение»">
