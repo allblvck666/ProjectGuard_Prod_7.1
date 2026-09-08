@@ -36,15 +36,14 @@ def env_get(name: str, default: str | None = None):
 SECRET_KEY = env_get("SECRET_KEY")
 JWT_SECRET = env_get("JWT_SECRET") or SECRET_KEY
 JWT_ALG = "HS256"
+# Enable retirement only after verified re-entry is working on the new frontend.
+# Default 0 accepts existing signed sessions without changing secrets or users.
+AUTH_MIN_TOKEN_VERSION = int(env_get("AUTH_MIN_TOKEN_VERSION", "0"))
+AUTH_TOKEN_VERSION = 1
+if AUTH_MIN_TOKEN_VERSION < 0:
+    raise RuntimeError("AUTH_MIN_TOKEN_VERSION must be non-negative")
 
-# Логируем для отладки (только на проде)
-if os.environ.get("RENDER"):
-    print("DEBUG auth.py: SECRET_KEY exists:", bool(SECRET_KEY))
-    print("DEBUG auth.py: JWT_SECRET exists:", bool(JWT_SECRET))
-    if JWT_SECRET:
-        print("DEBUG auth.py: JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
-
-security = HTTPBearer()
+security = HTTPBearer(auto_error=False)
 
 
 # === JWT ФУНКЦИИ ===
@@ -55,18 +54,16 @@ def create_access_token(user: dict):
     user должен содержать: id, email (или tg_id для обратной совместимости), role
     """
     user_id = user.get("id")
-    email = user.get("email")
     tg_id = user.get("tg_id")
     role = user.get("role", "user")
-    
-    # Для обратной совместимости: если нет email, используем tg_id или user_id
-    sub = email or str(tg_id) if tg_id else str(user_id)
     
     payload = {
         "sub": str(user_id),  # Всегда user_id в sub для единообразия
         "user_id": user_id,
+        "auth_version": AUTH_TOKEN_VERSION,
         "tg_id": str(tg_id) if tg_id else None,  # Добавляем tg_id в payload
         "role": role,
+        "iat": datetime.utcnow(),
         "exp": datetime.utcnow() + timedelta(days=30)
     }
     # Убираем None значения из payload
@@ -79,6 +76,7 @@ def create_jwt(user_id: int):
     """Старая функция для обратной совместимости"""
     payload = {
         "user_id": user_id,
+        "auth_version": AUTH_TOKEN_VERSION,
         "exp": datetime.utcnow() + timedelta(days=30)
     }
     token = jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
@@ -86,95 +84,45 @@ def create_jwt(user_id: int):
 
 
 def decode_jwt(token: str):
+    if not JWT_SECRET:
+        raise HTTPException(status_code=503, detail="Authentication is temporarily unavailable")
     try:
-        # Пробуем декодировать с текущим секретом
-        if not JWT_SECRET:
-            print("⚠️ JWT_SECRET is None or empty!")
-            raise HTTPException(status_code=500, detail="JWT secret not configured")
-        
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-        return payload
-    except JWTError as e:
-        # Логируем для отладки
-        print(f"⚠️ JWT decode error: {e}")
-        print(f"⚠️ JWT_SECRET exists: {bool(JWT_SECRET)}")
-        if JWT_SECRET:
-            print(f"⚠️ JWT_SECRET length: {len(JWT_SECRET)}, start: {JWT_SECRET[:10]}...")
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-# === AUTH CHECK ===
-
 def get_current_user(credentials=Depends(security)):
-    """
-    Проверяет валидность токена и возвращает пользователя (любая роль).
-    Поддерживает поиск по user_id или email (из sub).
-    """
-    token = credentials.credentials
-    if not token:
-        print("⚠️ No token provided in Authorization header")
+    if credentials is None or not getattr(credentials, "credentials", None):
         raise HTTPException(status_code=401, detail="No token provided")
-    
-    try:
-        payload = decode_jwt(token)
-    except HTTPException as e:
-        print(f"⚠️ JWT decode failed in get_current_user: {e.detail}")
-        raise
-    
-    # Поддерживаем оба формата: user_id напрямую или через sub
+    payload = decode_jwt(credentials.credentials)
+    version = payload.get("auth_version", 0)
+    if AUTH_MIN_TOKEN_VERSION > 0 and (type(version) is not int or version < AUTH_MIN_TOKEN_VERSION):
+        raise HTTPException(status_code=401, detail="Подтвердите вход заново через Telegram или email и пароль.")
+    user = None
     user_id = payload.get("user_id")
     sub = payload.get("sub")
-    tg_id = payload.get("tg_id")
-    
-    user = None
-    
-    # Сначала пробуем по user_id
-    if user_id:
+    # Explicit internal IDs must never silently fall back to another account.
+    if user_id is not None:
         try:
-            user_id_int = int(user_id) if isinstance(user_id, str) else user_id
-            user = get_user_by_id(user_id_int)
-            if user:
-                print(f"✅ User found by user_id: {user_id_int}")
-        except (ValueError, TypeError) as e:
-            print(f"⚠️ Error converting user_id {user_id}: {e}")
+            user = get_user_by_id(int(user_id))
+        except (ValueError, TypeError):
             pass
-    
-    # Если не нашли по user_id, пробуем по tg_id из payload
-    if not user and tg_id:
+    elif payload.get("tg_id"):
         from backend.db import get_user_by_tg_id
-        user = get_user_by_tg_id(tg_id)
-    
-    # Если не нашли, пробуем по sub (может быть email или user_id)
-    if not user and sub:
-        # Пробуем как email
+        user = get_user_by_tg_id(str(payload["tg_id"]))
+    elif sub:
         if "@" in str(sub):
             user = get_user_by_email(str(sub))
         else:
-            # Пробуем как user_id (старые токены)
             try:
-                user_id_int = int(sub)
-                user = get_user_by_id(user_id_int)
+                user = get_user_by_id(int(sub))
             except (ValueError, TypeError):
                 pass
-    
     if not user:
-        print(f"⚠️ User not found. user_id={user_id}, sub={sub}, tg_id={tg_id}, payload keys: {list(payload.keys())}")
-        # Пробуем найти пользователя по tg_id, если он есть в payload
-        if tg_id:
-            from backend.db import get_user_by_tg_id
-            user = get_user_by_tg_id(tg_id)
-            if user:
-                print(f"✅ User found by tg_id: {tg_id}")
-        
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-    
-    # Проверяем is_active
-    is_active = user.get("is_active", 1)
-    if is_active == 0:
-        print(f"⚠️ User {user.get('id')} is inactive")
-        raise HTTPException(status_code=401, detail="User is inactive")
-    
+        raise HTTPException(status_code=401, detail="User not found")
+    if user.get("is_active", 1) in (0, "0", False):
+        raise HTTPException(status_code=403, detail="Ваш аккаунт заблокирован. Обратитесь к администратору.")
     return user
 
 

@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge, Icon, Input } from "./ui";
-import { notify } from "./notify";
+import { notify } from "./notification-store";
 
 const MAX_SKUS = 3;
 const MAX_SUGGESTIONS = 24;
@@ -132,7 +132,7 @@ export default function SkuPicker({
                   type="button"
                   className="pgf-sku__x"
                   onClick={() => removeSku(s)}
-                  aria-label={`Убрать ${s.sku}`}
+                  aria-label={`Убрать ${s.sku}${s.type ? ` (${s.type})` : ""}`}
                 >
                   <Icon name="close" size={12} />
                 </button>
@@ -157,13 +157,14 @@ export default function SkuPicker({
         <div className="pgf-sku__search">
           <Input
             placeholder="Введите артикул"
+            aria-label="Поиск артикула"
             value={input}
             onChange={(e) => {
               setInput(e.target.value);
               setFocused(true);
             }}
             onFocus={() => setFocused(true)}
-            inputMode="numeric"
+            inputMode="text"
             autoComplete="off"
           />
           {focused && input.trim() && (
@@ -178,6 +179,7 @@ export default function SkuPicker({
                   <button
                     type="button"
                     className="pgf-sku__opt"
+                    aria-label={[s.sku, s.type, s.collection].filter(Boolean).join(" · ")}
                     key={variantKey(s)}
                     // Реагируем на касание, а не на click: на телефоне при тапе
                     // по подсказке закрывается клавиатура, страница подпрыгивает,

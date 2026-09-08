@@ -9,7 +9,7 @@ import {
   LoadingState, Select, Sheet,
 } from "../ui";
 import { fmtArea, fmtDateShort, plural, skuShort, statusBadge } from "../format";
-import { notify } from "../notify";
+import { notify } from "../notification-store";
 import { errText } from "../errors";
 import { invalidateDicts } from "../dicts";
 

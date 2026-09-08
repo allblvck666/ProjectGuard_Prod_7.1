@@ -25,18 +25,9 @@ DB_PATH = os.getenv("DB_PATH", str(BASE_DIR / "data.sqlite3"))
 DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL connection string
 SKUS_PATH = BASE_DIR / "skus.csv"
 
-# Определяем тип БД - проверяем и наличие DATABASE_URL, и возможность использовать psycopg2
-def _can_use_postgres():
-    """Проверяет, можем ли мы использовать PostgreSQL"""
-    if not DATABASE_URL:
-        return False
-    try:
-        import psycopg2
-        return True
-    except ImportError:
-        return False
-
-USE_POSTGRES = _can_use_postgres()
+# A configured PostgreSQL database is authoritative. Never fall back to an empty
+# local database when the driver or database is temporarily unavailable.
+USE_POSTGRES = bool(DATABASE_URL)
 
 
 class HybridRow(dict):
@@ -146,28 +137,36 @@ def load_skus():
 
 # === DB подключение ===
 def get_conn():
-    """Подключение к БД: PostgreSQL если DATABASE_URL есть, иначе SQLite"""
+    """Connect to the configured database with compatible cursor/row behavior."""
     if USE_POSTGRES:
-        try:
-            import psycopg2
-            from psycopg2.extras import RealDictCursor
-            conn = psycopg2.connect(DATABASE_URL)
-            conn.cursor_factory = RealDictCursor
-            return conn
-        except ImportError:
-            print("⚠️ psycopg2 не установлен, используем SQLite")
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = _sqlite_hybrid_row_factory
-            return conn
-        except Exception as e:
-            print(f"⚠️ Ошибка подключения к PostgreSQL: {e}, используем SQLite")
-            conn = sqlite3.connect(DB_PATH)
-            conn.row_factory = _sqlite_hybrid_row_factory
-            return conn
-    else:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = _sqlite_hybrid_row_factory
-        return conn
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+
+        class CompatibleCursor(RealDictCursor):
+            # Existing SQLite call sites use execute(...).fetchone().
+            def execute(self, query, vars=None):
+                super().execute(query, vars)
+                return self
+
+            def _hybrid(self, row):
+                if row is None:
+                    return None
+                return HybridRow(dict(row), [column[0] for column in self.description])
+
+            def fetchone(self):
+                return self._hybrid(super().fetchone())
+
+            def fetchall(self):
+                return [self._hybrid(row) for row in super().fetchall()]
+
+            def fetchmany(self, size=None):
+                rows = super().fetchmany(size) if size is not None else super().fetchmany()
+                return [self._hybrid(row) for row in rows]
+
+        return psycopg2.connect(DATABASE_URL, cursor_factory=CompatibleCursor, connect_timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = _sqlite_hybrid_row_factory
+    return conn
 
 def _get_param_placeholder():
     """Возвращает placeholder для параметров: ? для SQLite, %s для PostgreSQL"""
@@ -182,25 +181,13 @@ def _adapt_query(query):
 
 # === CRUD пользователи ===
 def get_user_by_id(user_id: int):
-    """Получить пользователя по ID"""
+    """Return the persisted account; database outages are not invalid sessions."""
     conn = get_conn()
-    cur = conn.cursor()
     try:
-        query = _adapt_query("SELECT * FROM users WHERE id = ?")
-        cur.execute(query, (user_id,))
+        cur = conn.cursor()
+        cur.execute(_adapt_query("SELECT * FROM users WHERE id = ?"), (user_id,))
         row = cur.fetchone()
-        if row:
-            # Преобразуем Row в dict
-            if USE_POSTGRES:
-                return dict(row)
-            else:
-                columns = [description[0] for description in cur.description]
-                user_dict = dict(zip(columns, row))
-                return user_dict
-        return None
-    except Exception as e:
-        print(f"⚠️ Error in get_user_by_id({user_id}): {e}")
-        return None
+        return dict(row) if row else None
     finally:
         conn.close()
 
@@ -259,6 +246,8 @@ def create_user(data: dict):
                 tg_id, tg_username, first_name
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """)
+        if USE_POSTGRES:
+            query += " RETURNING id"
         cur.execute(
             query,
             (
@@ -267,14 +256,8 @@ def create_user(data: dict):
                 tg_id, tg_username, first_name
             )
         )
+        user_id = cur.fetchone()["id"] if USE_POSTGRES else cur.lastrowid
         conn.commit()
-        if USE_POSTGRES:
-            # PostgreSQL возвращает ID через RETURNING или cur.fetchone()
-            cur.execute(_adapt_query("SELECT id FROM users WHERE email = ? ORDER BY id DESC LIMIT 1"), (email,))
-            row = cur.fetchone()
-            user_id = row["id"] if row else None
-        else:
-            user_id = cur.lastrowid
         conn.close()
         return get_user_by_id(user_id) if user_id else None
     except Exception as e:
@@ -292,7 +275,7 @@ def update_user(user_id: int, data: dict):
     cur = conn.cursor()
     
     # Разрешенные поля для обновления
-    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name", "manager_id", "receive_extend_notifications", "manager_ids"]
+    allowed_fields = ["full_name", "phone", "position", "company", "city", "role", "is_active", "last_login", "tg_username", "first_name", "manager_id", "receive_extend_notifications", "receive_notifications", "manager_ids"]
     updates = []
     values = []
     
@@ -348,152 +331,17 @@ def normalize_tg_id(tg_id):
     return tg_id_str if tg_id_str else None
 
 def upsert_user(data: dict):
+    """Compatibility helper for trusted callers; privileges cannot be changed here.
+
+    All public Telegram login handlers verify identity before reaching this helper.
+    Admin role/status changes use update_user explicitly.
     """
-    Создать или обновить пользователя по tg_id (UPSERT логика).
-    Если пользователь с таким tg_id существует - обновляет данные.
-    Если нет - создает нового.
-    """
-    conn = get_conn()
-    cur = conn.cursor()
-    
-    # Нормализуем tg_id перед использованием
-    tg_id_raw = data.get("tg_id", "")
-    tg_id = normalize_tg_id(tg_id_raw)
-    if not tg_id:
-        conn.close()
-        raise ValueError("tg_id is required")
-    
-    # Проверяем, существует ли пользователь по нормализованному tg_id
-    # Также ищем пользователей со старым форматом (с префиксами)
-    query = _adapt_query("SELECT * FROM users WHERE tg_id = ? OR tg_id = ? OR tg_id = ?")
-    cur.execute(query, (tg_id, f"dev-{tg_id}", f"tg-{tg_id}"))
-    existing = cur.fetchone()
-    
-    # Если нашли пользователя со старым форматом, обновляем его tg_id
-    if existing:
-        existing_dict = dict(existing)
-        existing_tg_id = existing_dict.get("tg_id")
-        existing_id = existing_dict.get("id")
-        if existing_tg_id and existing_tg_id != tg_id:
-            # Обновляем tg_id на нормализованный
-            update_query = _adapt_query("UPDATE users SET tg_id = ? WHERE id = ?")
-            cur.execute(update_query, (tg_id, existing_id))
-            conn.commit()
-            # Перечитываем пользователя по нормализованному tg_id
-            query = _adapt_query("SELECT * FROM users WHERE tg_id = ?")
-            cur.execute(query, (tg_id,))
-            existing = cur.fetchone()
-        # Если tg_id уже нормализованный, existing остается как есть
-    
-    now = now_iso()
-    
-    if existing:
-        # Обновляем существующего пользователя
-        user_dict = dict(existing)
-        user_id = user_dict["id"]
-        
-        # Подготовка данных для обновления
-        update_fields = []
-        update_values = []
-        
-        placeholder = _get_param_placeholder()
-        allowed_update_fields = ["full_name", "phone", "position", "company", "city", "tg_username", "first_name", "is_active"]
-        for field in allowed_update_fields:
-            if field in data:
-                update_fields.append(f"{field} = {placeholder}")
-                update_values.append(data[field])
-        
-        # Всегда обновляем updated_at
-        update_fields.append(f"updated_at = {placeholder}")
-        update_values.append(now)
-        
-        # Если is_active был 0, можно снова сделать 1 (при повторной регистрации)
-        # Если в data явно указан is_active=1, активируем пользователя
-        if "is_active" in data and data["is_active"] == 1:
-            update_fields.append(f"is_active = {placeholder}")
-            update_values.append(1)
-        elif "is_active" not in data and user_dict.get("is_active", 1) == 0:
-            # Если пользователь был удален (is_active=0), но при регистрации не указан is_active,
-            # активируем его автоматически (повторная регистрация)
-            update_fields.append(f"is_active = {placeholder}")
-            update_values.append(1)
-        
-        # Проверяем роль по телефону - если телефон соответствует суперадмину, обновляем роль
-        if "phone" in data:
-            import re
-            phone_clean = re.sub(r'\D', '', str(data["phone"]))
-            if phone_clean == "79207455960":
-                # Всегда обновляем роль на superadmin, если телефон соответствует
-                update_fields.append(f"role = {placeholder}")
-                update_values.append("superadmin")
-            elif "role" not in data:
-                # Если роль не указана в data, но телефон не суперадмин - оставляем текущую роль
-                pass
-        
-        if update_fields:
-            update_values.append(user_id)
-            placeholder = _get_param_placeholder()
-            query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = {placeholder}"
-            cur.execute(query, update_values)
-            conn.commit()
-        
-        # Получаем обновленного пользователя
-        conn.close()
-        return get_user_by_id(user_id)
-    else:
-        # Создаем нового пользователя
-        full_name = data.get("full_name", "")
-        phone = data.get("phone", "")
-        position = data.get("position")
-        company = data.get("company")
-        role = data.get("role", "user")
-        is_active = data.get("is_active", 1)
-        tg_username = data.get("tg_username", "")
-        first_name = data.get("first_name", full_name)
-        
-        # Определяем роль по телефону (суперадмин) - проверяем всегда, если телефон указан
-        if phone:
-            import re
-            phone_clean = re.sub(r'\D', '', str(phone))
-            if phone_clean == "79207455960":
-                role = "superadmin"
-            elif role == "user":
-                # Если роль не указана явно и телефон не суперадмин, оставляем user
-                pass
-        
-        try:
-            query = _adapt_query("""
-                INSERT INTO users (
-                    tg_id, tg_username, first_name, full_name, phone, position,
-                    company, role, is_active, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """)
-            cur.execute(
-                query,
-                (
-                    tg_id, tg_username, first_name, full_name, phone, position,
-                    company, role, is_active, now, now
-                )
-            )
-            conn.commit()
-            if USE_POSTGRES:
-                # PostgreSQL возвращает ID через RETURNING или cur.fetchone()
-                cur.execute(_adapt_query("SELECT id FROM users WHERE tg_id = ? ORDER BY id DESC LIMIT 1"), (tg_id,))
-                row = cur.fetchone()
-                user_id = row["id"] if row else None
-            else:
-                user_id = cur.lastrowid
-            conn.close()
-            return get_user_by_id(user_id) if user_id else None
-        except Exception as e:
-            conn.close()
-            # Обработка ошибок для PostgreSQL и SQLite
-            error_str = str(e).lower()
-            if "unique" in error_str or "duplicate" in error_str or "already exists" in error_str:
-                # Если все же произошла ошибка UNIQUE (например, параллельный запрос)
-                # Пытаемся получить существующего пользователя
-                return get_user_by_tg_id(int(tg_id) if tg_id.isdigit() else None) or get_user_by_tg_id(tg_id)
-            raise
+    from backend.telegram_identity import resolve_verified_user
+    tg_id = normalize_tg_id(data.get("tg_id"))
+    if not tg_id or not tg_id.isdigit() or int(tg_id) <= 0:
+        raise ValueError("Invalid Telegram ID")
+    return resolve_verified_user({"id": int(tg_id), "username": data.get("tg_username", ""),
+                                  "first_name": data.get("first_name", "")}, data)
 
 
 # === Инициализация таблиц ===

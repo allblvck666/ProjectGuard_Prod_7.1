@@ -8,7 +8,7 @@ import {
   LoadingState, Sheet, Textarea,
 } from "../ui";
 import { fmtDateShort, plural, shortName, skuShort } from "../format";
-import { notify } from "../notify";
+import { notify } from "../notification-store";
 import { errText } from "../errors";
 
 export default function RequestsTab({ onChanged }) {

@@ -79,26 +79,33 @@
 
 /* ---------- Светлая тема ---------- */
 [data-pg-theme="light"] {
-  --pg-bg: #f8fafc;
+  --pg-accent: #4f46e5;
+  --pg-accent-2: #4338ca;
+  --pg-grad: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+  --pg-success: #166534;
+  --pg-danger: #b91c1c;
+  --pg-warning: #854d0e;
+  --pg-fs-md: 16px;
+  --pg-bg: #f1f4f9;
   --pg-surface: #ffffff;
-  --pg-surface-2: rgba(15, 23, 42, 0.05);
-  --pg-surface-3: rgba(15, 23, 42, 0.09);
+  --pg-surface-2: #f1f5f9;
+  --pg-surface-3: #e2e8f0;
 
-  --pg-border: rgba(15, 23, 42, 0.12);
-  --pg-border-strong: rgba(15, 23, 42, 0.22);
+  --pg-border: #cbd5e1;
+  --pg-border-strong: #94a3b8;
 
-  --pg-text: #0f172a;
-  --pg-text-2: rgba(15, 23, 42, 0.74);
-  --pg-hint: rgba(15, 23, 42, 0.55);
+  --pg-text: #172033;
+  --pg-text-2: #334155;
+  --pg-hint: #536176;
 
-  --pg-success-bg: rgba(34, 197, 94, 0.10);
-  --pg-success-border: rgba(34, 197, 94, 0.30);
-  --pg-danger-bg: rgba(239, 68, 68, 0.08);
-  --pg-danger-border: rgba(239, 68, 68, 0.30);
-  --pg-warning-bg: rgba(245, 158, 11, 0.12);
-  --pg-warning-border: rgba(245, 158, 11, 0.35);
-  --pg-accent-bg: rgba(102, 126, 234, 0.10);
-  --pg-accent-border: rgba(102, 126, 234, 0.35);
+  --pg-success-bg: #edf9f0;
+  --pg-success-border: #a5d7b0;
+  --pg-danger-bg: #fff1f2;
+  --pg-danger-border: #f0adb5;
+  --pg-warning-bg: #fff7df;
+  --pg-warning-border: #e4c36c;
+  --pg-accent-bg: #eef2ff;
+  --pg-accent-border: #b6bdf3;
 
   --pg-shadow: 0 8px 24px rgba(15, 23, 42, 0.10);
   --pg-backdrop: rgba(15, 23, 42, 0.35);
@@ -821,3 +828,29 @@ body.light-theme .pg-state__text {
   outline: 2px solid var(--pg-accent);
   outline-offset: 2px;
 }
+
+/* Светлая палитра действует и в сохранённых старых экранах. */
+body.light-theme {
+  --bg: #f1f4f9;
+  --card: #ffffff;
+  --text: #172033;
+  --hint: #536176;
+  --primary: #4f46e5;
+  --danger: #b91c1c;
+}
+[data-pg-theme="light"] .pg-input,
+[data-pg-theme="light"] .pg-select,
+[data-pg-theme="light"] .pg-textarea { background: #fff; border-color: #94a3b8; }
+[data-pg-theme="light"] .pg-input::placeholder,
+[data-pg-theme="light"] .pg-textarea::placeholder { color: #536176; opacity: 1; }
+[data-pg-theme="light"] .pg-card { box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04); }
+[data-pg-theme="light"] .pgh-qa__i { color: #172033; font-weight: 600; }
+[data-pg-theme="light"] .pgh-qa__badge { color: #fff; }
+
+.pg-login { min-height: 100dvh; max-width: 448px; padding: max(32px, env(safe-area-inset-top)) 20px 32px; margin: 0 auto; color: var(--pg-text); font: var(--pg-fs-md)/1.5 var(--pg-font); display: flex; flex-direction: column; justify-content: center; gap: 24px; }
+.pg-login__brand { display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--pg-accent); }
+.pg-login h1 { font-size: 24px; margin: 0; }
+.pg-login h2 { font-size: 20px; margin-top: 0; }
+.pg-login__error { color: var(--pg-danger); background: var(--pg-danger-bg); padding: 12px; border-radius: 8px; }
+.pg-login .pg-btn { text-decoration: none; }
+body.light-theme .pg-login__error { color: var(--pg-danger) !important; }

@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "../../api";
 import { Badge, Button, Card, EmptyState, ErrorState, Field, Icon, Input, LoadingState, Select, Sheet, Switch } from "../ui";
 import { fmtDate, initials, plural } from "../format";
-import { notify } from "../notify";
+import { notify } from "../notification-store";
 import { errText } from "../errors";
 
 const ROLES = [

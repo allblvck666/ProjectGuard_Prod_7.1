@@ -168,12 +168,9 @@ export default function AdminScreen({ auth, onBack }) {
         }
       >
         <div className="pg-sheet__text">
-          Придётся войти заново — через Telegram или по логину.
+          Для повторного входа подтвердите свой аккаунт через Telegram.
         </div>
       </Sheet>
     </div>
   );
 }
-
-export { ROLE_LABEL };
-export const AdminBadge = Badge;

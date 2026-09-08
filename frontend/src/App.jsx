@@ -1,6 +1,5 @@
 // frontend/src/App.jsx
-import axios from "axios";
-import { api, fetchMe, adminUsersAPI } from "./api";
+import { api, authenticateTelegram, resumeAutomaticAuthentication } from "./api";
 
 // Ленивая загрузка AdminPage - загружается только когда нужен
 import { lazy, Suspense, memo, useMemo, useEffect } from "react";
@@ -11,10 +10,13 @@ import { useNewUi } from "./pg/useFlags";
 import { setFlag } from "./pg/flags";
 import { resolvePgTheme } from "./pg/theme";
 import { BACK_PRIORITY, isTelegramApp, useBackButton } from "./pg/telegram";
-import { notify } from "./pg/notify";
+import { notify } from "./pg/notification-store";
 import { onDictsChanged } from "./pg/dicts";
-import TabBar, { TABBAR_ROUTES } from "./pg/TabBar";
+import TabBar from "./pg/TabBar";
+import { TABBAR_ROUTES } from "./pg/routes";
 import LoggedOut from "./pg/LoggedOut";
+import EditProtectionFields from "./pg/EditProtectionFields";
+import { buildEditPayload, editProblem, parseProtectionSkus, protectionEditDetails, protectionError } from "./pg/protection-edit";
 const UiKitPage = lazy(() => import("./pg/UiKit.jsx"));
 const ProtectionsListNew = lazy(() => import("./pg/ProtectionsList.jsx"));
 const ProtectionDetailNew = lazy(() => import("./pg/ProtectionDetail.jsx"));
@@ -707,7 +709,7 @@ function ActiveProtectionsPage({
   act, closeModal, setCloseModal, doClose, successModal, setSuccessModal, doSuccess,
   deleteModal, setDeleteModal, doDelete, editModal, setEditModal,
   editSelectedSkus, setEditSelectedSkus, editPerSkuMode, setEditPerSkuMode,
-  editAreaUnified, setEditAreaUnified, editComment, setEditComment,
+  editAreaUnified, setEditAreaUnified, editComment, setEditComment, editDetails, setEditDetails, editSaving,
   submitEdit, skus, onAreaChange, openEditModal, load, loading, onBack,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection
@@ -1126,8 +1128,10 @@ function ActiveProtectionsPage({
           title="Редактировать защиту"
           onClose={() => setEditModal({ open: false, id: null })}
           onOk={submitEdit}
-          okText="💾 Сохранить"
+          disabled={editSaving}
+          okText={editSaving ? "Сохраняем…" : "💾 Сохранить"}
         >
+          <EditProtectionFields details={editDetails} setDetails={setEditDetails} managers={managers} item={editModal.item} isAdmin={["admin", "superadmin"].includes(auth?.user?.role || auth?.role)} />
           <div className="mode-toggle" style={{ marginBottom: 10 }}>
             <div
               className={`tag ${!editPerSkuMode ? "active" : ""}`}
@@ -1147,7 +1151,7 @@ function ActiveProtectionsPage({
             selected={editSelectedSkus}
             setSelected={setEditSelectedSkus}
             perSkuMode={editPerSkuMode}
-            onAreaChange={onAreaChange}
+            onAreaChange={(sku, value) => setEditSelectedSkus((rows) => rows.map((row) => row.sku === sku.sku && row.type === sku.type ? { ...row, area: value } : row))}
           />
           {!editPerSkuMode && (
             <input
@@ -1537,7 +1541,8 @@ function App() {
     const token = localStorage.getItem("jwt_token") || "";
     const role = localStorage.getItem("role") || "";
     const userStr = localStorage.getItem("auth_user");
-    const user = userStr ? JSON.parse(userStr) : null;
+    let user = null;
+    try { user = userStr ? JSON.parse(userStr) : null; } catch { /* An invalid cache must not block entry. */ }
     // Если есть user, используем роль из user, иначе из localStorage
     const finalRole = user?.role || role;
     return { token, role: finalRole, user };
@@ -1700,191 +1705,71 @@ function App() {
     return () => root.removeAttribute("data-pg-nav");
   }, [nativeNav]);
 
-  // 🔍 Проверка валидности токена при загрузке (только для браузера)
+  // Check the stored account and recover an expired session through signed Telegram data.
   useEffect(() => {
-    if (isTG) {
-      // В Telegram WebApp проверка токена не нужна - там своя логика
-      setTokenVerified(true);
-      setTokenValid(!!auth.token);
-      return;
-    }
-
-    if (!auth.token) {
-      // Нет токена - сразу показываем LoginPage
-      setTokenVerified(true);
-      setTokenValid(false);
-      return;
-    }
-
-    // Проверяем валидность токена и получаем актуальные данные пользователя
-    api
-      .get("/api/auth/verify")
-      .then(() => {
-        // Получаем актуальные данные пользователя
-        return api.get("/api/auth/me").then((res) => {
-          const user = res.data.user || res.data;
-          if (user) {
-            const role = user.role || "";
-            localStorage.setItem("auth_user", JSON.stringify(user));
-            localStorage.setItem("role", role);
-            setAuth((prev) => ({ ...prev, role, user }));
-          }
-          setTokenValid(true);
-        });
-      })
-      .catch((err) => {
-        // Токен невалидный - очищаем и показываем LoginPage
-        localStorage.removeItem("jwt_token");
-        localStorage.removeItem("role");
-        setAuth({ token: "", role: "" });
-        setTokenValid(false);
-      })
-      .finally(() => {
-        setTokenVerified(true);
-      });
-  }, [isTG, auth.token]);
-
-  // 🔗 Токен уже настроен через api.js interceptor, ничего не делаем
-
-  // 🔐 Telegram Auto-Login (только если есть Telegram WebApp)
-  useEffect(() => {
-    if (!isTG) return;
-    // После явного выхода не входим обратно автоматически: иначе кнопка
-    // «Выйти» просто возвращала на главную под тем же аккаунтом
     if (loggedOut) return;
-
-    // Если уже есть валидный токен - не делаем повторный логин
-    if (auth.token) {
-      // Проверяем валидность существующего токена
-      api
-        .get("/api/auth/verify")
-        .then((res) => {
-          if (res.data.ok) {
-            const role = res.data.role;
-            localStorage.setItem("role", role);
-            setAuth((prev) => ({ ...prev, role }));
-            // Админку открываем по запросу из «Ещё», а не вместо главной
-            setRoute("home");
-          } else {
-            throw new Error("Token invalid");
-          }
-        })
-        .catch((err) => {
-          // Токен невалидный - делаем новый логин
-          localStorage.removeItem("jwt_token");
-          localStorage.removeItem("role");
-          setAuth({ token: "", role: "" });
-          // Продолжаем с автоматическим логином ниже
-        });
-    }
-
-    try {
-      const tg = window.Telegram?.WebApp;
-      if (!tg?.initDataUnsafe?.user) {
-        // Если нет данных пользователя, но есть токен - используем его
-        if (auth.token) {
-          return;
-        }
-        // Если нет ни токена, ни данных - показываем ошибку
-        return;
-      }
-
-      const user = tg.initDataUnsafe.user;
-
-      // Если уже есть валидный токен - не делаем повторный запрос
-      if (auth.token) {
-        return;
-      }
-
-      fetch(`${API_BASE}/api/auth/telegram-login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          tg_id: user.id,
-          username: user.username || "",
-          first_name: user.first_name || "",
-          init_data: tg.initData || "",
-        }),
-      })
-        .then((r) => {
-          if (!r.ok) {
-            throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-          }
-          return r.json();
-        })
-        .then((data) => {
-          if (!data.ok) {
+    resumeAutomaticAuthentication();
+    let cancelled = false;
+    const verify = async () => {
+      try {
+        if (!auth.token) {
+          if (!isTG || !window.Telegram?.WebApp?.initData) {
+            if (!cancelled) setTokenValid(false);
             return;
           }
-
-          // Поддерживаем оба формата: старый (data.role) и новый (data.user.role)
-          const role = data.user?.role || data.role || "manager";
-          const user = data.user || { role };
-          localStorage.setItem("jwt_token", data.token);
-          localStorage.setItem("role", role);
-          localStorage.setItem("auth_user", JSON.stringify(user));
-
-          setAuth({ token: data.token, role, user });
-
-          setRoute("home");
-
-          tg.ready();
-          tg.expand();
-        })
-        .catch((err) => {
-          // Не очищаем токен, если он был - возможно это временная ошибка сети
-        });
-    } catch (err) {
-      // Ошибка инициализации Telegram WebApp
-    }
+          const session = await authenticateTelegram();
+          if (!cancelled) {
+            setAuth(session);
+            setTokenValid(true);
+            window.Telegram?.WebApp?.ready();
+            window.Telegram?.WebApp?.expand();
+          }
+          return;
+        }
+        const { data } = await api.get('/api/auth/me');
+        if (!cancelled && data.user) {
+          const token = localStorage.getItem('jwt_token') || auth.token;
+          localStorage.setItem('auth_user', JSON.stringify(data.user));
+          localStorage.setItem('role', data.user.role);
+          setAuth({ token, role: data.user.role, user: data.user });
+          setTokenValid(true);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        if (error.response?.status === 401 || error.response?.status === 403 || !auth.token) {
+          setTokenValid(false);
+          // Show a useful reopening message, without marking a manual logout.
+          notify.error(protectionError(error, 'Откройте приложение заново через Telegram для подтверждения входа.'));
+        }
+        // A transient network failure leaves the existing account and token intact.
+        if (auth.token && error.response?.status !== 401 && error.response?.status !== 403) setTokenValid(true);
+      } finally {
+        if (!cancelled) setTokenVerified(true);
+      }
+    };
+    verify();
+    return () => { cancelled = true; };
   }, [isTG, auth.token, loggedOut]);
 
-  // ===== ВРЕМЕННЫЙ DEV-LOGIN =====
-  const devLogin = async () => {
-    const payload = {
-      tg_id: 426188469,
-      username: "messiah_66",
-      first_name: "☺️",
-      // role будет установлен автоматически на бэкенде для tg_id 426188469
+  useEffect(() => {
+    const updated = (event) => {
+      setAuth(event.detail);
+      setTokenValid(true);
+      setTokenVerified(true);
     };
+    const expired = () => {
+      setAuth((previous) => ({ ...previous, token: '' }));
+      setTokenValid(false);
+      setTokenVerified(true);
+    };
+    window.addEventListener('auth:updated', updated);
+    window.addEventListener('auth:expired', expired);
+    return () => {
+      window.removeEventListener('auth:updated', updated);
+      window.removeEventListener('auth:expired', expired);
+    };
+  }, []);
 
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/dev-login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-
-      if (data.ok) {
-        // Поддерживаем оба формата: старый (data.role) и новый (data.user.role)
-        const role = data.user?.role || data.role || "manager";
-        const user = data.user || { role };
-        localStorage.setItem("jwt_token", data.token);
-        localStorage.setItem("role", role);
-        localStorage.setItem("auth_user", JSON.stringify(user));
-        setAuth({ token: data.token, role, user });
-
-        setRoute("home");
-
-        // Показываем уведомление только в браузере
-        if (!isTG) {
-          notify.success("Вход выполнен как " + role);
-        } else {
-          const tg = window.Telegram?.WebApp;
-          if (tg?.HapticFeedback) {
-            tg.HapticFeedback.notificationOccurred("success");
-          }
-        }
-      } else {
-        notify.error("Ошибка входа");
-      }
-    } catch (err) {
-      notify.error("Ошибка запроса к серверу");
-    }
-  };
 
   // ===========================
   //   ROLE ACCESS CONTROL
@@ -1982,32 +1867,13 @@ function App() {
   const [editPerSkuMode, setEditPerSkuMode] = useState(true);
   const [editAreaUnified, setEditAreaUnified] = useState("");
   const [editComment, setEditComment] = useState("");
+  const [editDetails, setEditDetails] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
 
   const openEditModal = (item) => {
-    setEditModal({ open: true, id: item.id });
-    const parsed = [];
-    // Бэкенд склеивает артикулы двумя способами:
-    //   "AF1 (Тип) + AF2 (Тип)"                      — единый метраж, «м²» в строке нет
-    //   "AF1 (Тип) — 180 м²; AF2 (Тип) — 140 м²"     — метраж по артикулам
-    // Раньше разбирался только второй вариант, и у защит с единым метражом
-    // список артикулов открывался пустым.
-    const parts = (item.sku || "")
-      .split(/;|\s\+\s/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    for (const p of parts) {
-      const m = p.match(/^(.+?)\s*\(([^)]*)\)(?:\s*[—-]\s*([\d.,]+)\s*м²)?\s*$/);
-      if (m) {
-        parsed.push({
-          sku: m[1].trim(),
-          type: (m[2] || "").trim(),
-          area: m[3] ? m[3].replace(",", ".") : "",
-        });
-      } else {
-        // артикул без типа, как в старых записях
-        parsed.push({ sku: p, type: "", area: "" });
-      }
-    }
+    setEditModal({ open: true, id: item.id, item });
+    setEditDetails(protectionEditDetails(item));
+    const parsed = parseProtectionSkus(item.sku);
     setEditSelectedSkus(parsed);
     setEditComment(item.comment || "");
     if (parsed.every((s) => !s.area || Number(s.area) === 0)) {
@@ -2020,43 +1886,24 @@ function App() {
   };
 
   const submitEdit = async () => {
-    let total = 0;
-    let skuData = [];
-
-    if (editPerSkuMode) {
-      skuData = editSelectedSkus.map((s) => ({
-        sku: s.sku,
-        type: s.type,
-        area: Number(s.area || 0),
-      }));
-      total = skuData.reduce((sum, s) => sum + s.area, 0);
-    } else {
-      const unified = Number(editAreaUnified || 0);
-      skuData = editSelectedSkus.map((s) => ({
-        sku: s.sku,
-        type: s.type,
-      }));
-      total = unified;
-    }
-
-    if (total < 50) {
-      notify.error("Минимум 50 м²");
-      return;
-    }
-
-    const payload = {
-      sku_data: skuData,
-      area_m2: total,
-      comment: editComment,
-    };
-
+    if (editSaving) return;
+    const issue = editProblem({ selected: editSelectedSkus, perSkuMode: editPerSkuMode, unified: editAreaUnified, details: editDetails });
+    if (issue) { notify.error(issue); return; }
+    setEditSaving(true);
     try {
+      const payload = buildEditPayload({
+        item: editModal.item, details: editDetails, selected: editSelectedSkus,
+        perSkuMode: editPerSkuMode, unified: editAreaUnified, comment: editComment,
+        isAdmin: ["admin", "superadmin"].includes(auth?.user?.role || auth?.role),
+      });
       await api.put(`/api/protections/${editModal.id}`, payload);
       setEditModal({ open: false, id: null });
+      notify.success("Изменения сохранены в истории защиты");
       await load();
     } catch (err) {
-      const userMessage = err.userMessage || err.response?.data?.detail || "Ошибка при редактировании защиты";
-      notify.error(userMessage);
+      notify.error(protectionError(err, err.message || "Ошибка при редактировании защиты"));
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -2173,7 +2020,7 @@ function App() {
   useEffect(() => {
     // После явного выхода данные не тянем: setRoute("home") запускал этот
     // эффект заново, и справочники снова оседали в localStorage
-    if (loggedOut) return;
+    if (loggedOut || !auth.token) return;
 
     // Загружаем данные при смене route
     load();
@@ -2182,65 +2029,29 @@ function App() {
 
     if (showHistory) loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, managerFilter, statusFilter, search, loggedOut]); // Загружаем при смене route и фильтров
+  }, [route, managerFilter, statusFilter, search, loggedOut, auth.token]); // Загружаем при смене route и фильтров
 
   // Справочники: кэш на 5 минут, но после правок в админке читаем заново
   function loadDicts(force = false) {
-    const cachedSkus = force ? null : localStorage.getItem("cached_skus");
-    const cachedManagers = force ? null : localStorage.getItem("cached_managers");
-    const cacheTime = 5 * 60 * 1000; // 5 минут
-    
-    if (cachedSkus) {
+    const cached = (key) => {
+      if (force) return null;
       try {
-        const { data, timestamp } = JSON.parse(cachedSkus);
-        if (Date.now() - timestamp < cacheTime) {
-          setSkus(data);
-        } else {
-          localStorage.removeItem("cached_skus");
-        }
-      } catch (e) {
-        localStorage.removeItem("cached_skus");
-      }
-    }
-    
-    if (cachedManagers) {
-      try {
-        const { data, timestamp } = JSON.parse(cachedManagers);
-        if (Date.now() - timestamp < cacheTime) {
-          setManagers(data);
-        } else {
-          localStorage.removeItem("cached_managers");
-        }
-      } catch (e) {
-        localStorage.removeItem("cached_managers");
-      }
-    }
-    
-    // Загружаем справочники только если нет кэша или кэш устарел
-    if (!cachedSkus || Date.now() - JSON.parse(cachedSkus).timestamp >= cacheTime) {
-      api.get("/api/skus").then((r) => {
-        const dataRaw = Array.isArray(r.data) ? r.data : r.data?.skus || [];
-        const normalized = dataRaw.map((x) => ({
-          sku: x.sku || x.article || x.art || x.name || "",
-          type: x.type || x.category || x.kind || x.group || "",
-          collection: x.collection || x.series || x.line || "",
-        }));
-        setSkus(normalized);
-        localStorage.setItem("cached_skus", JSON.stringify({ data: normalized, timestamp: Date.now() }));
-      });
-    }
-    
-    if (!cachedManagers || Date.now() - JSON.parse(cachedManagers).timestamp >= cacheTime) {
-      api.get("/api/managers").then((r) => {
-        const dataRaw = Array.isArray(r.data) ? r.data : r.data?.managers || [];
-        const normalized = dataRaw.map((m) => ({
-          id: m.id,
-          first_name: m.name || m.first_name || "",
-        }));
-        setManagers(normalized);
-        localStorage.setItem("cached_managers", JSON.stringify({ data: normalized, timestamp: Date.now() }));
-      });
-    }
+        const value = JSON.parse(localStorage.getItem(key));
+        return Array.isArray(value?.data) && Date.now() - value.timestamp < 5 * 60 * 1000 ? value.data : null;
+      } catch { return null; }
+    };
+    const loadDictionary = (key, endpoint, normalize, set) => {
+      const value = cached(key);
+      if (value) { set(value); return; }
+      api.get(endpoint).then(({ data }) => {
+        const values = Array.isArray(data) ? data : data?.[key === "cached_skus" ? "skus" : "managers"] || [];
+        const normalized = values.map(normalize);
+        set(normalized);
+        localStorage.setItem(key, JSON.stringify({ data: normalized, timestamp: Date.now() }));
+      }).catch((error) => notify.error(protectionError(error, "Не удалось загрузить справочники. Обновите экран.")));
+    };
+    loadDictionary("cached_skus", "/api/skus", (x) => ({ sku: x.sku || x.article || x.art || x.name || "", type: x.type || x.category || x.kind || x.group || "", collection: x.collection || x.series || x.line || "" }), setSkus);
+    loadDictionary("cached_managers", "/api/managers", (m) => ({ id: m.id, first_name: m.name || m.first_name || "" }), setManagers);
   }
 
   // Админка правит справочники — перечитываем их сразу, не дожидаясь кэша
@@ -2575,17 +2386,19 @@ function App() {
     }
   };
 
-  // Восстановление закрытой/удалённой защиты — только суперадмин
-  const restoreProtection = async (id) => {
+  const restoreProtection = async (id, days = 10, adminRestore = false) => {
     try {
-      await api.post(`/api/admin/protections/${id}/restore`);
-      notify.success("Защита восстановлена");
+      const endpoint = adminRestore ? `/api/admin/protections/${id}/restore` : `/api/protections/${id}/restore`;
+      await api.post(endpoint, null, { params: { days } });
+      notify.success("Защита восстановлена. История сохранена");
       await load();
       return true;
-    } catch (e) {
-      const userMessage =
-        e.userMessage || e.response?.data?.detail || "Не удалось восстановить защиту";
-      notify.error(userMessage);
+    } catch (error) {
+      if (error.response?.data?.detail?.needs_admin) {
+        setExtendRequestModal({ open: true, id, days, reason: "", message: "Оба самостоятельных продления использованы. Администратор сможет согласовать восстановление." });
+      } else {
+        notify.error(protectionError(error, "Не удалось восстановить защиту"));
+      }
       return false;
     }
   };
@@ -2597,26 +2410,34 @@ function App() {
     if (what === "delete") return openDeleteModal(id);
   };
 
-  const exportXlsx = () => {
-    const url = `${API_BASE}/api/export?search=${encodeURIComponent(
-      search
-    )}&manager=${encodeURIComponent(
-      managerFilter
-    )}&status=${encodeURIComponent(statusFilter)}`;
-
-    // В Telegram window.open блокируется вебвью — файл открывается через openLink
-    const tg = typeof window !== "undefined" ? window.Telegram?.WebApp : null;
-    if (tg?.openLink) {
-      try {
-        tg.openLink(url);
+  const exportXlsx = async () => {
+    try {
+      const tg = window.Telegram?.WebApp;
+      if (isTelegramApp() && tg?.openLink) {
+        const { data } = await api.post("/api/export-link", { search, manager: managerFilter, status: statusFilter });
+        const url = new URL(data.path, API_BASE).href;
+        if (tg.downloadFile && tg.isVersionAtLeast?.("8.0")) {
+          tg.downloadFile({ url, file_name: data.filename }, (accepted) => { if (accepted) notify.success("Выгрузка передана для сохранения"); });
+        } else {
+          tg.openLink(url);
+        }
         return;
-      } catch {
-        // старый клиент — падаем на обычное открытие
       }
-    }
-    const win = window.open(url, "_blank");
-    if (!win) {
-      notify.error("Браузер заблокировал открытие файла. Разрешите всплывающие окна.");
+      const response = await api.get("/api/export", {
+        params: { search, manager: managerFilter, status: statusFilter }, responseType: "blob",
+      });
+      const blob = response.data;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `projectguard-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      notify.success("Выгрузка подготовлена");
+    } catch (error) {
+      notify.error(protectionError(error, "Не удалось подготовить выгрузку"));
     }
   };
 
@@ -2710,7 +2531,7 @@ if (isTG && loggedOut) {
 
 
   // ⏳ Пока проверяем токен - показываем загрузку (только для браузера)
-  if (!isTG && !tokenVerified) {
+  if (!tokenVerified) {
     return (
       <div style={{ 
         padding: 40, 
@@ -2729,13 +2550,14 @@ if (isTG && loggedOut) {
   }
 
   // 🌐 Браузер без валидного токена — обычная страница логина
-  if (!isTG && (!auth.token || !tokenValid)) {
+  if (!auth.token || !tokenValid) {
     return (
       <LoginPage
         onLogin={async (roleFromLogin) => {
           const token = localStorage.getItem("jwt_token") || "";
           const userStr = localStorage.getItem("auth_user");
-          let user = userStr ? JSON.parse(userStr) : { role: roleFromLogin };
+          let user = { role: roleFromLogin };
+          try { if (userStr) user = JSON.parse(userStr) || user; } catch { /* Use verified API data below. */ }
           let finalRole = user.role || roleFromLogin;
           
           // Обновляем данные пользователя через API для получения актуальной роли
@@ -2750,10 +2572,12 @@ if (isTG && loggedOut) {
                 localStorage.setItem("role", finalRole);
               }
           } catch (e) {
-            // Не удалось обновить данные пользователя
+            if (e.response?.status === 401 || e.response?.status === 403) throw e;
+            // A verified login still works during a temporary profile fetch failure.
           }
           }
           
+          setLoggedOut(false);
           setAuth({ token, role: finalRole, user });
           setTokenValid(true);
           setRoute("home");
@@ -2875,7 +2699,7 @@ if (isTG && loggedOut) {
               extendRequestModal, setExtendRequestModal, submitExtendRequest,
               editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
               editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
-              editComment, setEditComment, submitEdit, skus, onAreaChange,
+              editComment, setEditComment, editDetails, setEditDetails, editSaving, submitEdit, skus, onAreaChange, managers, auth,
             }}
           />
         </Suspense>
@@ -3048,6 +2872,9 @@ if (isTG && loggedOut) {
             setEditPerSkuMode={setEditPerSkuMode}
             editAreaUnified={editAreaUnified}
             setEditAreaUnified={setEditAreaUnified}
+            editDetails={editDetails}
+            setEditDetails={setEditDetails}
+            editSaving={editSaving}
             editComment={editComment}
             setEditComment={setEditComment}
             submitEdit={submitEdit}
@@ -3091,6 +2918,9 @@ if (isTG && loggedOut) {
         setEditPerSkuMode={setEditPerSkuMode}
         editAreaUnified={editAreaUnified}
         setEditAreaUnified={setEditAreaUnified}
+        editDetails={editDetails}
+        setEditDetails={setEditDetails}
+        editSaving={editSaving}
         editComment={editComment}
         setEditComment={setEditComment}
         submitEdit={submitEdit}
@@ -3171,7 +3001,7 @@ if (isTG && loggedOut) {
               extendRequestModal, setExtendRequestModal, submitExtendRequest,
               editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
               editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
-              editComment, setEditComment, submitEdit, skus, onAreaChange,
+              editComment, setEditComment, editDetails, setEditDetails, editSaving, submitEdit, skus, onAreaChange, managers, auth,
               updateClosedModal, setUpdateClosedModal, updateClosedProtection,
             }}
           />

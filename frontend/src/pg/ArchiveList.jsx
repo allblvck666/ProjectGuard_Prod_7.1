@@ -59,7 +59,7 @@ function ArchiveCard({ item, onOpen }) {
       </div>
 
       <div className="pgl-card__foot pgl-card__foot--archive">
-        <span className="pgl-card__note">{note || "Без комментария"}</span>
+        <span className="pgl-card__note">{item.status === "closed" && Number(item.auto_closed) === 1 ? (item.can_restore ? "Истёк срок · можно восстановить" : item.restore_requires_admin ? "Истёк срок · запросите восстановление" : "Истёк срок") : note || "Без комментария"}</span>
         <span className="pgl-card__days pg-num">
           {fmtDateShort(item.closed_at || item.expires_at)}
         </span>

@@ -5,7 +5,10 @@
 // только рисует. Рендерится один раз на экране (список или карточка).
 // ============================================================
 
+import { useEffect, useState } from "react";
 import { Button, Field, Icon, Input, Segment, Sheet, Textarea } from "./ui";
+import EditProtectionFields from "./EditProtectionFields";
+import { editProblem, hasEditChanges } from "./protection-edit";
 import SkuPicker from "./SkuPicker";
 import "./form.css";
 
@@ -17,23 +20,6 @@ const emptyUpdateClosed = {
   open: false, id: null, close_reason: "", success_doc: "", mode: "reason",
 };
 
-const MIN_AREA = 50;
-
-// Те же правила, что проверяет submitEdit и бэкенд, — показываем их
-// до нажатия, а не после
-function editProblem({ selected, perSkuMode, unified }) {
-  if (!selected || selected.length === 0) return "Добавьте хотя бы один артикул";
-  const total = perSkuMode
-    ? selected.reduce((sum, s) => sum + Number(s.area || 0), 0)
-    : Number(unified || 0);
-  if (perSkuMode && selected.some((s) => !Number(s.area))) {
-    return "Укажите метраж для каждого артикула";
-  }
-  if (!total) return "Укажите метраж";
-  if (total < MIN_AREA) return `Защита ставится от ${MIN_AREA} м²`;
-  return null;
-}
-
 export default function ActionSheets({
   closeModal, setCloseModal, doClose,
   successModal, setSuccessModal, doSuccess,
@@ -41,9 +27,16 @@ export default function ActionSheets({
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
   editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
   editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
-  editComment, setEditComment, submitEdit, skus, onAreaChange,
+  editComment, setEditComment, editDetails, setEditDetails, editSaving, submitEdit, skus, managers, auth,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
 }) {
+  const [discardOpen, setDiscardOpen] = useState(false);
+  useEffect(() => { if (!editModal?.open) setDiscardOpen(false); }, [editModal?.open]);
+  const closeEdit = () => {
+    if (editSaving) return;
+    if (hasEditChanges({ item: editModal?.item, details: editDetails, selected: editSelectedSkus, perSkuMode: editPerSkuMode, unified: editAreaUnified, comment: editComment })) setDiscardOpen(true);
+    else setEditModal({ open: false, id: null });
+  };
   // Метраж по артикулам правим в editSelectedSkus: общий onAreaChange из App
   // пишет в состояние формы создания, поэтому поле в шите не заполнялось
   const setEditArea = (skuObj, value) =>
@@ -60,6 +53,7 @@ export default function ActionSheets({
         selected: editSelectedSkus,
         perSkuMode: editPerSkuMode,
         unified: editAreaUnified,
+        details: editDetails,
       })
     : null;
 
@@ -183,9 +177,9 @@ export default function ActionSheets({
 
       {/* ---- редактирование ---- */}
       <Sheet
-        open={!!editModal?.open}
+        open={!!editModal?.open && !discardOpen}
         title="Редактировать защиту"
-        onClose={() => setEditModal({ open: false, id: null })}
+        onClose={closeEdit}
         actions={
           <>
             {editIssue && (
@@ -199,16 +193,18 @@ export default function ActionSheets({
               block
               icon="check"
               disabled={!!editIssue}
+              loading={editSaving}
               onClick={submitEdit}
             >
               Сохранить
             </Button>
-            <Button variant="ghost" block onClick={() => setEditModal({ open: false, id: null })}>
+            <Button variant="ghost" block disabled={editSaving} onClick={closeEdit}>
               Отмена
             </Button>
           </>
         }
       >
+        <EditProtectionFields details={editDetails} setDetails={setEditDetails} managers={managers} item={editModal?.item} isAdmin={["admin", "superadmin"].includes(auth?.user?.role || auth?.role)} />
         <div className="pgf-group">
           <Segment
             value={editPerSkuMode ? "per" : "one"}
@@ -251,6 +247,11 @@ export default function ActionSheets({
           </Field>
         </div>
       </Sheet>
+
+      <Sheet open={!!editModal?.open && discardOpen} title="Отменить изменения?" onClose={() => setDiscardOpen(false)} actions={<>
+        <Button variant="primary" block onClick={() => setDiscardOpen(false)}>Продолжить редактирование</Button>
+        <Button variant="danger-soft" block onClick={() => { setDiscardOpen(false); setEditModal({ open: false, id: null }); }}>Отменить изменения</Button>
+      </>}><div className="pg-sheet__text">Несохранённые правки будут потеряны. Сохранённая защита останется прежней.</div></Sheet>
 
       {/* ---- дозаполнение закрытой защиты ---- */}
       {setUpdateClosedModal && (

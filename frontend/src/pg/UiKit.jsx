@@ -9,7 +9,7 @@ import {
   Badge, Button, Card, CardSkeleton, EmptyState, ErrorState, Field,
   Icon, Input, KV, Segment, Select, Sheet, Skeleton, Switch, Textarea, Track,
 } from "./ui";
-import { ICON_NAMES } from "./icons";
+import { ICON_NAMES } from "./icon-paths";
 import { setFlag } from "./flags";
 import { applyPgTheme, resolvePgTheme } from "./theme";
 import "./uikit.css";

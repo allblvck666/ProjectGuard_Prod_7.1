@@ -9,7 +9,7 @@ import { Icon } from "./icons";
 import { haptic } from "./telegram";
 import "./tabbar.css";
 
-export const TABBAR_ROUTES = ["home", "active", "archive", "more"];
+
 
 const TABS = [
   { route: "home", label: "Главная", icon: "grid" },

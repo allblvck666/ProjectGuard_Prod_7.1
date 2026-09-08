@@ -4,7 +4,7 @@
 // Разметка один в один с прототипом, классы — только pg-*.
 // ============================================================
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Icon } from "./icons";
 import { BACK_PRIORITY, useBackButton } from "./telegram";
 
@@ -180,6 +180,7 @@ export function Segment({ value, onChange, options, className, ...rest }) {
 /* ================= Боттом-шит ================= */
 
 export function Sheet({ open, title, onClose, children, actions }) {
+  const titleId = useId();
   const sheetRef = useRef(null);
 
   // Пока шит открыт, «Назад» в шапке Telegram закрывает его, а не экран под ним
@@ -204,9 +205,9 @@ export function Sheet({ open, title, onClose, children, actions }) {
   return (
     <>
       <div className="pg-sheet-backdrop" onClick={onClose} />
-      <div className="pg-sheet" role="dialog" aria-modal="true" ref={sheetRef}>
+      <div className="pg-sheet" role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} ref={sheetRef}>
         <div className="pg-sheet__handle" />
-        {title && <h3 className="pg-sheet__title">{title}</h3>}
+        {title && <h3 className="pg-sheet__title" id={titleId}>{title}</h3>}
         <div className="pg-sheet__body">
           {children}
           {actions && <div className="pg-sheet__actions">{actions}</div>}
