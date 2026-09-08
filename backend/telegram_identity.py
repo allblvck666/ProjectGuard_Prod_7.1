@@ -8,6 +8,7 @@ from urllib.parse import parse_qsl
 from fastapi import HTTPException
 from backend import db
 from backend.auth import create_access_token
+from backend.access_control import require_account_access
 
 
 def _fresh(auth_date, max_age_seconds, now=None):
@@ -84,15 +85,14 @@ def require_telegram_identity(data, bot_token, max_age_seconds=86400, *, allow_w
 def public_user(user):
     fields = ("id", "tg_id", "tg_username", "first_name", "email", "role", "phone", "position",
               "company", "city", "manager_id", "manager_ids", "is_active", "receive_notifications",
-              "receive_extend_notifications")
+              "receive_extend_notifications", "access_status")
     result = {key: user.get(key) for key in fields if key in user}
     result["full_name"] = user.get("full_name") or user.get("first_name") or ""
     return result
 
 
 def login_response(user):
-    if user.get("is_active", 1) in (0, "0", False):
-        raise HTTPException(403, "Ваш аккаунт заблокирован. Обратитесь к администратору.")
+    require_account_access(user)
     return {"ok": True, "token": create_access_token(user), "user": public_user(user)}
 
 
@@ -120,8 +120,11 @@ def resolve_verified_user(identity, profile=None):
         now = db.now_iso()
         if matches:
             user = matches[0]
-            if user.get("is_active", 1) in (0, "0", False):
-                raise HTTPException(403, "Ваш аккаунт заблокирован. Обратитесь к администратору.")
+            if user.get("access_status") == "pending":
+                # An application is submitted once. Retrying login cannot change it.
+                conn.commit()
+                return user
+            require_account_access(user)
             updates = {"tg_id": tg_id, "tg_username": identity.get("username", ""),
                        "first_name": identity.get("first_name", ""), "last_login": now}
             if not user.get("full_name"):
@@ -139,8 +142,8 @@ def resolve_verified_user(identity, profile=None):
                       (profile or {}).get("full_name") or full_name, (profile or {}).get("phone", ""),
                       (profile or {}).get("position"), now, now)
             sql = db._adapt_query("""INSERT INTO users
-                (tg_id, tg_username, first_name, full_name, phone, position, role, is_active, created_at, last_login)
-                VALUES (?, ?, ?, ?, ?, ?, 'manager', 1, ?, ?)""")
+                (tg_id, tg_username, first_name, full_name, phone, position, role, is_active, access_status, created_at, last_login)
+                VALUES (?, ?, ?, ?, ?, ?, 'manager', 0, 'pending', ?, ?)""")
             if db.USE_POSTGRES:
                 sql += " RETURNING id"
             cur.execute(sql, values)
@@ -166,6 +169,8 @@ def bind_verified_identity(current_user, identity):
             cur.execute("SELECT pg_advisory_xact_lock(%s)", (int(tg_id),))
         else:
             cur.execute("BEGIN IMMEDIATE")
+        cur.execute(db._adapt_query("SELECT * FROM users WHERE id=?"), (current_user["id"],))
+        require_account_access(cur.fetchone())
         cur.execute(db._adapt_query("SELECT id FROM users WHERE CAST(tg_id AS TEXT) IN (?, ?, ?) AND id<>?"),
                     (tg_id, f"dev-{tg_id}", f"tg-{tg_id}", current_user["id"]))
         if cur.fetchone():

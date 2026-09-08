@@ -40,7 +40,7 @@ def test_bot_start_does_not_reactivate_blocked_user(database):
     message = SimpleNamespace(from_user=SimpleNamespace(id=123456789, username="current", first_name="Current"), answer=AsyncMock())
     asyncio.run(main.cmd_start_with_webapp(message))
     assert db.get_user_by_id(original["id"])["is_active"] == 0
-    assert "reply_markup" not in message.answer.call_args.kwargs
+    assert message.answer.call_args.kwargs.get("reply_markup") is None
 
 
 def test_manager_cannot_approve_by_telegram_callback(database):

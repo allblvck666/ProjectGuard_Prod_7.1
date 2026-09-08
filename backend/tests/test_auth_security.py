@@ -141,8 +141,13 @@ def test_signed_login_preserves_original_account_permissions_and_bindings(client
 
 def test_new_verified_account_never_gets_privilege_from_claimed_phone_or_id(client):
     response = client.post("/api/auth/register_or_login", json={"init_data": signed_init(426188469), "full_name": "New Name", "phone": "79207455960", "role": "superadmin"})
-    assert response.status_code == 200, response.text
-    assert response.json()["user"]["role"] == "manager"
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "access_pending"
+    assert "token" not in response.json()
+    user = db.get_user_by_tg_id("426188469")
+    assert user["role"] == "manager"
+    assert user["is_active"] == 0
+    assert user["access_status"] == "pending"
 
 
 def test_blocked_account_is_not_reactivated(client):
@@ -202,12 +207,15 @@ def test_admin_create_duplicate_cannot_replace_existing_account(client, existing
     assert db.get_user_by_id(existing["id"])["manager_ids"] == '[19]'
 
 
-def test_email_registration_password_login_and_id_are_valid(client):
+def test_email_registration_closed_but_existing_password_login_and_id_are_valid(client):
+    user = db.create_user({"email": "auth-test@example.invalid", "password_hash": main.get_password_hash("local-test-password"),
+                           "role": "assistant", "full_name": "Email Test", "is_active": 1})
     response = client.post("/api/auth/register", json={"email": "auth-test@example.invalid", "password": "local-test-password", "full_name": "Email Test"})
-    assert response.status_code == 200, response.text
-    user_id = response.json()["user"]["id"]
+    assert response.status_code == 403, response.text
+    assert "token" not in response.json()
     response = client.post("/api/auth/login", json={"email": "auth-test@example.invalid", "password": "local-test-password"})
-    assert response.status_code == 200 and response.json()["user"]["id"] == user_id
+    assert response.status_code == 200 and response.json()["user"]["id"] == user["id"]
+    assert response.json()["user"]["role"] == "assistant"
     assert client.post("/api/auth/login", json={"email": "auth-test@example.invalid", "password": "wrong"}).status_code == 401
 
 

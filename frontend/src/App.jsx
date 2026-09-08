@@ -1,5 +1,5 @@
 // frontend/src/App.jsx
-import { api, authenticateTelegram, resumeAutomaticAuthentication } from "./api";
+import { api, admissionError, authenticateTelegram, getAuthenticationIssue, resumeAutomaticAuthentication } from "./api";
 
 // Ленивая загрузка AdminPage - загружается только когда нужен
 import { lazy, Suspense, memo, useMemo, useEffect } from "react";
@@ -1574,6 +1574,7 @@ function App() {
   // Имя для экрана «вы вышли»: auth к этому моменту уже очищен
   const [lastUserName, setLastUserName] = useState("");
   const [tokenValid, setTokenValid] = useState(false);
+  const [accessIssue, setAccessIssue] = useState(getAuthenticationIssue);
 
   useEffect(() => {
     if (typeof document === "undefined") {
@@ -1708,6 +1709,12 @@ function App() {
   // Check the stored account and recover an expired session through signed Telegram data.
   useEffect(() => {
     if (loggedOut) return;
+    if (getAuthenticationIssue()) {
+      setAccessIssue(getAuthenticationIssue());
+      setTokenValid(false);
+      setTokenVerified(true);
+      return;
+    }
     resumeAutomaticAuthentication();
     let cancelled = false;
     const verify = async () => {
@@ -1736,10 +1743,12 @@ function App() {
         }
       } catch (error) {
         if (cancelled) return;
+        const denied = admissionError(error);
+        if (denied) setAccessIssue(denied);
         if (error.response?.status === 401 || error.response?.status === 403 || !auth.token) {
           setTokenValid(false);
           // Show a useful reopening message, without marking a manual logout.
-          notify.error(protectionError(error, 'Откройте приложение заново через Telegram для подтверждения входа.'));
+          if (!denied) notify.error(protectionError(error, 'Откройте приложение заново через Telegram для подтверждения входа.'));
         }
         // A transient network failure leaves the existing account and token intact.
         if (auth.token && error.response?.status !== 401 && error.response?.status !== 403) setTokenValid(true);
@@ -1754,6 +1763,7 @@ function App() {
   useEffect(() => {
     const updated = (event) => {
       setAuth(event.detail);
+      setAccessIssue(null);
       setTokenValid(true);
       setTokenVerified(true);
     };
@@ -1762,9 +1772,20 @@ function App() {
       setTokenValid(false);
       setTokenVerified(true);
     };
+    const denied = (event) => {
+      setAccessIssue(event.detail);
+      setAuth({ token: '', role: '', user: null });
+      setTokenValid(false);
+      setTokenVerified(true);
+      setItems([]);
+      setHistory([]);
+      setRoute('home');
+    };
+    window.addEventListener('auth:denied', denied);
     window.addEventListener('auth:updated', updated);
     window.addEventListener('auth:expired', expired);
     return () => {
+      window.removeEventListener('auth:denied', denied);
       window.removeEventListener('auth:updated', updated);
       window.removeEventListener('auth:expired', expired);
     };
@@ -2020,7 +2041,7 @@ function App() {
   useEffect(() => {
     // После явного выхода данные не тянем: setRoute("home") запускал этот
     // эффект заново, и справочники снова оседали в localStorage
-    if (loggedOut || !auth.token) return;
+    if (loggedOut || !auth.token || !tokenVerified || !tokenValid || accessIssue) return;
 
     // Загружаем данные при смене route
     load();
@@ -2029,7 +2050,7 @@ function App() {
 
     if (showHistory) loadHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route, managerFilter, statusFilter, search, loggedOut, auth.token]); // Загружаем при смене route и фильтров
+  }, [route, managerFilter, statusFilter, search, loggedOut, auth.token, tokenVerified, tokenValid, accessIssue]); // Загружаем при смене route и фильтров
 
   // Справочники: кэш на 5 минут, но после правок в админке читаем заново
   function loadDicts(force = false) {
@@ -2550,9 +2571,10 @@ if (isTG && loggedOut) {
   }
 
   // 🌐 Браузер без валидного токена — обычная страница логина
-  if (!auth.token || !tokenValid) {
+  if (!auth.token || !tokenValid || accessIssue) {
     return (
       <LoginPage
+        admission={accessIssue}
         onLogin={async (roleFromLogin) => {
           const token = localStorage.getItem("jwt_token") || "";
           const userStr = localStorage.getItem("auth_user");
@@ -2578,6 +2600,7 @@ if (isTG && loggedOut) {
           }
           
           setLoggedOut(false);
+          setAccessIssue(null);
           setAuth({ token, role: finalRole, user });
           setTokenValid(true);
           setRoute("home");

@@ -30,6 +30,22 @@ const safeToRetry = (config) => ["get", "head", "options"].includes((config?.met
 let recoveryPromise = null;
 let authGeneration = 0;
 let explicitlyLoggedOut = false;
+let authenticationIssue = null;
+
+export function admissionError(error) {
+  const detail = error?.response?.data?.detail;
+  return error?.response?.status === 403 && ["access_pending", "access_rejected", "access_blocked"].includes(detail?.code)
+    ? { code: detail.code, message: detail.message || "Обратитесь к администратору для получения доступа." }
+    : null;
+}
+
+export const getAuthenticationIssue = () => authenticationIssue;
+
+function denyAuthentication(issue) {
+  authenticationIssue = issue;
+  ["jwt_token", "role", "auth_user", "cached_managers", "cached_skus"].forEach(key => localStorage.removeItem(key));
+  window.dispatchEvent(new CustomEvent("auth:denied", { detail: issue }));
+}
 
 window.addEventListener("auth:logout", () => {
   explicitlyLoggedOut = true;
@@ -42,6 +58,7 @@ export function resumeAutomaticAuthentication() {
 
 export function storeAuthentication(data) {
   if (!data?.token || !data?.user?.id) throw new Error("Invalid authentication response");
+  authenticationIssue = null;
   const session = { token: data.token, role: data.user.role, user: data.user };
   localStorage.setItem("jwt_token", session.token);
   localStorage.setItem("role", session.role);
@@ -69,6 +86,11 @@ export function authenticateTelegram() {
       if (generation !== authGeneration || explicitlyLoggedOut) throw new Error("Authentication cancelled");
       return storeAuthentication(data);
     })
+    .catch(error => {
+      const issue = admissionError(error);
+      if (issue && generation === authGeneration && !explicitlyLoggedOut) denyAuthentication(issue);
+      throw error;
+    })
     .finally(() => { recoveryPromise = null; });
   return recoveryPromise;
 }
@@ -85,6 +107,12 @@ api.interceptors.response.use(
   async (error) => {
     const original = error.config;
     const status = error.response?.status;
+    const issue = admissionError(error);
+    if (issue) {
+      denyAuthentication(issue);
+      error.userMessage = issue.message;
+      return Promise.reject(error);
+    }
     const isLogin = /\/api\/(?:auth\/(?:login|register|telegram|dev-login)|users\/auth)/.test(original?.url || "");
     if (status === 401 && original && !isLogin && !original._authRecovery && !explicitlyLoggedOut) {
       original._authRecovery = true;
@@ -97,6 +125,7 @@ api.interceptors.response.use(
           recoveryError.userMessage = "Не удалось проверить вход. Проверьте связь и повторите попытку.";
           return Promise.reject(recoveryError);
         }
+        if (admissionError(recoveryError)) return Promise.reject(recoveryError);
         localStorage.removeItem("jwt_token");
         window.dispatchEvent(new CustomEvent("auth:expired"));
         error.userMessage = recoveryError.response?.data?.detail || "Откройте приложение заново через Telegram для подтверждения входа.";
@@ -116,7 +145,7 @@ api.interceptors.response.use(
     if (!error.userMessage) {
       const detail = error.response?.data?.detail;
       if (typeof detail === "string") error.userMessage = detail;
-      else if (detail?.msg) error.userMessage = detail.msg;
+      else if (detail?.msg || detail?.message) error.userMessage = detail.msg || detail.message;
       else if (networkFailure) error.userMessage = "Проблема с подключением к серверу. Проверьте интернет-соединение.";
       else if (status >= 500) error.userMessage = "Ошибка сервера. Повторите попытку позже.";
       else if (status === 401) error.userMessage = "Откройте приложение заново через Telegram для подтверждения входа.";

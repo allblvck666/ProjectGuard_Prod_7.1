@@ -42,13 +42,15 @@ function managerIdsOf(user) {
   return user.manager_id ? [user.manager_id] : [];
 }
 
-export default function UsersTab({ role, currentUserId }) {
+export default function UsersTab({ role, currentUserId, onChanged, admissionsOnly = false }) {
   const [users, setUsers] = useState(null);
   const [managers, setManagers] = useState([]);
   const [failed, setFailed] = useState(null);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
-  const [onlyBlocked, setOnlyBlocked] = useState(false);
+  const [accessFilter, setAccessFilter] = useState("");
+  const [admissionRole, setAdmissionRole] = useState("manager");
+  const [actionError, setActionError] = useState("");
 
   const [opened, setOpened] = useState(null);   // пользователь в шите действий
   const [rename, setRename] = useState(null);   // { id, full_name }
@@ -58,6 +60,30 @@ export default function UsersTab({ role, currentUserId }) {
   const [busy, setBusy] = useState(false);
 
   const isSuperadmin = role === "superadmin";
+  const availableRoles = ROLES.filter(r => isSuperadmin || r.value !== "superadmin");
+  const pendingCount = (users || []).filter(u => u.access_status === "pending").length;
+  const openUser = (user) => {
+    setOpened(user);
+    setAdmissionRole("manager");
+    setActionError("");
+  };
+  const decideAdmission = async (decision) => {
+    if (!opened || busy || !["pending", "rejected"].includes(opened.access_status) || (decision === "reject" && opened.access_status !== "pending")) return;
+    setBusy(true);
+    setActionError("");
+    try {
+      const { data } = await api.post(`/api/admin/users/${opened.id}/${decision}`, decision === "approve" ? { role: admissionRole } : {});
+      if (!data?.user) throw new Error("Missing updated user");
+      setUsers(previous => (previous || []).map(u => u.id === opened.id ? { ...u, ...data.user } : u));
+      setOpened(null);
+      onChanged?.();
+      notify.success(decision === "approve" ? "Доступ одобрен. Пользователь может войти." : "Заявка отклонена");
+    } catch (error) {
+      setActionError(errText(error, "Не удалось обработать заявку. Повторите попытку."));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const load = async () => {
     setFailed(null);
@@ -133,7 +159,7 @@ export default function UsersTab({ role, currentUserId }) {
   };
 
   const filtered = useMemo(() => {
-    let list = users || [];
+    let list = (users || []).filter(u => !admissionsOnly || ["pending", "rejected"].includes(u.access_status));
     const q = search.trim().toLowerCase();
     if (q) {
       list = list.filter((u) =>
@@ -142,14 +168,16 @@ export default function UsersTab({ role, currentUserId }) {
       );
     }
     if (roleFilter) list = list.filter((u) => u.role === roleFilter);
-    if (onlyBlocked) list = list.filter((u) => u.is_active !== 1);
+    if (accessFilter === "blocked") list = list.filter(u => (!u.access_status || u.access_status === "approved") && u.is_active !== 1);
+    else if (accessFilter) list = list.filter(u => u.access_status === accessFilter);
     return [...list].sort((a, b) => {
+      if ((a.access_status === "pending") !== (b.access_status === "pending")) return a.access_status === "pending" ? -1 : 1;
       if ((a.is_active === 1) !== (b.is_active === 1)) return a.is_active === 1 ? -1 : 1;
       return String(a.full_name || a.email || "").localeCompare(
         String(b.full_name || b.email || ""), "ru"
       );
     });
-  }, [users, search, roleFilter, onlyBlocked]);
+  }, [users, search, roleFilter, accessFilter, admissionsOnly]);
 
   if (failed && !users?.length) {
     return <div className="pga__pad-top"><ErrorState text={failed} onRetry={load} /></div>;
@@ -191,15 +219,22 @@ export default function UsersTab({ role, currentUserId }) {
               <Badge tone={roleFilter === r.value ? "accent" : undefined} plain>{r.label}</Badge>
             </button>
           ))}
-          <button type="button" className="pg-chip" onClick={() => setOnlyBlocked((v) => !v)}>
-            <Badge tone={onlyBlocked ? "danger" : undefined} plain>Заблокированные</Badge>
-          </button>
+        </div>
+        <div className="pg-chips" aria-label="Статус доступа">
+          {[
+            { value: "", label: "Все пользователи" },
+            { value: "pending", label: `Заявки на доступ · ${pendingCount}` },
+            { value: "blocked", label: "Заблокированные" },
+            { value: "rejected", label: "Отклонённые" },
+          ].map(filter => <button key={filter.value} type="button" className="pg-chip" aria-pressed={accessFilter === filter.value} onClick={() => { setAccessFilter(filter.value); setRoleFilter(""); }}>
+            <Badge tone={accessFilter === filter.value ? "accent" : undefined} plain>{filter.label}</Badge>
+          </button>)}
         </div>
       </div>
 
       <div className="pga-section">
         <div className="pga-section__h">
-          <span>Пользователи</span>
+          <span>{admissionsOnly ? "Заявки на доступ" : "Пользователи"}</span>
           <span className="pg-num">
             {filtered.length} {plural(filtered.length, "человек", "человека", "человек")}
           </span>
@@ -210,10 +245,12 @@ export default function UsersTab({ role, currentUserId }) {
         ) : (
           <div className="pga-list">
             {filtered.map((u) => {
-              const blocked = u.is_active !== 1;
+              const pending = u.access_status === "pending";
+              const rejected = u.access_status === "rejected";
+              const blocked = !pending && !rejected && u.is_active !== 1;
               const bound = managerIdsOf(u).filter(Boolean).length;
               return (
-                <Card key={u.id} tappable onClick={() => setOpened(u)}>
+                <Card key={u.id} tappable onClick={() => openUser(u)}>
                   <div className="pga-row">
                     <div className="pga-profile__ava">{initials(u.full_name || u.email || "?")}</div>
                     <div className="pga-row__t">
@@ -224,7 +261,9 @@ export default function UsersTab({ role, currentUserId }) {
                           .join(" · ") || "Контактов нет"}
                       </div>
                       <div className="pga-row__badges">
-                        <Badge tone={ROLE_TONE[u.role]} plain>{roleLabel(u.role)}</Badge>
+                        {!pending && !rejected && <Badge tone={ROLE_TONE[u.role]} plain>{roleLabel(u.role)}</Badge>}
+                        {pending && <Badge tone="warning">Ждёт одобрения</Badge>}
+                        {rejected && <Badge tone="danger">Заявка отклонена</Badge>}
                         {blocked && <Badge tone="danger">Заблокирован</Badge>}
                         {bound > 0 && (
                           <Badge plain className="pg-num">
@@ -242,7 +281,7 @@ export default function UsersTab({ role, currentUserId }) {
         )}
       </div>
 
-      {isSuperadmin && (
+      {isSuperadmin && !admissionsOnly && (
         <div className="pga-danger">
           <div className="pga-danger__h">
             <Icon name="alert" size={14} />
@@ -262,7 +301,7 @@ export default function UsersTab({ role, currentUserId }) {
       <Sheet
         open={!!opened}
         title={opened?.full_name || opened?.email || "Пользователь"}
-        onClose={() => setOpened(null)}
+        onClose={() => { if (!busy) setOpened(null); }}
       >
         {opened && (
           <>
@@ -273,13 +312,26 @@ export default function UsersTab({ role, currentUserId }) {
               {opened.created_at && ` · с ${fmtDate(opened.created_at)}`}
             </div>
 
+            {["pending", "rejected"].includes(opened.access_status) ? <>
+              <p className="pg-sheet__text">{opened.access_status === "rejected" ? "Заявка отклонена. Пользователь не видит защиты и выгрузки. Вы можете пересмотреть решение и явно разрешить доступ." : "Новый пользователь пока не видит защиты и выгрузки. Проверьте, что это ваш сотрудник, и выберите роль перед одобрением."}</p>
+              <Field label="Роль после одобрения">
+                <Select value={admissionRole} onChange={e => setAdmissionRole(e.target.value)} disabled={busy}>
+                  {availableRoles.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </Select>
+              </Field>
+              {actionError && <p className="pg-login__error" role="alert">{actionError}</p>}
+              <div className="pga-actions">
+                <Button variant="primary" block disabled={busy} onClick={() => decideAdmission("approve")}>{opened.access_status === "rejected" ? "Разрешить доступ" : "Одобрить доступ"}</Button>
+                {opened.access_status === "pending" && <Button variant="danger-soft" block disabled={busy} onClick={() => decideAdmission("reject")}>Отклонить заявку</Button>}
+              </div>
+            </> : <>
             <Field label="Роль">
               <Select
                 value={opened.role || ""}
                 onChange={(e) => patch(opened.id, { role: e.target.value }, "Роль изменена")}
                 disabled={busy || opened.id === currentUserId}
               >
-                {ROLES.map((r) => (
+                {availableRoles.map((r) => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </Select>
@@ -380,6 +432,7 @@ export default function UsersTab({ role, currentUserId }) {
                 </Button>
               </div>
             </div>
+            </>}
           </>
         )}
       </Sheet>
