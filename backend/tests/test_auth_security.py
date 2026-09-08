@@ -9,7 +9,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import pytest
@@ -60,6 +60,7 @@ def database(request, tmp_path, monkeypatch):
     monkeypatch.setattr(main, "BOT_TOKEN", BOT_TOKEN)
     monkeypatch.setattr(auth, "JWT_SECRET", SECRET)
     monkeypatch.setattr(auth, "AUTH_MIN_TOKEN_VERSION", 0)
+    monkeypatch.setattr(auth, "AUTH_LEGACY_TOKENS_UNTIL", None)
     monkeypatch.setenv("BOT_TOKEN", BOT_TOKEN)
     monkeypatch.setattr(main, "ALLOW_DEV_LOGIN", False)
     db.init_db()
@@ -344,3 +345,80 @@ def test_compatibility_token_issuer_also_uses_current_auth_version(client, monke
     assert response.status_code == 200
     assert response.json()["user"]["id"] == user["id"]
     assert response.json()["user"]["role"] == "admin"
+
+
+@pytest.mark.parametrize("value", [None, ""])
+def test_legacy_deadline_is_optional(value):
+    assert auth.parse_legacy_token_deadline(value) is None
+
+
+@pytest.mark.parametrize("value", ["2026-10-08T15:58:32Z", "2026-10-08T15:58:32+00:00"])
+def test_legacy_deadline_parses_explicit_utc(value):
+    assert auth.parse_legacy_token_deadline(value) == datetime(2026, 10, 8, 15, 58, 32, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize("value", ["not-a-date", "2026-10-08", "2026-10-08T15:58:32", "2026-10-08T18:58:32+03:00", "   "])
+def test_invalid_legacy_deadline_fails_configuration(value):
+    with pytest.raises(RuntimeError, match="AUTH_LEGACY_TOKENS_UNTIL"):
+        auth.parse_legacy_token_deadline(value)
+
+
+def freeze_auth_time(monkeypatch, current):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return current.astimezone(tz) if tz else current.replace(tzinfo=None)
+
+        @classmethod
+        def utcnow(cls):
+            return current.replace(tzinfo=None)
+
+    monkeypatch.setattr(auth, "datetime", FrozenDateTime)
+
+
+@pytest.mark.parametrize("offset_us,legacy_status", [(-1, 200), (0, 401), (1, 401)])
+def test_legacy_deadline_http_boundary_preserves_versioned_account(client, monkeypatch, offset_us, legacy_status):
+    original = seed_user(role="assistant", manager_id=17, manager_ids='[17,21]')
+    deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+    # Keep JWT expiry valid independently of the deadline, including exactly at it.
+    legacy = jwt.encode({"user_id": original["id"], "role": "superadmin", "exp": deadline + timedelta(days=1)}, SECRET, algorithm="HS256")
+    current = auth.create_access_token(original)
+    monkeypatch.setattr(auth, "AUTH_LEGACY_TOKENS_UNTIL", deadline)
+    freeze_auth_time(monkeypatch, deadline + timedelta(microseconds=offset_us))
+    response = client.get("/api/auth/me", headers={"Authorization": "Bearer " + legacy})
+    assert response.status_code == legacy_status
+    response = client.get("/api/auth/me", headers={"Authorization": "Bearer " + current})
+    assert response.status_code == 200
+    for field in ("id", "role", "is_active", "manager_id", "manager_ids"):
+        assert response.json()["user"][field] == original[field]
+
+
+@pytest.mark.parametrize("minimum,offset_us,legacy_status,current_status", [
+    (0, -1, 200, 200), (1, -1, 401, 200), (2, -1, 401, 401), (2, 0, 401, 401),
+])
+def test_explicit_minimum_version_overrides_deadline(client, monkeypatch, minimum, offset_us, legacy_status, current_status):
+    original = seed_user()
+    deadline = datetime.now(timezone.utc) + timedelta(hours=1)
+    legacy = jwt.encode({"user_id": original["id"], "exp": deadline + timedelta(days=1)}, SECRET, algorithm="HS256")
+    current = auth.create_access_token(original)
+    monkeypatch.setattr(auth, "AUTH_MIN_TOKEN_VERSION", minimum)
+    monkeypatch.setattr(auth, "AUTH_LEGACY_TOKENS_UNTIL", deadline)
+    freeze_auth_time(monkeypatch, deadline + timedelta(microseconds=offset_us))
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer " + legacy}).status_code == legacy_status
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer " + current}).status_code == current_status
+
+
+def test_verified_reentry_after_legacy_deadline_keeps_id_and_permissions(client, monkeypatch):
+    original = seed_user(role="assistant", manager_id=17, manager_ids='[17,21]')
+    deadline = datetime.now(timezone.utc)
+    legacy = jwt.encode({"user_id": original["id"], "role": "superadmin", "exp": deadline + timedelta(days=1)}, SECRET, algorithm="HS256")
+    monkeypatch.setattr(auth, "AUTH_LEGACY_TOKENS_UNTIL", deadline)
+    assert client.get("/api/auth/me", headers={"Authorization": "Bearer " + legacy}).status_code == 401
+    response = client.post("/api/auth/telegram-login", json={"init_data": signed_init()})
+    assert response.status_code == 200
+    token = response.json()["token"]
+    assert jwt.decode(token, SECRET, algorithms=["HS256"])["auth_version"] == 1
+    response = client.get("/api/auth/me", headers={"Authorization": "Bearer " + token})
+    assert response.status_code == 200
+    for field in ("id", "role", "is_active", "manager_id", "manager_ids"):
+        assert response.json()["user"][field] == original[field]

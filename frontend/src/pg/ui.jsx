@@ -6,7 +6,8 @@
 
 import { useEffect, useId, useRef } from "react";
 import { Icon } from "./icons";
-import { BACK_PRIORITY, useBackButton } from "./telegram";
+import { createPortal } from "react-dom";
+import { BACK_PRIORITY, useBackButton, useMainButtonBlocked } from "./telegram";
 
 const cx = (...parts) => parts.filter(Boolean).join(" ");
 
@@ -185,6 +186,7 @@ export function Sheet({ open, title, onClose, children, actions }) {
 
   // Пока шит открыт, «Назад» в шапке Telegram закрывает его, а не экран под ним
   useBackButton(onClose, !!open, BACK_PRIORITY.sheet);
+  useMainButtonBlocked(!!open);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -202,8 +204,8 @@ export function Sheet({ open, title, onClose, children, actions }) {
 
   if (!open) return null;
 
-  return (
-    <>
+  const content = (
+    <div className="pg-overlay-root">
       <div className="pg-sheet-backdrop" onClick={onClose} />
       <div className="pg-sheet" role="dialog" aria-modal="true" aria-labelledby={title ? titleId : undefined} ref={sheetRef}>
         <div className="pg-sheet__handle" />
@@ -213,8 +215,9 @@ export function Sheet({ open, title, onClose, children, actions }) {
           {actions && <div className="pg-sheet__actions">{actions}</div>}
         </div>
       </div>
-    </>
+    </div>
   );
+  return typeof document === "undefined" ? content : createPortal(content, document.body);
 }
 
 /* ================= Состояния ================= */

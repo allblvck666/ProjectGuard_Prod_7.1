@@ -101,55 +101,85 @@ export function useBackButton(handler, active = true, priority = BACK_PRIORITY.s
 
 export { BACK_PRIORITY };
 
-// Нативная нижняя кнопка Telegram
+// Нативная нижняя кнопка принадлежит верхнему экрану. Любой открытый
+// Sheet блокирует её, включая уже поставленные Telegram в очередь клики.
+const mainRequests = new Map();
+const mainBlockers = new Set();
+let mainSeq = 0;
+let boundMain = null;
+
+function activeMainRequest() {
+  if (mainBlockers.size) return null;
+  let top = null;
+  mainRequests.forEach((entry) => { if (entry.current.visible) top = entry.current; });
+  return top;
+}
+
+function dispatchMainClick() {
+  const current = activeMainRequest();
+  if (current && !current.disabled && !current.loading) current.onClick?.();
+}
+
+function syncMainButton() {
+  const mb = getTG()?.MainButton;
+  if (!mb) return;
+  const current = activeMainRequest();
+  try {
+    if (boundMain) {
+      boundMain.offClick(dispatchMainClick);
+      boundMain = null;
+    }
+    if (!current) {
+      mb.hide();
+      return;
+    }
+    mb.onClick(dispatchMainClick);
+    boundMain = mb;
+    if (current.text) mb.setText(current.text);
+    if (current.color) mb.setParams({ color: current.color, text_color: current.textColor });
+    if (current.disabled || current.loading) mb.disable();
+    else mb.enable();
+    if (current.loading) mb.showProgress(true);
+    else mb.hideProgress();
+    mb.show();
+  } catch {
+    // Старый клиент может не поддерживать отдельные методы.
+  }
+}
+
 export function useMainButton({
   text, onClick, visible = true, disabled = false, loading = false,
   color = "#667eea", textColor = "#ffffff",
 }) {
-  const ref = useRef(onClick);
-  ref.current = onClick;
-
+  const ref = useRef(null);
+  ref.current = { text, onClick, visible, disabled, loading, color, textColor };
+  const id = useRef(null);
+  if (id.current === null) id.current = ++mainSeq;
   useEffect(() => {
-    const mb = getTG()?.MainButton;
-    if (!mb) return undefined;
-
-    const handler = () => ref.current?.();
-    try {
-      mb.offClick(handler);
-      mb.onClick(handler);
-    } catch {
-      return undefined;
-    }
-
+    const key = id.current;
+    mainRequests.set(key, ref);
+    syncMainButton();
     return () => {
-      try {
-        mb.offClick(handler);
-        mb.hide();
-      } catch {
-        // клиент уже закрыт
-      }
+      mainRequests.delete(key);
+      syncMainButton();
     };
   }, []);
+  useEffect(syncMainButton, [text, visible, disabled, loading, color, textColor]);
+}
 
+export function useMainButtonBlocked(active) {
+  const id = useRef(null);
+  if (id.current === null) id.current = ++mainSeq;
   useEffect(() => {
-    const mb = getTG()?.MainButton;
-    if (!mb) return;
-    try {
-      if (!visible) {
-        mb.hide();
-        return;
-      }
-      if (text) mb.setText(text);
-      if (color) mb.setParams({ color, text_color: textColor });
-      if (disabled) mb.disable();
-      else mb.enable();
-      if (loading) mb.showProgress(true);
-      else mb.hideProgress();
-      mb.show();
-    } catch {
-      // старые версии клиента
-    }
-  }, [text, visible, disabled, loading, color, textColor]);
+    const key = id.current;
+    if (active) mainBlockers.add(key);
+    else mainBlockers.delete(key);
+    syncMainButton();
+    return () => {
+      mainBlockers.delete(key);
+      syncMainButton();
+    };
+  }, [active]);
 }
 
 // Вертикальный свайп закрывает Mini App и мешает pull-to-refresh

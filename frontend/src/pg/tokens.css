@@ -504,6 +504,15 @@
 
 /* ================= Боттом-шит ================= */
 
+.pg-overlay-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  isolation: isolate;
+  pointer-events: none;
+}
+.pg-overlay-root > .pg-sheet-backdrop,
+.pg-overlay-root > .pg-sheet { pointer-events: auto; }
 .pg-sheet-backdrop {
   position: fixed;
   inset: 0;
@@ -532,6 +541,10 @@
   line-height: var(--pg-lh);
   color: var(--pg-text);
 }
+/* У модального листа всегда непрозрачный фон, в том числе в Telegram dark. */
+[data-pg-theme="light"] .pg-sheet { background-color: #ffffff; }
+[data-pg-theme="dark"] .pg-sheet { background-color: #0f172a; }
+
 .pg-sheet__handle {
   width: 36px;
   height: 4px;
