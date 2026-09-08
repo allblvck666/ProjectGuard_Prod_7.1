@@ -35,7 +35,7 @@ const ROLE_LABEL = {
 
 export default function AdminScreen({ auth, onBack }) {
   const [tab, setTab] = useState("pulse");
-  const [counts, setCounts] = useState({ requests: 0, pending: 0 });
+  const [counts, setCounts] = useState({ requests: 0, pending: 0, users: 0 });
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   const user = auth?.user || {};
@@ -53,14 +53,16 @@ export default function AdminScreen({ auth, onBack }) {
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const [req, pend] = await Promise.all([
+      const [req, pend, members] = await Promise.all([
         api.get("/api/admin/extend-requests").catch(() => ({ data: [] })),
         api
           .get("/api/protections", { params: { status: "pending" } })
           .catch(() => ({ data: [] })),
+        api.get("/api/admin/users").catch(() => ({ data: { users: [] } })),
       ]);
       if (!alive) return;
       setCounts({
+        users: (members.data?.users || []).filter(user => user.access_status === "pending").length,
         requests: Array.isArray(req.data) ? req.data.length : 0,
         pending: Array.isArray(pend.data)
           ? pend.data.filter((p) => p.status === "pending").length
@@ -144,7 +146,7 @@ export default function AdminScreen({ auth, onBack }) {
       <div className="pga__scroll">
         <Suspense fallback={<div className="pga__pad-top"><LoadingState rows={3} /></div>}>
           {tab === "pulse" && <PulseTab />}
-          {tab === "users" && <UsersTab role={role} currentUserId={user.id} />}
+          {tab === "users" && <UsersTab role={role} currentUserId={user.id} onChanged={refreshCounts} />}
           {tab === "managers" && <ManagersTab />}
           {tab === "requests" && <RequestsTab onChanged={refreshCounts} />}
           {tab === "pending" && <PendingTab onChanged={refreshCounts} />}

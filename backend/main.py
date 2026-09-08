@@ -70,6 +70,7 @@ from backend.db import (
     workdays_until, is_workday
 )
 from backend.users import router as users_router, init_users_table
+from backend.access_control import require_account_access, has_account_access
 from backend.auth import (
     require_admin, require_auth, get_current_user, get_current_active_user,
     get_admin_user, get_superadmin_user, create_access_token
@@ -231,10 +232,10 @@ def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: Ba
                 cur2 = conn2.cursor()
                 # Ищем менеджера по имени или manager_id
                 if manager_id:
-                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
+                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (id=? OR full_name=? OR first_name=?) LIMIT 1")
                     cur2.execute(manager_query, (manager_id, manager_name, manager_name))
                 else:
-                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (full_name=? OR first_name=?) LIMIT 1")
                     cur2.execute(manager_query, (manager_name, manager_name))
                 manager_user = cur2.fetchone()
                 conn2.close()
@@ -358,10 +359,10 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), backgr
                 cur2 = conn2.cursor()
                 # Ищем менеджера по имени или manager_id
                 if manager_id:
-                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
+                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (id=? OR full_name=? OR first_name=?) LIMIT 1")
                     cur2.execute(manager_query, (manager_id, manager_name, manager_name))
                 else:
-                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+                    manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (full_name=? OR first_name=?) LIMIT 1")
                     cur2.execute(manager_query, (manager_name, manager_name))
                 manager_user = cur2.fetchone()
                 conn2.close()
@@ -717,8 +718,7 @@ def _can_manage_protection(cur, row, user):
 def _refresh_protection_actor(cur, user, admin=False):
     cur.execute(_adapt_query("SELECT * FROM users WHERE id=?"), (user.get("id"),))
     current = cur.fetchone()
-    if not current or current.get("is_active") in (False, 0, "0"):
-        raise HTTPException(status_code=403, detail="Нет доступа к приложению")
+    require_account_access(current)
     if admin and current.get("role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Действие доступно только администратору")
     user.update(dict(current))
@@ -984,55 +984,9 @@ async def register_or_login(data: RegisterOrLogin):
 
 
 @app.post("/api/auth/register")
-async def register(data: UserRegister):
-    """Регистрация нового пользователя"""
-    # Валидация email
-    import re
-    email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    if not re.match(email_pattern, data.email):
-        raise HTTPException(status_code=400, detail="Invalid email format")
-    
-    # Валидация пароля
-    if len(data.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
-    
-    if len(data.password.encode("utf-8")) > 72:
-        raise HTTPException(400, "Пароль слишком длинный: максимум 72 байта UTF-8")
-
-    # Проверка существования email
-    existing = get_user_by_email(data.email)
-    if existing:
-        raise HTTPException(status_code=400, detail="User with this email already exists")
-    
-    # Создание пользователя
-    try:
-        user = db_create_user({
-            "email": data.email,
-            "password_hash": get_password_hash(data.password),
-            "full_name": data.full_name,
-            "phone": data.phone,
-            "company": data.company,
-            "city": data.city,
-            "role": "manager",
-            "is_active": 1,
-            "created_at": now_iso()
-        })
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    # Создание токена
-    token = create_access_token(user)
-    
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-        }
-    }
+async def register(data: Optional[dict] = Body(None)):
+    raise HTTPException(403, {"code": "registration_closed",
+                              "message": "Самостоятельная регистрация закрыта. Откройте приложение через Telegram, чтобы подать заявку на доступ."})
 
 
 @app.post("/api/auth/login")
@@ -1049,8 +1003,7 @@ async def login(data: UserLogin):
         valid = False
     if not valid:
         raise HTTPException(401, "Неверный email или пароль")
-    if user.get("is_active", 1) in (0, "0", False):
-        raise HTTPException(403, "Ваш аккаунт заблокирован. Обратитесь к администратору.")
+    require_account_access(user)
     user = update_user(user["id"], {"last_login": now_iso()})
     return login_response(user)
 
@@ -1106,6 +1059,7 @@ def admin_list_users(admin_user=Depends(require_admin)):
                 "city": u.get("city", ""),
                 "role": u["role"],
                 "is_active": u.get("is_active", 1),
+                "access_status": u.get("access_status"),
                 "created_at": u.get("created_at", ""),
                 "last_login": u.get("last_login"),
                 "manager_id": u.get("manager_id"),
@@ -1115,6 +1069,24 @@ def admin_list_users(admin_user=Depends(require_admin)):
             for u in users
         ]
     }
+
+
+class AccessApproval(BaseModel):
+    role: str = "manager"
+
+
+@app.post("/api/admin/users/{user_id}/approve")
+def admin_approve_user(user_id: int, data: Optional[AccessApproval] = Body(None), admin_user=Depends(get_admin_user)):
+    from backend.account_admin import review_application
+    updated = review_application(admin_user["id"], user_id, approve=True, role=data.role if data else "manager")
+    return {"ok": True, "user": public_user(updated)}
+
+
+@app.post("/api/admin/users/{user_id}/reject")
+def admin_reject_user(user_id: int, admin_user=Depends(get_admin_user)):
+    from backend.account_admin import review_application
+    updated = review_application(admin_user["id"], user_id, approve=False)
+    return {"ok": True, "user": public_user(updated)}
 
 
 @app.patch("/api/admin/users/{user_id}")
@@ -1375,7 +1347,7 @@ def get_user_managers(user=Depends(get_current_active_user)):
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, first_name AS name FROM users WHERE role='manager' ORDER BY LOWER(first_name)")
+        cur.execute("SELECT id, first_name AS name FROM users WHERE access_status='approved' AND role='manager' ORDER BY LOWER(first_name)")
         return [dict(row) for row in cur.fetchall()]
     finally:
         conn.close()
@@ -1436,6 +1408,7 @@ def create_protection(payload: ProtectionCreate, user=Depends(get_current_active
             WHERE role IN ('admin', 'superadmin')
               AND tg_id IS NOT NULL
               AND tg_id != ''
+                  AND access_status='approved' AND COALESCE(is_active,1)<>0
                   AND (receive_notifications IS NULL OR receive_notifications = 1)
                 """)
             cur.execute(admin_query)
@@ -1993,8 +1966,7 @@ def export_download(ticket: str):
     except ValueError:
         raise HTTPException(status_code=403, detail="Ссылка на выгрузку истекла. Создайте новую в приложении")
     user = get_user_by_id(payload["uid"])
-    if not user or user.get("is_active") in (False, 0, "0"):
-        raise HTTPException(status_code=403, detail="Нет доступа к выгрузке")
+    require_account_access(user)
     filters = {key: str(payload["filters"].get(key) or "") for key in ("search", "manager", "status")}
     response = export_protections(**filters, user=user)
     response.headers["Cache-Control"] = "private, no-store"
@@ -2079,6 +2051,7 @@ def request_extend(pid: int, data: dict = Body(...), background_tasks: Backgroun
             WHERE role IN ('admin', 'superadmin')
               AND tg_id IS NOT NULL
               AND tg_id != ''
+              AND access_status='approved' AND COALESCE(is_active,1)<>0
               AND (receive_notifications IS NULL OR receive_notifications = 1)
         """)
         cur.execute(admin_query)
@@ -2304,7 +2277,7 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     # Если удаляет админ - отправляем уведомление автору
     if is_admin and not is_author and protection_manager_id:
         # Получаем данные автора
-        author_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=?")
+        author_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND id=?")
         cur.execute(author_query, (protection_manager_id,))
         author_row = cur.fetchone()
         if author_row and ("tg_id" in author_row.keys() and author_row["tg_id"]):
@@ -2539,10 +2512,10 @@ def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user), bac
         if manager_name:
             # Ищем менеджера по имени или manager_id
             if manager_id:
-                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
+                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (id=? OR full_name=? OR first_name=?) LIMIT 1")
                 cur.execute(manager_query, (manager_id, manager_name, manager_name))
             else:
-                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (full_name=? OR first_name=?) LIMIT 1")
                 cur.execute(manager_query, (manager_name, manager_name))
             manager_user = cur.fetchone()
             
@@ -2619,7 +2592,7 @@ def admin_reject_extend_request(pid: int, data: dict = Body(...), user=Depends(g
     manager_name = row.get("manager", "")
     if manager_name:
         # Ищем менеджера по имени
-        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
+        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND (full_name=? OR first_name=?) LIMIT 1")
         cur.execute(query, (manager_name, manager_name))
         manager_user = cur.fetchone()
         
@@ -2943,7 +2916,7 @@ async def check_expiring_protections():
                        p.area_m2, p.extend_count, p.reminder_2days_sent,
                        u.tg_id, u.id AS user_id
                 FROM protections p
-                LEFT JOIN users u ON u.id = p.manager_id
+                LEFT JOIN users u ON u.id = p.manager_id AND u.access_status='approved' AND COALESCE(u.is_active,1)<>0
                 WHERE p.status='active' 
                   AND (p.reminder_2days_sent IS NULL OR p.reminder_2days_sent = 0)
             """)
@@ -2982,7 +2955,7 @@ async def check_expiring_protections():
                 if manager_id:
                     recipients_query = _adapt_query("""
                         SELECT tg_id FROM users 
-                        WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
+                        WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
                     """)
                     cur.execute(recipients_query, (manager_id,))
                     recipients_rows = cur.fetchall()
@@ -2995,7 +2968,7 @@ async def check_expiring_protections():
                 
                 # Ищем пользователей, привязанных через manager_ids (JSON массив)
                 import json
-                query = _adapt_query("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''")
+                query = _adapt_query("SELECT tg_id, manager_ids FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND tg_id IS NOT NULL AND tg_id != ''")
                 cur.execute(query)
                 all_users = cur.fetchall()
                 for user_row in all_users:
@@ -3108,7 +3081,7 @@ async def auto_close_expired_protections():
                        p.expires_at, p.auto_closed,
                        u.tg_id
                 FROM protections p
-                LEFT JOIN users u ON u.id = p.manager_id
+                LEFT JOIN users u ON u.id = p.manager_id AND u.access_status='approved' AND COALESCE(u.is_active,1)<>0
                 WHERE p.status = 'active' 
                   AND (p.auto_closed IS NULL OR p.auto_closed = 0)
             """)
@@ -3173,7 +3146,7 @@ async def auto_close_expired_protections():
                 if manager_id:
                     recipients_query = _adapt_query("""
                         SELECT tg_id FROM users 
-                        WHERE manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
+                        WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND manager_id = ? AND tg_id IS NOT NULL AND tg_id != ''
                     """)
                     cur.execute(recipients_query, (manager_id,))
                     recipients_rows = cur.fetchall()
@@ -3186,7 +3159,7 @@ async def auto_close_expired_protections():
                 
                 # Ищем пользователей, привязанных через manager_ids (JSON массив)
                 import json
-                query_recipients = _adapt_query("SELECT tg_id, manager_ids FROM users WHERE tg_id IS NOT NULL AND tg_id != ''")
+                query_recipients = _adapt_query("SELECT tg_id, manager_ids FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND tg_id IS NOT NULL AND tg_id != ''")
                 cur.execute(query_recipients)
                 all_users = cur.fetchall()
                 for user_row in all_users:
@@ -3254,6 +3227,7 @@ async def auto_close_expired_protections():
                         WHERE role IN ('admin', 'superadmin') 
                           AND tg_id IS NOT NULL 
                           AND tg_id != ''
+                          AND access_status='approved' AND COALESCE(is_active,1)<>0
                           AND (receive_notifications IS NULL OR receive_notifications = 1)
                     """)).fetchall()
                     
@@ -3337,7 +3311,7 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
     tg_ids: list[int] = []
 
     # найдём самого менеджера
-    mgr_query = _adapt_query("SELECT id, tg_id, group_tag FROM users WHERE role='manager' AND first_name=?")
+    mgr_query = _adapt_query("SELECT id, tg_id, group_tag FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND role='manager' AND first_name=?")
     cur.execute(mgr_query, (manager_name,))
     mgr = cur.fetchone()
 
@@ -3348,7 +3322,7 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
         group_tag = mgr["group_tag"]
 
         # ассистенты этого менеджера
-        assistants_query = _adapt_query("SELECT tg_id FROM users WHERE role='assistant' AND manager_id=?")
+        assistants_query = _adapt_query("SELECT tg_id FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND role='assistant' AND manager_id=?")
         cur.execute(assistants_query, (mgr["id"],))
         assistants = cur.fetchall()
         for a in assistants:
@@ -3358,7 +3332,7 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
     # админы этой же группы (только те, у кого включены уведомления)
     if group_tag:
         admins = cur.execute(
-            _adapt_query("SELECT tg_id FROM users WHERE role='admin' AND group_tag=? AND (receive_notifications IS NULL OR receive_notifications = 1)"),
+            _adapt_query("SELECT tg_id FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND role='admin' AND group_tag=? AND (receive_notifications IS NULL OR receive_notifications = 1)"),
             (group_tag,)
         ).fetchall()
         for a in admins:
@@ -3366,7 +3340,7 @@ def get_tg_recipients_for_manager(cur, manager_name: str) -> list[int]:
                 tg_ids.append(a["tg_id"])
 
     # супер-админ (только те, у кого включены уведомления)
-    superadmins_query = _adapt_query("SELECT tg_id FROM users WHERE role='superadmin' AND (receive_notifications IS NULL OR receive_notifications = 1)")
+    superadmins_query = _adapt_query("SELECT tg_id FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND role='superadmin' AND (receive_notifications IS NULL OR receive_notifications = 1)")
     cur.execute(superadmins_query)
     superadmins = cur.fetchall()
     for sa in superadmins:
@@ -3476,6 +3450,7 @@ async def notify_all_users_new_protection(p: dict):
         FROM users 
         WHERE tg_id IS NOT NULL 
           AND tg_id != ''
+          AND access_status='approved' AND COALESCE(is_active,1)<>0
           AND (receive_notifications IS NULL OR receive_notifications = 1)
     """)
     cur.execute(query)
@@ -3561,15 +3536,24 @@ async def reject_handler(callback: types.CallbackQuery):
 
 def _telegram_actor(tg_id, admin=False):
     user = get_user_by_tg_id(str(tg_id))
-    if not user or user.get("is_active") in (False, 0, "0"):
-        raise HTTPException(status_code=403, detail="Нет доступа. Откройте приложение через Telegram")
+    require_account_access(user)
     if admin and user.get("role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Действие доступно только администратору")
     return dict(user)
 
 
 def _telegram_error(exc):
-    return str(exc.detail.get("msg", "Действие недоступно") if isinstance(exc.detail, dict) else exc.detail)
+    return str(exc.detail.get("message") or exc.detail.get("msg", "Действие недоступно") if isinstance(exc.detail, dict) else exc.detail)
+
+
+@dp.callback_query.middleware()
+async def admission_callback_middleware(handler, event, data):
+    try:
+        _telegram_actor(event.from_user.id)
+    except HTTPException as exc:
+        await event.answer(_telegram_error(exc), show_alert=True)
+        return
+    return await handler(event, data)
 
 
 # === Обработка продления защиты при истечении ===
@@ -3589,6 +3573,11 @@ async def extend_expiring_handler(callback: types.CallbackQuery):
 # === Обработка успешного завершения защиты при истечении ===
 @dp.callback_query(F.data.startswith("success_exp:"))
 async def success_expiring_handler(callback: types.CallbackQuery):
+    try:
+        actor = _telegram_actor(callback.from_user.id)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
     pid = int(callback.data.split(":")[1])
     
     conn = get_conn()
@@ -3607,7 +3596,6 @@ async def success_expiring_handler(callback: types.CallbackQuery):
         return
     
     try:
-        actor = _telegram_actor(callback.from_user.id)
         _require_protection_access(cur, row, actor)
     except HTTPException as exc:
         conn.close()
@@ -3629,6 +3617,11 @@ async def success_expiring_handler(callback: types.CallbackQuery):
 # === Обработка закрытия защиты при истечении ===
 @dp.callback_query(F.data.startswith("close_exp:"))
 async def close_expiring_handler(callback: types.CallbackQuery):
+    try:
+        actor = _telegram_actor(callback.from_user.id)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
     pid = int(callback.data.split(":")[1])
     
     conn = get_conn()
@@ -3647,7 +3640,6 @@ async def close_expiring_handler(callback: types.CallbackQuery):
         return
     
     try:
-        actor = _telegram_actor(callback.from_user.id)
         _require_protection_access(cur, row, actor)
     except HTTPException as exc:
         conn.close()
@@ -3812,18 +3804,12 @@ def is_spam_message(text: str) -> bool:
     return False
 
 def is_authorized_user(tg_id: int) -> bool:
-    """Проверяет, авторизован ли пользователь (есть ли в базе)"""
+    """Pending, rejected and blocked profiles cannot use bot commands."""
     try:
-        conn = get_conn()
-        cur = conn.cursor()
-        query = _adapt_query("SELECT id FROM users WHERE tg_id=?")
-        cur.execute(query, (str(tg_id),))
-        user = cur.fetchone()
-        conn.close()
-        return user is not None
-    except Exception as e:
-        print(f"⚠️ Ошибка проверки авторизации пользователя {tg_id}: {e}")
+        return has_account_access(get_user_by_tg_id(str(tg_id)))
+    except Exception:
         return False
+
 
 def log_suspicious_activity(tg_id: int, username: str, text: str, reason: str):
     """Логирует подозрительную активность и отправляет уведомление админу"""
@@ -3841,7 +3827,7 @@ def log_suspicious_activity(tg_id: int, username: str, text: str, reason: str):
         conn = get_conn()
         cur = conn.cursor()
         # Получаем всех админов
-        query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
+        query = _adapt_query("SELECT tg_id FROM users WHERE access_status='approved' AND COALESCE(is_active,1)<>0 AND role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != ''")
         cur.execute(query)
         admins = cur.fetchall()
         conn.close()
@@ -3901,7 +3887,12 @@ async def spam_protection_middleware(handler, event, data):
     if text.startswith("/"):
         command = text.split()[0] if text.split() else ""
         if command in ALLOWED_COMMANDS:
-            # Разрешенные команды пропускаем дальше
+            if command != "/start":
+                try:
+                    _telegram_actor(tg_id)
+                except HTTPException as exc:
+                    await event.answer(_telegram_error(exc))
+                    return
             return await handler(event, data)
         else:
             # Неизвестная команда - блокируем
@@ -4006,9 +3997,15 @@ async def cmd_start_with_webapp(message: types.Message):
     first_name = message.from_user.first_name or ""
     
     try:
-        resolve_verified_user({"id": tg_id, "username": username, "first_name": first_name})
+        user = resolve_verified_user({"id": tg_id, "username": username, "first_name": first_name})
+        require_account_access(user)
     except HTTPException as exc:
-        await message.answer(_telegram_error(exc))
+        keyboard = None
+        if isinstance(exc.detail, dict) and exc.detail.get("code") == "access_pending":
+            keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="Проверить доступ", web_app=WebAppInfo(url=WEBAPP_URL))
+            ]])
+        await message.answer(_telegram_error(exc), reply_markup=keyboard)
         return
 
     # Проверяем, что URL правильный (должен быть HTTPS)
@@ -4075,6 +4072,11 @@ async def cmd_start_with_webapp(message: types.Message):
 async def cmd_protections(message: types.Message):
     """Список активных защит"""
     try:
+        _telegram_actor(message.from_user.id)
+    except HTTPException as exc:
+        await message.answer(_telegram_error(exc))
+        return
+    try:
         conn = get_conn()
         cur = conn.cursor()
         query = _adapt_query("SELECT id, manager, sku, expires_at, partner, partner_city FROM protections WHERE status='active' ORDER BY expires_at ASC LIMIT 10")
@@ -4102,19 +4104,10 @@ async def cmd_protections(message: types.Message):
 async def cmd_pending(message: types.Message):
     """Список защит на проверке (только для админов)"""
     try:
-        # Проверяем, является ли пользователь админом
-        tg_id = message.from_user.id
+        _telegram_actor(message.from_user.id, admin=True)
         conn = get_conn()
         cur = conn.cursor()
-        query = _adapt_query("SELECT role FROM users WHERE tg_id=?")
-        cur.execute(query, (str(tg_id),))
-        user = cur.fetchone()
-        
-        if not user or user.get("role") not in ("admin", "superadmin") if isinstance(user, dict) else user[0] not in ("admin", "superadmin"):
-            await message.answer("❌ Доступно только администраторам")
-            conn.close()
-            return
-        
+
         query = _adapt_query("SELECT id, manager, sku, partner, partner_city, created_at FROM protections WHERE status='pending' ORDER BY created_at DESC LIMIT 10")
         cur.execute(query)
         rows = cur.fetchall()
@@ -4325,7 +4318,7 @@ def readiness():
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT id, role, is_active, manager_ids FROM users LIMIT 0")
+        cur.execute("SELECT id, role, is_active, access_status, manager_ids FROM users LIMIT 0")
         cur.execute("SELECT id, auto_closed, updated_at, reminder_2days_sent FROM protections LIMIT 0")
         cur.execute("SELECT id, protection_id, actor, payload FROM history LIMIT 0")
     except Exception:

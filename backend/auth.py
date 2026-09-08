@@ -6,6 +6,7 @@ from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 from backend.db import get_user_by_id, get_user_by_email
+from backend.access_control import require_account_access
 
 # ИСПОЛЬЗУЕМ ТОТ ЖЕ СПОСОБ ПОЛУЧЕНИЯ СЕКРЕТА, ЧТО И В main.py
 # Копируем логику env_get() из main.py для точного совпадения
@@ -148,9 +149,7 @@ def get_current_user(credentials=Depends(security)):
                 pass
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-    if user.get("is_active", 1) in (0, "0", False):
-        raise HTTPException(status_code=403, detail="Ваш аккаунт заблокирован. Обратитесь к администратору.")
-    return user
+    return require_account_access(user)
 
 
 def get_current_active_user(credentials=Depends(security)):

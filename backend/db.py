@@ -344,6 +344,33 @@ def upsert_user(data: dict):
                                   "first_name": data.get("first_name", "")}, data)
 
 
+def migrate_user_access_status(conn):
+    """Grandfather existing rows without touching identity, activity or privileges.
+
+    This security migration is mandatory. Its failure aborts startup instead of
+    falling through the best-effort historical migrations below.
+    """
+    cur = conn.cursor()
+    try:
+        if USE_POSTGRES:
+            cur.execute("SELECT pg_advisory_xact_lock(-71920260909)")
+            cur.execute("""SELECT column_name FROM information_schema.columns
+                           WHERE table_schema=current_schema() AND table_name='users'
+                             AND column_name='access_status'""")
+            exists = bool(cur.fetchone())
+        else:
+            cur.execute("PRAGMA table_info(users)")
+            exists = any(row[1] == "access_status" for row in cur.fetchall())
+        if not exists:
+            cur.execute("ALTER TABLE users ADD COLUMN access_status TEXT NOT NULL DEFAULT 'approved'")
+        cur.execute("SELECT access_status FROM users LIMIT 0")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
+
+
 # === Инициализация таблиц ===
 def init_db():
     conn = get_conn()
@@ -436,6 +463,7 @@ def init_db():
                 company TEXT,
                 city TEXT,
                 is_active INTEGER DEFAULT 1,
+                access_status TEXT NOT NULL DEFAULT 'approved',
                 last_login TEXT,
                 updated_at TEXT,
                 extra TEXT,
@@ -472,6 +500,7 @@ def init_db():
                 company TEXT,
                 city TEXT,
                 is_active INTEGER DEFAULT 1,
+                access_status TEXT NOT NULL DEFAULT 'approved',
                 last_login TEXT,
                 updated_at TEXT,
                 extra TEXT,
@@ -489,7 +518,7 @@ def init_db():
         cur.execute("""
             SELECT column_name 
             FROM information_schema.columns 
-            WHERE table_name = 'users'
+            WHERE table_schema=current_schema() AND table_name = 'users'
         """)
         existing_columns = {row["column_name"] if isinstance(row, dict) else row[0] for row in cur.fetchall()}
     else:
@@ -534,6 +563,8 @@ def init_db():
                 # Колонка уже существует или другая ошибка
                 print(f"⚠️ Could not add column {col_name}: {e}")
     
+    migrate_user_access_status(conn)
+
     # Миграция: изменяем tg_id с INTEGER на TEXT, если нужно
     # SQLite не поддерживает ALTER COLUMN напрямую, но можно проверить тип
     try:

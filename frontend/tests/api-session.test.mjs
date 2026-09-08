@@ -110,3 +110,21 @@ test('signed login includes legacy display fields for rolling deployment', async
   window.Telegram.WebApp.initDataUnsafe={user:{id:123456789,username:'verified_user',first_name:'Verified'}};
   await authenticateTelegram();
 });
+
+
+test('an expired unapproved session clears cached access and propagates the pending state without retrying the protected request', async () => {
+  const calls = [];
+  const pending = { code: 'access_pending', message: 'Заявка ожидает одобрения.' };
+  const { api, storage, getAuthenticationIssue } = await setup(config => {
+    calls.push(config.url);
+    return config.url.endsWith('/api/auth/telegram-login') ? fail(config, 403, pending) : fail(config, 401);
+  });
+  let denied;
+  window.addEventListener('auth:denied', event => { denied = event.detail; });
+  await assert.rejects(api.get('/api/protections'), error => error.response.status === 403 && error.response.data.detail.code === 'access_pending');
+  assert.deepEqual(calls, ['/api/protections', 'http://localhost:8000/api/auth/telegram-login']);
+  assert.equal(storage.has('jwt_token'), false);
+  assert.equal(storage.has('auth_user'), false);
+  assert.equal(getAuthenticationIssue().code, 'access_pending');
+  assert.equal(denied.code, 'access_pending');
+});

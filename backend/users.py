@@ -102,25 +102,8 @@ def list_users(user=Depends(require_admin)):
 # === Привязать помощника к менеджеру ===
 @router.post("/link-assistant")
 def link_assistant(data: LinkAssistant, user=Depends(require_admin)):
-    conn = get_conn()
-    cur = conn.cursor()
-    placeholder = _get_param_placeholder()
-    
-    # Проверяем, что оба пользователя есть
-    query = _adapt_query("SELECT * FROM users WHERE id=?")
-    cur.execute(query, (data.manager_id,))
-    mgr = cur.fetchone()
-    cur.execute(query, (data.assistant_id,))
-    asst = cur.fetchone()
-
-    if not mgr or not asst:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Manager or Assistant not found")
-
-    query = _adapt_query(f"UPDATE users SET manager_id={placeholder} WHERE id={placeholder}")
-    cur.execute(query, (data.manager_id, data.assistant_id))
-    conn.commit()
-    conn.close()
+    from backend.account_admin import link_account_assistant
+    link_account_assistant(user["id"], data.manager_id, data.assistant_id)
     return {"ok": True, "msg": "Assistant linked to manager"}
 
 

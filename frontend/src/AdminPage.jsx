@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import "./styles.css";
+import UsersTab from "./pg/admin/UsersTab";
+import "./pg/admin.css";
 
 // ==============================
 // 🎨 ПРЕМИУМ ДИЗАЙН АДМИНКИ
@@ -1184,6 +1186,7 @@ function UsersTable() {
   }, []);
 
   const filteredUsers = users.filter((u) => {
+    if (u.access_status && u.access_status !== "approved") return false;
     const matchesSearch = !search || 
       (u.email || "").toLowerCase().includes(search.toLowerCase()) ||
       (u.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
@@ -1197,6 +1200,7 @@ function UsersTable() {
 
   return (
     <div>
+      <UsersTab role={role} admissionsOnly onChanged={loadUsers} />
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <input

@@ -15,6 +15,7 @@ export function errText(e, fallback = "Не удалось выполнить д
   if (detail && typeof detail === "object" && typeof detail.msg === "string") {
     return detail.msg;
   }
+  if (detail && typeof detail.message === "string") return detail.message;
   if (typeof e?.userMessage === "string" && e.userMessage.trim()) {
     return e.userMessage.trim();
   }
