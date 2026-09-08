@@ -7,10 +7,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
-import { Badge, Button, Card, Icon, KV, Skeleton, Track } from "./ui";
+import { Badge, Button, Card, Icon, KV, Segment, Sheet, Skeleton, Track } from "./ui";
 import ActionSheets from "./ActionSheets";
 import {
-  daysLeftText, fmtArea, fmtDate, fmtDateShort, maskPhone, parseSkuCodes,
+  fmtArea, fmtDate, fmtDateShort, maskPhone, parseSkuCodes,
   remainingPercent, statusBadge, statusKind, trackTone,
 } from "./format";
 import { BACK_PRIORITY, haptic, isTelegramApp, useBackButton, useMainButton } from "./telegram";
@@ -33,6 +33,11 @@ const ACTION_LABEL = {
   success: "Отмечена успешной",
   delete: "Удалена",
   restore: "Восстановлена",
+  edit: "Данные защиты изменены",
+  update: "Данные защиты изменены",
+  self_restore: "Восстановлена после истечения срока",
+  auto_close: "Срок защиты истёк",
+  update_closed: "Данные закрытия изменены",
 };
 
 const ACTOR_LABEL = {
@@ -46,7 +51,7 @@ function historyLine(entry) {
   const p = entry.payload || {};
   const base = ACTION_LABEL[entry.action] || entry.action;
 
-  if (entry.action === "extend" && p.days) return `${base} на ${p.days} дн.`;
+  if ((entry.action === "extend" || entry.action === "restore") && p.days) return `${base} на ${p.days} дн.`;
   if (entry.action === "close" && p.reason) return `${base}: ${p.reason}`;
   if (entry.action === "delete" && p.reason && p.reason !== "not provided") {
     return `${base}: ${p.reason}`;
@@ -57,6 +62,25 @@ function historyLine(entry) {
   }
   if (entry.action === "create_pending" && p.reason) return `${base}: ${p.reason}`;
   return base;
+}
+
+const HISTORY_FIELDS = { manager: "Менеджер", client: "Клиент", partner: "Партнёр", partner_city: "Город партнёра", last4: "Телефон (4 цифры)", object_city: "Город объекта", address: "Адрес", sku: "Артикулы", area_m2: "Метраж", comment: "Комментарий", expires_at: "Срок", close_reason: "Причина закрытия", success_doc: "Документ 1С", status: "Статус", extend_count: "Продлений", closed_at: "Дата закрытия", auto_closed: "Автоматическое закрытие" };
+
+function HistoryChanges({ entry }) {
+  const before = entry.payload?.before;
+  const after = entry.payload?.after;
+  if (!before || !after) return null;
+  const keys = Object.keys(after).filter((key) => HISTORY_FIELDS[key]);
+  if (!keys.length) return null;
+  const value = (key, input) => {
+    if (input == null || input === "") return "не указано";
+    if (key.endsWith("_at")) return fmtDate(input);
+    if (key === "area_m2") return fmtArea(input);
+    if (key === "status") return ({ active: "Активна", closed: "Закрыта", success: "Успешна", deleted: "Удалена" })[input] || String(input);
+    if (key === "auto_closed") return Number(input) ? "да" : "нет";
+    return String(input);
+  };
+  return <details className="pgd-hist__changes"><summary>Что изменилось</summary>{keys.map((key) => <div key={key}><strong>{HISTORY_FIELDS[key]}</strong><span>{value(key, before[key])} → {value(key, after[key])}</span></div>)}</details>;
 }
 
 function History({ protectionId }) {
@@ -108,7 +132,8 @@ function History({ protectionId }) {
           <span className="pgd-hist__d pg-num">{fmtDateShort(entry.at)}</span>
           <span className="pgd-hist__t">
             {historyLine(entry)}
-            <i>{ACTOR_LABEL[entry.actor] || entry.actor}</i>
+            <i>{entry.payload?.actor_role ? `${ACTOR_LABEL[entry.payload.actor_role] || entry.payload.actor_role} · сотрудник №${entry.payload.actor_id || entry.actor}` : ACTOR_LABEL[entry.actor] || entry.actor}</i>
+            <HistoryChanges entry={entry} />
           </span>
         </div>
       ))}
@@ -120,6 +145,8 @@ function History({ protectionId }) {
 
 export default function ProtectionDetail({ item, auth, onBack, act, openEditModal, restoreProtection, sheets }) {
   const [restoring, setRestoring] = useState(false);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreDays, setRestoreDays] = useState(10);
 
   const nativeNav = useNativeNav();
   useBackButton(onBack, true, BACK_PRIORITY.overlay);
@@ -128,7 +155,12 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
   const isAdmin = role === "admin" || role === "superadmin";
   const isSuperadmin = role === "superadmin";
   const currentUserId = auth?.user?.id || auth?.user?.user_id;
-  const isAuthor = !!(item?.manager_id && currentUserId && item.manager_id === currentUserId);
+  const isAuthor = !!(item?.manager_id && currentUserId && String(item.manager_id) === String(currentUserId));
+
+  const canManage = item?.can_edit ?? (isAdmin || isAuthor);
+  const expiredClosed = item?.status === "closed" && Number(item.auto_closed) === 1;
+  const canRestore = item?.can_restore ?? (isSuperadmin && item?.status !== "active");
+  const needsRestoreApproval = !!item?.restore_requires_admin;
 
   const kind = statusKind(item);
   const badge = statusBadge(item);
@@ -150,13 +182,19 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
   useMainButton({
     text: "Продлить срок",
     onClick: () => run("extend"),
-    visible: nativeNav && isActive,
+    visible: nativeNav && isActive && canManage,
   });
 
   const onRestore = async () => {
+    if (needsRestoreApproval && sheets?.setExtendRequestModal) {
+      setRestoreOpen(false);
+      sheets.setExtendRequestModal({ open: true, id: item.id, days: restoreDays, reason: "", message: "Два самостоятельных продления использованы. Запросите восстановление с сохранением истории у администратора." });
+      return;
+    }
     setRestoring(true);
-    const ok = await restoreProtection(item.id);
+    const ok = await restoreProtection(item.id, restoreDays, isSuperadmin && !expiredClosed);
     setRestoring(false);
+    if (ok) setRestoreOpen(false);
     if (ok) {
       haptic("success");
       onBack();
@@ -249,7 +287,7 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
         {/* ---- действия ---- */}
         <div className="pgd__acts">
           {isActive ? (
-            <>
+            canManage ? <>
               {!nativeNav && (
                 <Button variant="primary" block icon="hourglass" onClick={() => run("extend")}>
                   Продлить срок
@@ -267,27 +305,28 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
                 <Button variant="ghost" icon="edit" onClick={() => run("edit")}>
                   Редактировать
                 </Button>
-                {(isAdmin || isAuthor) && (
+                {canManage && (
                   <Button variant="ghost" icon="trash" className="pg-btn--danger-text" onClick={() => run("delete")}>
                     Удалить
                   </Button>
                 )}
               </div>
-            </>
+            </> : <div className="pgd__note"><Icon name="lock" size={14} />Изменять защиту может её менеджер, назначенный помощник или администратор.</div>
           ) : (
             <>
-              {isSuperadmin && (
+              {(canRestore || needsRestoreApproval) && (
                 <Button
                   variant="primary"
                   block
                   icon="restore"
                   loading={restoring}
-                  onClick={onRestore}
+                  onClick={() => setRestoreOpen(true)}
                 >
-                  Восстановить защиту
+                  {needsRestoreApproval ? "Запросить восстановление" : "Восстановить защиту"}
                 </Button>
               )}
-              {(isAdmin || isAuthor) && item.status !== "success" && sheets?.setUpdateClosedModal && (
+              {canManage && <Button variant="ghost" block icon="edit" onClick={() => run("edit")}>Редактировать данные</Button>}
+              {canManage && item.status !== "success" && sheets?.setUpdateClosedModal && (
                 <div className="pgd__acts-row">
                   <Button
                     variant="secondary"
@@ -315,7 +354,7 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
                   </Button>
                 </div>
               )}
-              {!isSuperadmin && !isAdmin && !isAuthor && (
+              {!canManage && !canRestore && (
                 <div className="pgd__note">
                   <Icon name="lock" size={14} />
                   Защита в архиве — доступна только для просмотра.
@@ -328,6 +367,14 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
         <div className="pgd__pad" />
       </div>
 
+      <Sheet open={restoreOpen} title="Восстановить защиту" onClose={() => !restoring && setRestoreOpen(false)} actions={<>
+        <Button variant="primary" block loading={restoring} onClick={onRestore}>{needsRestoreApproval ? "Перейти к запросу" : "Восстановить защиту"}</Button>
+        <Button variant="ghost" block disabled={restoring} onClick={() => setRestoreOpen(false)}>Отмена</Button>
+      </>}>
+        <div className="pg-sheet__text">Защита вернётся в активные с тем же номером и всей историей. Новый срок начнётся с сегодняшнего дня. Перед восстановлением проверим похожие активные защиты.</div>
+        <Segment value={restoreDays} onChange={setRestoreDays} options={[{ value: 10, label: "10 рабочих дней" }, { value: 30, label: "30 рабочих дней" }]} />
+        {!isAdmin && <div className="pg-sheet__text">{needsRestoreApproval ? "Лимит самостоятельных продлений исчерпан. Восстановление согласует администратор." : `Восстановление использует одно из двух продлений. Сейчас использовано: ${extendCount} из ${EXTEND_LIMIT}.`}</div>}
+      </Sheet>
       {sheets && <ActionSheets {...sheets} />}
     </div>
   );

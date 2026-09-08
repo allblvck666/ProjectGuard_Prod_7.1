@@ -31,7 +31,7 @@ export default function ProtectionsList({
   deleteModal, setDeleteModal, doDelete,
   editModal, setEditModal, editSelectedSkus, setEditSelectedSkus,
   editPerSkuMode, setEditPerSkuMode, editAreaUnified, setEditAreaUnified,
-  editComment, setEditComment, submitEdit, skus, onAreaChange,
+  editComment, setEditComment, editDetails, setEditDetails, editSaving, submitEdit, skus, onAreaChange,
   extendRequestModal, setExtendRequestModal, submitExtendRequest,
   updateClosedModal, setUpdateClosedModal, updateClosedProtection,
   restoreProtection, newDetail, loadError, initialFilter, showBack = true,
@@ -61,7 +61,8 @@ export default function ProtectionsList({
 
     if (tab === "my") {
       result = result.filter((it) => {
-        if (it.manager_id && currentUserId) return it.manager_id === currentUserId;
+        if (role === "assistant" && it.can_edit) return true;
+        if (it.manager_id && currentUserId) return String(it.manager_id) === String(currentUserId);
         return it.manager === currentUserName;
       });
     }
@@ -91,7 +92,7 @@ export default function ProtectionsList({
       if (Number.isFinite(da) && Number.isFinite(db) && da !== db) return da - db;
       return String(a.partner || "").localeCompare(String(b.partner || ""), "ru");
     });
-  }, [items, tab, search, managerFilter, onlyExpiring, currentUserId, currentUserName]);
+  }, [items, tab, search, managerFilter, onlyExpiring, currentUserId, currentUserName, role]);
 
   // В фильтре показываем справочник менеджеров плюс тех, кто встречается в защитах
   const managerOptions = useMemo(() => {
@@ -142,8 +143,8 @@ export default function ProtectionsList({
   };
 
   const total = Array.isArray(items) ? items.length : 0;
-  const canDelete = (item) =>
-    isAdmin || (item?.manager_id && currentUserId && item.manager_id === currentUserId);
+  const canManage = (item) => item?.can_edit ?? (isAdmin || (item?.manager_id && currentUserId && String(item.manager_id) === String(currentUserId)));
+  const canDelete = canManage;
 
   const listBody = () => {
     if (loading && filtered.length === 0) return <LoadingState rows={4} />;
@@ -337,7 +338,7 @@ export default function ProtectionsList({
               </Badge>
             </div>
 
-            <div className="pgl-act__list">
+            {canManage(actionsFor) ? <div className="pgl-act__list">
               <Button variant="primary" block icon="hourglass" onClick={() => runAction("extend")}>
                 Продлить срок
               </Button>
@@ -355,7 +356,7 @@ export default function ProtectionsList({
                   Удалить
                 </Button>
               )}
-            </div>
+            </div> : <div className="pg-sheet__text">Изменять защиту может её менеджер, назначенный помощник или администратор.</div>}
           </>
         )}
       </Sheet>
@@ -414,6 +415,11 @@ export default function ProtectionsList({
         setEditPerSkuMode={setEditPerSkuMode}
         editAreaUnified={editAreaUnified}
         setEditAreaUnified={setEditAreaUnified}
+        editDetails={editDetails}
+        setEditDetails={setEditDetails}
+        editSaving={editSaving}
+        managers={managers}
+        auth={auth}
         editComment={editComment}
         setEditComment={setEditComment}
         submitEdit={submitEdit}

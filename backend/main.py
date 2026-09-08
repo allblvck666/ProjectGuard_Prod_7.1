@@ -44,9 +44,11 @@ DB_PATH = env_get("DB_PATH", str(BASE_DIR / "data.sqlite3"))
 DEBUG_CONFIG = env_get("DEBUG_CONFIG", "0") == "1"
 
 ALLOW_DEV_LOGIN = env_get("ALLOW_DEV_LOGIN", "0") == "1"
-TELEGRAM_WEBHOOK_SECRET = env_get("TELEGRAM_WEBHOOK_SECRET")
+TELEGRAM_WEBHOOK_SECRET = env_get("TELEGRAM_WEBHOOK_SECRET") or hmac.new(
+    (BOT_TOKEN or "").encode(), b"projectguard:webhook:v1", hashlib.sha256
+).hexdigest()
 NOTIFY_TOKEN = env_get("NOTIFY_TOKEN")
-TELEGRAM_LOGIN_REQUIRE_INIT_DATA = env_get("TELEGRAM_LOGIN_REQUIRE_INIT_DATA", "0") == "1"
+TELEGRAM_LOGIN_REQUIRE_INIT_DATA = True  # Signature verification is mandatory.
 TELEGRAM_LOGIN_MAX_AGE_SECONDS = int(env_get("TELEGRAM_LOGIN_MAX_AGE_SECONDS", "86400"))
 
 if DEBUG_CONFIG:
@@ -55,10 +57,6 @@ if DEBUG_CONFIG:
     print("DEBUG BOT_TOKEN value exists:", bool(BOT_TOKEN))
     print("DEBUG SECRET_KEY exists:", bool(SECRET_KEY))
     print("DEBUG JWT_SECRET exists:", bool(JWT_SECRET))
-    if JWT_SECRET:
-        print("DEBUG JWT_SECRET length:", len(JWT_SECRET), "start:", JWT_SECRET[:10] + "...")
-    if SECRET_KEY:
-        print("DEBUG SECRET_KEY length:", len(SECRET_KEY), "start:", SECRET_KEY[:10] + "...")
 
 if not BOT_TOKEN:
     raise RuntimeError("BOT_TOKEN is not set. Проверь backend/.env или переменные окружения.")
@@ -67,7 +65,7 @@ if not BOT_TOKEN:
 from backend.db import (
     get_user_by_id,
     get_conn, init_db, now_iso, add_days, add_workdays, load_skus,
-    get_user_by_email, create_user, update_user, get_all_users,
+    get_user_by_email, create_user as db_create_user, update_user, get_all_users,
     get_user_by_tg_id, upsert_user, _adapt_query, USE_POSTGRES,
     workdays_until, is_workday
 )
@@ -75,6 +73,10 @@ from backend.users import router as users_router, init_users_table
 from backend.auth import (
     require_admin, require_auth, get_current_user, get_current_active_user,
     get_admin_user, get_superadmin_user, create_access_token
+)
+from backend.telegram_identity import (
+    validate_init_data, validate_widget_data, require_telegram_identity,
+    resolve_verified_user, bind_verified_identity, login_response, public_user,
 )
 from passlib.context import CryptContext
 
@@ -101,46 +103,10 @@ def fmt_iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 def _parse_telegram_init_data(init_data: str) -> dict | None:
-    try:
-        from urllib.parse import parse_qs, unquote
-        params = parse_qs(init_data, keep_blank_values=True)
-        user_raw = params.get("user", [None])[0]
-        if not user_raw:
-            return None
-        return json.loads(unquote(user_raw))
-    except Exception:
-        return None
+    return validate_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
 
 def _validate_telegram_init_data(init_data: str, bot_token: str, max_age_seconds: int) -> bool:
-    try:
-        from urllib.parse import parse_qs
-        params = parse_qs(init_data, keep_blank_values=True)
-        hash_value = params.pop("hash", [None])[0]
-        if not hash_value:
-            return False
-
-        data_check_string = "\n".join(
-            f"{k}={v[0]}" for k, v in sorted(params.items())
-        )
-        secret = hashlib.sha256(bot_token.encode("utf-8")).digest()
-        expected_hash = hmac.new(
-            secret, data_check_string.encode("utf-8"), hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(expected_hash, hash_value):
-            return False
-
-        auth_date = params.get("auth_date", [None])[0]
-        if auth_date:
-            try:
-                auth_date_int = int(auth_date)
-            except ValueError:
-                return False
-            if abs(int(time.time()) - auth_date_int) > max_age_seconds:
-                return False
-
-        return True
-    except Exception:
-        return False
+    return validate_init_data(init_data, bot_token, max_age_seconds) is not None
 
 from contextlib import asynccontextmanager
 
@@ -153,6 +119,9 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown (если нужно)
     pass
+
+_database_ready = False
+_bot_ready = False
 
 app = FastAPI(title="ProjectGuard Mini API", version="2.2", lifespan=lifespan)
 SKUS = load_skus()
@@ -187,6 +156,12 @@ SKUS = load_skus()
 def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: BackgroundTasks = None):
     conn = get_conn()
     cur = conn.cursor()
+    _lock_protections(cur)
+    try:
+        _refresh_protection_actor(cur, user, admin=True)
+    except HTTPException:
+        conn.close()
+        raise
     query = _adapt_query("SELECT * FROM protections WHERE id=? AND status='pending'")
     cur.execute(query, (pid,))
     row = cur.fetchone()
@@ -194,9 +169,11 @@ def approve_pending(pid: int, user=Depends(get_admin_user), background_tasks: Ba
         conn.close()
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
-    update_query = _adapt_query("UPDATE protections SET status='active', approved_by_admin=1, updated_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, "admin", "approve", {"approved": True, "source": "app"})
+    update_query = _adapt_query("UPDATE protections SET status='active', approved_by_admin=1, expires_at=?, updated_at=? WHERE id=?")
+    area = float(row.get("area_m2") or 0)
+    ttl = 5 if area < 100 else 10 if area < 250 else 15 if area < 500 else 30
+    cur.execute(update_query, (add_workdays(now_iso(), ttl), _protection_stamp(), pid))
+    add_history(cur, pid, str(user["id"]), "approve", {"approved": True, "source": "app"})
     
     # Обновляем сообщения в Telegram
     notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
@@ -308,6 +285,12 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), backgr
     reason = payload.get("reason", "").strip() or "Отклонено администратором"
     conn = get_conn()
     cur = conn.cursor()
+    _lock_protections(cur)
+    try:
+        _refresh_protection_actor(cur, user, admin=True)
+    except HTTPException:
+        conn.close()
+        raise
     query = _adapt_query("SELECT * FROM protections WHERE id=? AND status='pending'")
     cur.execute(query, (pid,))
     row = cur.fetchone()
@@ -316,8 +299,8 @@ def reject_pending(pid: int, payload: dict, user=Depends(get_admin_user), backgr
         raise HTTPException(status_code=404, detail="Защита не найдена или уже обработана")
 
     update_query = _adapt_query("UPDATE protections SET status='rejected', closed_at=?, admin_comment=?, updated_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), reason, now_iso(), pid))
-    add_history(cur, pid, "admin", "reject", {"reason": reason, "source": "app"})
+    cur.execute(update_query, (now_iso(), reason, _protection_stamp(), pid))
+    add_history(cur, pid, str(user["id"]), "reject", {"reason": reason, "source": "app"})
     
     # Обновляем сообщения в Telegram
     notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
@@ -473,13 +456,30 @@ class ProtectionOut(BaseModel):
     delete_reason: Optional[str] = None  # Причина удаления из истории
     action_actor: Optional[str] = None  # Кто выполнил действие (close/success/delete)
     action_at: Optional[str] = None  # Когда было выполнено действие
+    updated_at: Optional[str] = None
+    auto_closed: bool = False
+    can_edit: bool = False
+    can_restore: bool = False
+    restore_requires_admin: bool = False
 
 class ProtectionUpdate(BaseModel):
-    sku: Optional[str] = ""
+    sku: Optional[str] = None
     sku_data: Optional[List[SkuItem]] = None
     area_m2: Optional[float] = None
+    manager: Optional[str] = None
+    client: Optional[str] = None
+    partner: Optional[str] = None
+    partner_city: Optional[str] = None
+    last4: Optional[str] = None
+    object_city: Optional[str] = None
+    address: Optional[str] = None
     comment: Optional[str] = None
-    manager: Optional[str] = None  # кто редактировал, можно не присылать
+    expires_at: Optional[str] = None
+    close_reason: Optional[str] = None
+    success_doc: Optional[str] = None
+    expected_updated_at: Optional[str] = None
+
+    model_config = {"extra": "forbid"}
 
 
 # Флаг для отслеживания инициализации
@@ -487,29 +487,31 @@ _initialized = False
 
 async def _init_background():
     """Инициализация в фоне после запуска приложения"""
-    global _initialized
+    global _initialized, _database_ready
     if _initialized:
         return
     _initialized = True
 
     # Выполняем синхронные операции в отдельном потоке
     def init_sync():
+        global _database_ready
         try:
             init_db()
             init_users_table()
             _safe_migrate()
+            _database_ready = True
             print("✅ База данных инициализирована")
         except Exception as e:
-            print(f"⚠️ Ошибка инициализации БД: {e}")
+            _database_ready = False
+            raise
 
-    # Используем to_thread для выполнения синхронных операций
     try:
         await asyncio.to_thread(init_sync)
-    except AttributeError:
-        # Fallback для старых версий Python
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, init_sync)
-    
+    except Exception:
+        _initialized = False
+        print("Database initialization failed; service is not ready")
+        return
+
     # Запускаем async задачи
     try:
         # 2. Telegram бот (запускаем только один раз)
@@ -591,7 +593,7 @@ def _safe_migrate():
 
 
 
-def row_to_out(row, history_data: dict = None) -> ProtectionOut:
+def row_to_out(row, history_data: dict = None, user: dict = None, capabilities: dict = None) -> ProtectionOut:
     expires = datetime.fromisoformat(row["expires_at"].replace("Z", ""))
     # Важно: сроки защит считаем в рабочих днях (официальные выходные/праздники не уменьшают счётчик).
     days_left = workdays_until(row["expires_at"], datetime.utcnow())
@@ -644,6 +646,9 @@ def row_to_out(row, history_data: dict = None) -> ProtectionOut:
         delete_reason=history_data.get("delete_reason"),
         action_actor=history_data.get("action_actor"),  # Кто выполнил действие
         action_at=history_data.get("action_at"),  # Когда было выполнено действие
+        updated_at=row.get("updated_at") or row.get("created_at"),
+        auto_closed=bool(row.get("auto_closed")),
+        **(capabilities if capabilities is not None else _protection_capabilities(row, user)),
     )
 
 def normalize_sku(raw: str) -> str:
@@ -661,6 +666,158 @@ def add_history(cur, protection_id: int, actor: str, action: str, payload: dict)
         (protection_id, now_iso(), actor, action, json.dumps(payload, ensure_ascii=False)),
     )
 
+from contextlib import contextmanager
+from backend.protection_rules import material_values, materials_conflict, can_manage, sku_pairs
+
+
+@contextmanager
+def _protection_transaction():
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        _lock_protections(cur)
+        yield conn, cur
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _lock_protections(cur):
+    # The lock serializes conflict checks and activation across processes.
+    if USE_POSTGRES:
+        cur.execute("SELECT pg_advisory_xact_lock(71920260908)")
+    else:
+        cur.execute("BEGIN IMMEDIATE")
+
+
+def _protection_stamp():
+    return datetime.utcnow().isoformat(timespec="microseconds") + "Z"
+
+
+def _get_protection(cur, pid):
+    cur.execute(_adapt_query("SELECT * FROM protections WHERE id=?"), (pid,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Защита не найдена")
+    return dict(row)
+
+
+def _can_manage_protection(cur, row, user):
+    dictionary_id = None
+    if user.get("role") == "assistant":
+        cur.execute(_adapt_query("SELECT id FROM managers WHERE name=?"), (row.get("manager"),))
+        manager_row = cur.fetchone()
+        dictionary_id = manager_row["id"] if manager_row else None
+    return can_manage(user, row, dictionary_id)
+
+
+def _refresh_protection_actor(cur, user, admin=False):
+    cur.execute(_adapt_query("SELECT * FROM users WHERE id=?"), (user.get("id"),))
+    current = cur.fetchone()
+    if not current or current.get("is_active") in (False, 0, "0"):
+        raise HTTPException(status_code=403, detail="Нет доступа к приложению")
+    if admin and current.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Действие доступно только администратору")
+    user.update(dict(current))
+    return user
+
+
+def _require_protection_access(cur, row, user):
+    _refresh_protection_actor(cur, user)
+    if not _can_manage_protection(cur, row, user):
+        raise HTTPException(status_code=403, detail="Изменять защиту может её автор, назначенный ассистент или администратор")
+
+
+def _protection_capabilities(row, user):
+    permissions = {"can_edit": False, "can_restore": False, "restore_requires_admin": False}
+    if not user:
+        return permissions
+    if user.get("role") == "assistant":
+        conn = get_conn()
+        try:
+            allowed = _can_manage_protection(conn.cursor(), dict(row), user)
+        finally:
+            conn.close()
+    else:
+        allowed = can_manage(user, dict(row))
+    return _capabilities_for(row, user, allowed)
+
+
+def _capabilities_for(row, user, allowed):
+    permissions = {"can_edit": False, "can_restore": False, "restore_requires_admin": False}
+    role = user.get("role")
+    auto_expired = row.get("status") == "closed" and bool(row.get("auto_closed"))
+    archive = row.get("status") in ("closed", "deleted", "success", "rejected")
+    permissions["can_edit"] = allowed and (row.get("status") in ("active", "closed", "success", "rejected") or (role == "superadmin" and archive))
+    permissions["restore_requires_admin"] = bool(allowed and auto_expired and role not in ("admin", "superadmin") and (row.get("extend_count") or 0) >= 2)
+    permissions["can_restore"] = bool((role == "superadmin" and archive) or (allowed and auto_expired and not permissions["restore_requires_admin"]))
+    return permissions
+
+
+def _validate_protection_contacts(data):
+    if not str(data.get("manager") or "").strip():
+        raise HTTPException(status_code=400, detail="Укажите менеджера")
+    last4 = str(data.get("last4") or "").strip()
+    if last4 and not re.fullmatch(r"[0-9]{4}", last4):
+        raise HTTPException(status_code=400, detail="Укажите последние 4 цифры телефона")
+
+
+def _material_values(data, validate_limits=True):
+    try:
+        return material_values(data, validate_limits=validate_limits)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _conflicts(cur, display, total, exclude_id=None):
+    cur.execute("SELECT * FROM protections WHERE status='active'")
+    return [dict(row) for row in cur.fetchall()
+            if row["id"] != exclude_id and materials_conflict(display, total, row["sku"], row["area_m2"])]
+
+
+def _require_no_conflict(cur, display, total, exclude_id=None):
+    conflicts = _conflicts(cur, display, total, exclude_id)
+    if conflicts:
+        row = conflicts[0]
+        raise HTTPException(status_code=409, detail={
+            "msg": "Похожая активная защита уже существует. Обратитесь к администратору.",
+            "similar_protection": row,
+        })
+
+
+def _require_extension_days(days, user):
+    if user.get("role") in ("admin", "superadmin"):
+        if not 1 <= days <= 365:
+            raise HTTPException(status_code=400, detail="Укажите срок от 1 до 365 рабочих дней")
+    elif days not in (10, 30):
+        raise HTTPException(status_code=400, detail="Доступно продление на 10 или 30 рабочих дней")
+
+
+def _archive_metadata(cur, pid):
+    cur.execute(_adapt_query("SELECT action, payload FROM history WHERE protection_id=? ORDER BY at DESC, id DESC"), (pid,))
+    return _history_metadata(cur.fetchall())
+
+
+def _history_metadata(entries):
+    metadata = {}
+    for entry in entries:
+        data = json.loads(entry["payload"] or "{}")
+        if entry["action"] == "edit":
+            data = data.get("after", {})
+        if "success_doc" in data:
+            metadata.setdefault("success_doc", data["success_doc"])
+        if "doc_1c" in data:
+            metadata.setdefault("success_doc", data["doc_1c"])
+        if "close_reason" in data:
+            metadata.setdefault("close_reason", data["close_reason"])
+        if entry["action"] == "close" and "reason" in data:
+            metadata.setdefault("close_reason", data["reason"])
+    return metadata
+
+
 # ===== Basic =====
 @app.get("/api/skus")
 def get_skus():
@@ -668,8 +825,7 @@ def get_skus():
 
 @app.get("/api/ping")
 def ping():
-    """Keep-alive endpoint для предотвращения засыпания Render"""
-    return {"ok": True, "timestamp": now_iso(), "status": "alive"}
+    return {"ok": True, "time": now_iso(), "version": "2026.09.08", "commit": os.getenv("RENDER_GIT_COMMIT")}
 
 @app.get("/")
 def root():
@@ -705,11 +861,7 @@ async def keep_alive_worker():
 
 # --- Проверка Telegram-данных ---
 def verify_telegram_auth(data: dict) -> bool:
-    check_hash = data.pop("hash", None)
-    data_check = "\n".join([f"{k}={v}" for k, v in sorted(data.items())])
-    secret_key = hashlib.sha256(BOT_TOKEN.encode()).digest()
-    h = hmac.new(secret_key, data_check.encode(), hashlib.sha256).hexdigest()
-    return h == check_hash
+    return validate_widget_data(data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS) is not None
 
 # --- JWT токен ---
 def create_token(user_id: int, role: str):
@@ -754,6 +906,7 @@ class UserLogin(BaseModel):
     password: Optional[str] = None
     # Telegram данные
     telegram_id: Optional[int] = None
+    init_data: Optional[str] = None
     username: Optional[str] = None
     first_name: Optional[str] = None
     # Простой вход по телефону/имени
@@ -783,220 +936,23 @@ async def verify_token(user=Depends(require_auth)):
 
 @app.get("/api/auth/me")
 async def get_me(user=Depends(get_current_active_user)):
-    """Получить информацию о текущем пользователе"""
-    return {
-        "ok": True,
-        "user": {
-            "id": user["id"],
-            "email": user.get("email"),
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-            "phone": user.get("phone", ""),
-            "company": user.get("company", ""),
-            "city": user.get("city", ""),
-        }
-    }
+    return {"ok": True, "user": public_user(user)}
 
 
 # === Эндпоинты для верификации через Telegram ===
 @app.post("/api/auth/request-verification-code")
 async def request_verification_code(data: RequestVerificationCode):
-    """Запрос одноразового кода для получения Telegram ID"""
-    import re
-    phone_clean = re.sub(r'\D', '', str(data.phone))
-    if not phone_clean or len(phone_clean) < 10:
-        raise HTTPException(status_code=400, detail="Некорректный номер телефона")
-    
-    # Генерируем 6-значный код
-    code = ''.join([str(secrets.randbelow(10)) for _ in range(6)])
-    
-    # Сохраняем код в БД (действителен 30 минут для удобства)
-    from datetime import datetime, timedelta
-    expires_at = (datetime.utcnow() + timedelta(minutes=30)).isoformat() + "Z"
-    created_at = now_iso()
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    
-    try:
-        # Помечаем старые коды для этого телефона как использованные
-        update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE phone=? AND used=0")
-        cur.execute(update_query, (phone_clean,))
-        
-        # Сохраняем новый код
-        insert_query = _adapt_query("""
-            INSERT INTO verification_codes (phone, code, full_name, expires_at, created_at, used)
-            VALUES (?, ?, ?, ?, ?, 0)
-        """)
-        cur.execute(insert_query, (phone_clean, code, data.full_name, expires_at, created_at))
-        conn.commit()
-        
-        # Ищем пользователя с таким номером телефона, чтобы получить tg_id
-        query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
-        cur.execute(query, (phone_clean,))
-        user = cur.fetchone()
-        
-        tg_id_to_save = None
-        if user and user.get("tg_id"):
-            tg_id_to_save = user.get("tg_id")
-            # Нормализуем tg_id
-            from backend.db import normalize_tg_id
-            tg_id_clean = normalize_tg_id(tg_id_to_save)
-            if tg_id_clean and tg_id_clean.isdigit():
-                # Обновляем код, добавляя tg_id
-                update_query = _adapt_query("UPDATE verification_codes SET tg_id=? WHERE phone=? AND code=? AND used=0")
-                cur.execute(update_query, (tg_id_clean, phone_clean, code))
-                conn.commit()
-                tg_id_to_save = tg_id_clean
-                
-                try:
-                    # Отправляем код через Telegram
-                    msg = (
-                        f"🔐 <b>Код верификации для регистрации</b>\n\n"
-                        f"Ваш код: <code>{code}</code>\n\n"
-                        f"Код действителен 30 минут.\n"
-                        f"Введите его в приложении для завершения регистрации."
-                    )
-                    await bot.send_message(
-                        chat_id=int(tg_id_clean),
-                        text=msg,
-                        parse_mode="HTML"
-                    )
-                    return {"ok": True, "message": "Код отправлен в Telegram"}
-                except Exception as e:
-                    error_msg = str(e).lower()
-                    if "chat not found" in error_msg or "chat_not_found" in error_msg:
-                        print(f"⚠️ Chat not found для {tg_id_clean}. Пользователь должен сначала написать /start боту.")
-                        # Сохраняем код без tg_id - он будет отправлен при /start
-                        return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
-                    else:
-                        print(f"⚠️ Не удалось отправить код в Telegram: {e}")
-                        return {"ok": True, "message": "Код создан. Напишите /start боту, чтобы получить код в Telegram"}
-        
-        # Если не нашли пользователя с Telegram, код сохранен и будет отправлен при /start
-        return {"ok": True, "message": "Код создан. Напишите /start боту (@ваш_бот), чтобы получить код в Telegram"}
-    finally:
-        conn.close()
+    raise HTTPException(410, "Вход по коду заменён подтверждённым входом через Telegram. Откройте приложение кнопкой в боте.")
 
 
 @app.post("/api/auth/verify-code")
 async def verify_code(data: VerifyCode):
-    """Верификация кода и получение tg_id"""
-    import re
-    phone_clean = re.sub(r'\D', '', str(data.phone))
-    if not phone_clean:
-        raise HTTPException(status_code=400, detail="Некорректный номер телефона")
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    
-    # Ищем неиспользованный код по телефону или по коду (если пользователь уже написал /start)
-    query = _adapt_query("""
-        SELECT * FROM verification_codes 
-        WHERE phone=? AND code=? AND used=0 AND expires_at > ?
-        ORDER BY created_at DESC LIMIT 1
-    """)
-    cur.execute(query, (phone_clean, data.code, now_iso()))
-    code_record = cur.fetchone()
-    
-    if not code_record:
-        conn.close()
-        raise HTTPException(status_code=400, detail="Неверный код или код истек")
-    
-    # Помечаем код как использованный
-    update_query = _adapt_query("UPDATE verification_codes SET used=1 WHERE id=?")
-    cur.execute(update_query, (code_record["id"],))
-    conn.commit()
-    
-    # Получаем tg_id из записи (если был сохранен при создании кода)
-    tg_id = code_record.get("tg_id")
-    
-    # Если tg_id не был сохранен, ищем пользователя по телефону
-    if not tg_id:
-        query = _adapt_query("SELECT tg_id FROM users WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''")
-        cur.execute(query, (phone_clean,))
-        user = cur.fetchone()
-        if user:
-            tg_id = user.get("tg_id")
-    
-    # Если все еще нет tg_id, ищем пользователя, который недавно написал /start
-    # (по имени из кода верификации или по телефону)
-    if not tg_id:
-        # Сначала ищем по телефону (для суперадмина это важно)
-        query = _adapt_query("""
-            SELECT tg_id FROM users 
-            WHERE phone=? AND tg_id IS NOT NULL AND tg_id != ''
-            ORDER BY updated_at DESC, created_at DESC LIMIT 1
-        """)
-        cur.execute(query, (phone_clean,))
-        user = cur.fetchone()
-        if user:
-            tg_id = user.get("tg_id")
-        
-        # Если не нашли по телефону, ищем по имени
-        if not tg_id:
-            full_name = code_record.get("full_name")
-            if full_name:
-                # Ищем пользователя с таким именем, который недавно был создан/обновлен
-                query = _adapt_query("""
-                    SELECT tg_id FROM users 
-                    WHERE (first_name LIKE ? OR full_name LIKE ?) AND tg_id IS NOT NULL AND tg_id != ''
-                    ORDER BY updated_at DESC, created_at DESC LIMIT 1
-                """)
-                cur.execute(query, (f"%{full_name}%", f"%{full_name}%"))
-                user = cur.fetchone()
-                if user:
-                    tg_id = user.get("tg_id")
-        
-        # Если все еще нет tg_id, но это суперадмин по телефону, ищем пользователя с ролью superadmin
-        if not tg_id and phone_clean == "79207455960":
-            query = _adapt_query("""
-                SELECT tg_id FROM users 
-                WHERE role='superadmin' AND tg_id IS NOT NULL AND tg_id != ''
-                ORDER BY updated_at DESC, created_at DESC LIMIT 1
-            """)
-            cur.execute(query)
-            user = cur.fetchone()
-            if user:
-                tg_id = user.get("tg_id")
-    
-    conn.close()
-    
-    if not tg_id:
-        raise HTTPException(status_code=400, detail="Telegram ID не найден. Напишите /start боту и попробуйте снова.")
-    
-    # Нормализуем tg_id
-    from backend.db import normalize_tg_id
-    tg_id_clean = normalize_tg_id(tg_id)
-    
-    return {"ok": True, "tg_id": tg_id_clean}
+    raise HTTPException(410, "Вход по коду заменён подтверждённым входом через Telegram. Откройте приложение кнопкой в боте.")
 
 
 def parse_telegram_init_data(init_data: str) -> Optional[str]:
-    """
-    Парсит Telegram WebApp initData и извлекает user.id
-    initData имеет формат: key1=value1&key2=value2&user=%7B%22id%22%3A123456%7D
-    """
-    try:
-        from urllib.parse import unquote, parse_qs
-        import json
-        
-        # Парсим query string
-        params = parse_qs(init_data)
-        
-        # Ищем параметр 'user'
-        if 'user' in params:
-            user_str = params['user'][0]
-            # Декодируем URL-encoded JSON
-            user_json = unquote(user_str)
-            user_data = json.loads(user_json)
-            if 'id' in user_data:
-                return str(user_data['id'])
-        
-        return None
-    except Exception as e:
-        print(f"⚠️ Ошибка парсинга initData: {e}")
-        return None
+    identity = validate_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
+    return str(identity["id"]) if identity else None
 
 @app.post("/api/admin/clear-all-users")
 def admin_clear_all_users(admin_user=Depends(get_superadmin_user)):
@@ -1019,125 +975,12 @@ def admin_clear_all_users(admin_user=Depends(get_superadmin_user)):
 
 @app.post("/api/auth/register_or_login")
 async def register_or_login(data: RegisterOrLogin):
-    """
-    Единый эндпоинт для регистрации/входа по Telegram данным.
-    Использует UPSERT логику: если пользователь с таким tg_id есть - обновляет, иначе создает.
-    Поддерживает получение tg_id через:
-    1. Прямое указание tg_id
-    2. Парсинг initData из Telegram WebApp
-    3. Код верификации (fallback)
-    """
-    # Если передан init_data, парсим его для получения tg_id
-    if data.init_data and not data.tg_id:
-        parsed_tg_id = parse_telegram_init_data(data.init_data)
-        if parsed_tg_id:
-            data.tg_id = parsed_tg_id
-            print(f"✅ Получен tg_id из initData: {data.tg_id}")
-        else:
-            print(f"⚠️ Не удалось распарсить initData")
-    
-    # Если передан код верификации, сначала верифицируем его
-    if data.verification_code and not data.tg_id:
-        verify_data = VerifyCode(phone=data.phone, code=data.verification_code)
-        verify_result = await verify_code(verify_data)
-        data.tg_id = verify_result["tg_id"]
-    
-    if not data.tg_id:
-        raise HTTPException(status_code=400, detail="Не удалось получить Telegram ID. Убедитесь, что вы открыли приложение через Telegram.")
-    
-    # Валидация обязательных полей
-    if not data.full_name or not data.phone:
-        raise HTTPException(status_code=400, detail="full_name and phone are required")
-    
-    # Проверяем, не заблокирован ли пользователь (is_active=0)
-    # Ищем пользователя по tg_id или телефону
-    conn = get_conn()
-    cur = conn.cursor()
-    from backend.db import normalize_tg_id
-    normalized_tg_id = normalize_tg_id(data.tg_id)
-    
-    # Проверяем по tg_id
-    if normalized_tg_id:
-        query = _adapt_query("SELECT id, is_active, full_name FROM users WHERE tg_id = ?")
-        cur.execute(query, (normalized_tg_id,))
-        existing_user = cur.fetchone()
-        if existing_user and existing_user.get("is_active", 1) == 0:
-            conn.close()
-            raise HTTPException(
-                status_code=403,
-                detail="Ваш аккаунт заблокирован. Обратитесь к администратору для восстановления доступа."
-            )
-    
-    # Проверяем по телефону
-    import re
-    phone_clean = re.sub(r'\D', '', str(data.phone))
-    phone_query = _adapt_query("SELECT id, is_active FROM users WHERE phone = ?")
-    cur.execute(phone_query, (phone_clean,))
-    existing_by_phone = cur.fetchone()
-    if existing_by_phone and existing_by_phone.get("is_active", 1) == 0:
-        conn.close()
-        raise HTTPException(
-            status_code=403,
-            detail="Аккаунт с этим номером телефона заблокирован. Обратитесь к администратору для восстановления доступа."
-        )
-    
-    conn.close()
-    
-    # Определяем роль: суперадмин по номеру телефона, иначе user
-    import re
-    phone_clean = re.sub(r'\D', '', str(data.phone))
-    superadmin_phone = "79207455960"  # Номер телефона суперадмина
-    role = "superadmin" if phone_clean == superadmin_phone else "user"
-    
-    try:
-        # Нормализуем tg_id - убираем префиксы "dev-", "tg-"
-        from backend.db import normalize_tg_id
-        normalized_tg_id = normalize_tg_id(data.tg_id)
-        if not normalized_tg_id:
-            raise HTTPException(status_code=400, detail="Invalid tg_id format")
-        
-        # Используем upsert_user для создания или обновления
-        # Роль будет определена внутри upsert_user по телефону
-        # is_active=1 гарантирует, что удаленные пользователи будут активированы при повторной регистрации
-        user = upsert_user({
-            "tg_id": normalized_tg_id,
-            "full_name": data.full_name,
-            "phone": data.phone,
-            "position": data.position,
-            "role": role,  # Определяем роль по телефону (для новых пользователей)
-            "is_active": 1,  # Активируем пользователя при регистрации/повторной регистрации
-        })
-        
-        # После upsert проверяем, что роль правильная (на случай обновления существующего пользователя)
-        import re
-        phone_clean_check = re.sub(r'\D', '', str(data.phone))
-        if phone_clean_check == "79207455960" and user.get("role") != "superadmin":
-            # Если роль не обновилась, обновляем вручную
-            from backend.db import update_user
-            user = update_user(user["id"], {"role": "superadmin"})
-        
-        # Создание токена
-        token = create_access_token(user)
-        
-        return {
-            "ok": True,
-            "token": token,
-            "user": {
-                "id": user["id"],
-                "tg_id": user.get("tg_id"),
-                "full_name": user.get("full_name", ""),
-                "phone": user.get("phone", ""),
-                "position": user.get("position", ""),
-                "role": user["role"],
-            }
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        print(f"❌ Error in register_or_login: {e}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail="Internal server error")
+    identity = require_telegram_identity(data.model_dump(), BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
+    if not data.full_name.strip() or not data.phone.strip():
+        raise HTTPException(400, "Заполните имя и телефон")
+    profile = {"full_name": data.full_name.strip(), "phone": re.sub(r"\D", "", data.phone),
+               "position": data.position}
+    return login_response(resolve_verified_user(identity, profile))
 
 
 @app.post("/api/auth/register")
@@ -1153,6 +996,9 @@ async def register(data: UserRegister):
     if len(data.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     
+    if len(data.password.encode("utf-8")) > 72:
+        raise HTTPException(400, "Пароль слишком длинный: максимум 72 байта UTF-8")
+
     # Проверка существования email
     existing = get_user_by_email(data.email)
     if existing:
@@ -1160,7 +1006,7 @@ async def register(data: UserRegister):
     
     # Создание пользователя
     try:
-        user = create_user({
+        user = db_create_user({
             "email": data.email,
             "password_hash": get_password_hash(data.password),
             "full_name": data.full_name,
@@ -1191,389 +1037,53 @@ async def register(data: UserRegister):
 
 @app.post("/api/auth/login")
 async def login(data: UserLogin):
-    """
-    Универсальный вход:
-    - По email/password
-    - По Telegram данным (telegram_id, username, first_name)
-    - По телефону/имени (phone, full_name) - создает пользователя, если его нет
-    """
-    user = None
-    
-    # 1. Вход по email/password
-    if data.email and data.password:
-        user = get_user_by_email(data.email)
-        if not user:
-            raise HTTPException(status_code=401, detail="Invalid email or password")
-        
-        password_hash = user.get("password_hash")
-        if not password_hash or not verify_password(data.password, password_hash):
-            raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    # 2. Вход по Telegram данным
-    elif data.telegram_id:
-        from backend.db import get_user_by_tg_id
-        user = get_user_by_tg_id(data.telegram_id)
-        
-        if not user:
-            # Создаем пользователя, если его нет
-            role = "superadmin" if data.telegram_id == 426188469 else "manager"
-            try:
-                user = create_user({
-                    "tg_id": data.telegram_id,
-                    "tg_username": data.username or "",
-                    "first_name": data.first_name or "",
-                    "full_name": data.first_name or "",
-                    "role": role,
-                    "is_active": 1,
-                    "created_at": now_iso()
-                })
-            except ValueError:
-                # Пользователь уже существует, получаем его
-                user = get_user_by_tg_id(data.telegram_id)
-        else:
-            # Обновляем данные Telegram, если изменились
-            if data.username or data.first_name:
-                update_data = {}
-                if data.username:
-                    update_data["tg_username"] = data.username
-                if data.first_name:
-                    update_data["first_name"] = data.first_name
-                    if not user.get("full_name"):
-                        update_data["full_name"] = data.first_name
-                if update_data:
-                    update_user(user["id"], update_data)
-                    user = get_user_by_id(user["id"])
-    
-    # 3. Вход по телефону/имени (простая регистрация/логин)
-    elif data.phone and data.full_name:
-        # Ищем по телефону
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute(_adapt_query("SELECT * FROM users WHERE phone = ?"), (data.phone,))
-        row = cur.fetchone()
-        conn.close()
-        
-        if row:
-            user = dict(row)
-        else:
-            # Создаем нового пользователя
-            try:
-                user = create_user({
-                    "full_name": data.full_name,
-                    "phone": data.phone,
-                    "company": data.company or "",
-                    "role": "manager",
-                    "is_active": 1,
-                    "created_at": now_iso()
-                })
-            except ValueError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-    else:
-        raise HTTPException(status_code=400, detail="Provide email/password, telegram_id, or phone/full_name")
-    
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    
-    # Проверка is_active
-    if user.get("is_active", 1) == 0:
-        raise HTTPException(status_code=401, detail="User is inactive")
-    
-    # Обновление last_login
-    update_user(user["id"], {"last_login": now_iso()})
-    user = get_user_by_id(user["id"])  # Обновляем данные
-    
-    # Создание токена
-    token = create_access_token(user)
-    
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user.get("email"),
-            "full_name": user.get("full_name", user.get("first_name", "")),
-            "role": user["role"],
-        }
-    }
+    if data.init_data:
+        identity = require_telegram_identity(data.model_dump(), BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
+        return login_response(resolve_verified_user(identity))
+    if not data.email or not data.password:
+        raise HTTPException(401, "Подтвердите вход через Telegram или используйте email и пароль.")
+    user = get_user_by_email(data.email)
+    try:
+        valid = user and user.get("password_hash") and verify_password(data.password, user["password_hash"])
+    except (ValueError, TypeError):
+        valid = False
+    if not valid:
+        raise HTTPException(401, "Неверный email или пароль")
+    if user.get("is_active", 1) in (0, "0", False):
+        raise HTTPException(403, "Ваш аккаунт заблокирован. Обратитесь к администратору.")
+    user = update_user(user["id"], {"last_login": now_iso()})
+    return login_response(user)
 
 
 @app.post("/api/auth/telegram")
 async def telegram_auth(request: Request):
     data = await request.json()
-
-    # ===== DEV AUTH (кнопка на фронте) =====
-    # Если hash == "dev-mode", пропускаем проверку Telegram,
-    # но всё равно работаем через таблицу users.
-    if data.get("hash") == "dev-mode":
-        from backend.db import normalize_tg_id
-        tg_id_raw = data["id"]
-        tg_id_normalized = normalize_tg_id(tg_id_raw)
-        if not tg_id_normalized:
-            raise HTTPException(status_code=400, detail="Invalid tg_id format")
-        tg_id = int(tg_id_normalized)
-        username = data.get("username") or ""
-        first_name = data.get("first_name") or "DevUser"
-        role = "superadmin" if tg_id == 426188469 else "manager"
-
-        conn = get_conn()
-        cur = conn.cursor()
-        # Используем нормализованный tg_id как строку для совместимости
-        cur.execute(
-            _adapt_query("""
-                INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
-            VALUES (?,?,?,?,?)
-                ON CONFLICT(tg_id) DO UPDATE SET
-                    tg_username=excluded.tg_username,
-                    first_name=excluded.first_name,
-                    role=excluded.role
-            """),
-            (str(tg_id), username, first_name, role, now_iso()),
-        )
-        conn.commit()
-        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-        conn.close()
-
-        token = create_access_token(dict(user))
-        return {
-            "ok": True,
-            "token": token,
-            "user": {
-                "id": user["id"],
-                "email": user.get("email"),
-                "full_name": user.get("full_name", user.get("first_name", "")),
-                "role": role,
-            }
-        }
-
-    # ===== Real Telegram Auth =====
-    if not verify_telegram_auth(data):
-        raise HTTPException(status_code=400, detail="Invalid Telegram auth data")
-
-    from backend.db import normalize_tg_id
-    tg_id_raw = data["id"]
-    tg_id_normalized = normalize_tg_id(tg_id_raw)
-    if not tg_id_normalized:
-        raise HTTPException(status_code=400, detail="Invalid tg_id format")
-    tg_id = int(tg_id_normalized)
-    username = data.get("username")
-    first_name = data.get("first_name")
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # === Главный админ ===
-    if tg_id == 426188469:
-        # Проверяем, есть ли пользователь с правильным tg_id
-        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-        
-        # Если пользователя с правильным tg_id нет, ищем пользователя с неправильным tg_id
-        # (например, dev-79207455960) и обновляем его tg_id
-        if not user:
-            # Ищем пользователя с неправильными форматами tg_id для главного админа
-            wrong_tg_ids = ["dev-79207455960", "79207455960", "tg-79207455960", "dev-426188469", "tg-426188469"]
-            for wrong_id in wrong_tg_ids:
-                existing_user = cur.execute(
-                    _adapt_query("SELECT * FROM users WHERE tg_id=?"), (wrong_id,)
-                ).fetchone()
-                if existing_user:
-                    cur.execute(
-                        _adapt_query(
-                            "UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"
-                        ),
-                        (str(tg_id), username, first_name, "superadmin", existing_user["id"]),
-                    )
-                    conn.commit()
-                    query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
-                    cur.execute(query, (str(tg_id),))
-                    user = cur.fetchone()
-                    print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
-                    break
-            
-            # Если не нашли по tg_id, ищем по email или phone (если есть)
-            if not user:
-                # Ищем пользователя с ролью superadmin или admin, у которого неправильный tg_id
-                superadmin_users = cur.execute(_adapt_query("SELECT * FROM users WHERE role IN ('superadmin', 'admin')")).fetchall()
-                for existing_user in superadmin_users:
-                    existing_tg_id = existing_user.get("tg_id", "")
-                    # Если tg_id содержит неправильный формат (dev- или tg- префикс с неправильным числом)
-                    if existing_tg_id and ("dev-" in existing_tg_id or "tg-" in existing_tg_id or existing_tg_id == "79207455960"):
-                        # Обновляем tg_id на правильный
-                        cur.execute(
-                            _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=?, role=? WHERE id=?"),
-                            (str(tg_id), username, first_name, "superadmin", existing_user["id"])
-                        )
-                        conn.commit()
-                        user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-                        print(f"✅ Обновлен tg_id пользователя {existing_user['id']} с {existing_tg_id} на {tg_id}")
-                        break
-        
-        # Если пользователь все еще не найден, создаем нового
-        if not user:
-            cur.execute(
-                _adapt_query("""
-                    INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
-                    VALUES (?,?,?,?,?)
-                    ON CONFLICT(tg_id) DO UPDATE SET
-                        tg_username=excluded.tg_username,
-                        first_name=excluded.first_name,
-                        role=excluded.role
-                """),
-                (str(tg_id), username, first_name, "superadmin", now_iso())
-            )
-            conn.commit()
-            user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-        
-        conn.close()
-        token = create_access_token(dict(user))
-        return {
-            "ok": True,
-            "token": token,
-            "user": {
-                "id": user["id"],
-                "email": user.get("email"),
-                "full_name": user.get("full_name", user.get("first_name", "")),
-                "role": "superadmin",
-            }
-        }
-
-    # --- Остальные пользователи ---
-    row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-    if not row:
-        # Если пользователя с правильным tg_id нет, ищем пользователя с неправильным tg_id
-        # (например, dev-79207455960 для главного админа) и обновляем его tg_id
-        wrong_tg_ids = [f"dev-{tg_id}", f"tg-{tg_id}", str(tg_id)]
-        for wrong_id in wrong_tg_ids:
-            query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
-            cur.execute(query, (wrong_id,))
-            existing_user = cur.fetchone()
-            if existing_user:
-                cur.execute(
-                    _adapt_query("UPDATE users SET tg_id=?, tg_username=?, first_name=? WHERE id=?"),
-                    (str(tg_id), username, first_name, existing_user["id"])
-                )
-                conn.commit()
-                query2 = _adapt_query("SELECT * FROM users WHERE tg_id=?")
-                cur.execute(query2, (str(tg_id),))
-                row = cur.fetchone()
-                print(f"✅ Обновлен tg_id пользователя с {wrong_id} на {tg_id}")
-                break
-        
-        # Если пользователь все еще не найден, создаем нового
-        if not row:
-            cur.execute(
-                _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
-                (str(tg_id), username, first_name, "manager", now_iso())
-            )
-            conn.commit()
-            row = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-
-        role = row["role"]
-    token = create_access_token(dict(row))
-    conn.close()
-
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": row["id"],
-            "email": row["email"] if "email" in row.keys() else None,
-            "full_name": row["full_name"] if "full_name" in row.keys() else (row["first_name"] if "first_name" in row.keys() else ""),
-            "role": role,
-        }
-    }
+    identity = require_telegram_identity(data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS, allow_widget=True)
+    return login_response(resolve_verified_user(identity))
 
 
 # ===== Обновление tg_id текущего пользователя =====
 @app.post("/api/auth/update-tg-id")
 def update_my_tg_id(data: dict = Body(...), user=Depends(get_current_user)):
-    """Обновляет tg_id текущего пользователя"""
-    new_tg_id = data.get("tg_id") or data.get("id")
-    if not new_tg_id:
-        raise HTTPException(status_code=400, detail="tg_id is required")
-    
-    from backend.db import normalize_tg_id
-    tg_id_normalized = normalize_tg_id(new_tg_id)
-    if not tg_id_normalized:
-        raise HTTPException(status_code=400, detail="Invalid tg_id format")
-    
-    tg_id_str = str(int(tg_id_normalized))
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    
-    # Проверяем, не занят ли этот tg_id другим пользователем
-    existing = cur.execute(_adapt_query("SELECT id FROM users WHERE tg_id=? AND id!=?"), (tg_id_str, user["id"])).fetchone()
-    if existing:
-        conn.close()
-        raise HTTPException(status_code=409, detail="This tg_id is already used by another user")
-    
-    # Обновляем tg_id
-    cur.execute(
-        _adapt_query("UPDATE users SET tg_id=? WHERE id=?"),
-        (tg_id_str, user["id"])
-    )
-    conn.commit()
-    conn.close()
-    
-    print(f"✅ Пользователь {user['id']} обновил свой tg_id на {tg_id_str}")
-    
-    return {"ok": True, "message": f"tg_id обновлен на {tg_id_str}"}
+    identity = require_telegram_identity(data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
+    return bind_verified_identity(user, identity)
 
 
 # ===== DEV-авторизация без проверки Telegram =====
 @app.post("/api/auth/dev-login")
-def dev_login(payload: dict):
-    if not ALLOW_DEV_LOGIN:
-        raise HTTPException(status_code=404, detail="Not found")
-    from backend.db import normalize_tg_id
-    tg_id_raw = payload.get("tg_id") or payload.get("id") or "0"
-    tg_id_normalized = normalize_tg_id(tg_id_raw)
-    if not tg_id_normalized:
-        raise HTTPException(status_code=400, detail="tg_id is required")
-    tg_id = int(tg_id_normalized)
-
-    username = payload.get("username") or ""
-    first_name = payload.get("first_name") or "DevUser"
-    
-    # Определяем роль: superadmin для главного админа, иначе из payload или manager
-    if tg_id == 426188469:
-        role = "superadmin"
-    else:
-        role = payload.get("role") or "manager"
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute(
-        _adapt_query("""
-        INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
-        VALUES (?,?,?,?,?)
-        ON CONFLICT(tg_id) DO UPDATE SET
-            tg_username=excluded.tg_username,
-            first_name=excluded.first_name,
-            role=excluded.role
-        """),
-        (str(tg_id), username, first_name, role, now_iso()),
-    )
-    conn.commit()
-
-    user = cur.execute(_adapt_query("SELECT * FROM users WHERE tg_id=?"), (str(tg_id),)).fetchone()
-    conn.close()
-
-    if not user:
-        raise HTTPException(status_code=500, detail="Failed to create user")
-
-    token = create_access_token(dict(user))
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user.get("email"),
-            "full_name": user.get("full_name", user.get("first_name", "")),
-            "role": user["role"],
-        }
-    }
+def dev_login(payload: dict, request: Request):
+    # Development authentication must never be reachable on Render.
+    if not ALLOW_DEV_LOGIN or os.getenv("RENDER") or not request.client or request.client.host not in ("127.0.0.1", "::1", "testclient"):
+        raise HTTPException(404, "Not found")
+    try:
+        tg_id = int(payload.get("tg_id") or payload.get("id") or 0)
+        if tg_id <= 0:
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Invalid Telegram ID")
+    user = resolve_verified_user({"id": tg_id, "username": payload.get("username", ""),
+                                  "first_name": payload.get("first_name", "DevUser")})
+    return login_response(user)
 
 
 
@@ -1609,157 +1119,16 @@ def admin_list_users(admin_user=Depends(require_admin)):
 
 @app.patch("/api/admin/users/{user_id}")
 def admin_update_user(user_id: int, data: UserUpdate, admin_user=Depends(get_admin_user)):
-    """Обновить пользователя (для admin и superadmin)"""
-    # Нельзя изменять самого себя (защита от случайного понижения)
-    if user_id == admin_user["id"]:
-        # Разрешаем изменение только не-ролевых полей
-        if data.role is not None or data.is_active is not None:
-            raise HTTPException(status_code=400, detail="Cannot change your own role or status")
-    
-    # Только superadmin может создавать/назначать superadmin
-    if data.role == "superadmin" and admin_user["role"] != "superadmin":
-        raise HTTPException(status_code=403, detail="Only superadmin can assign superadmin role")
-    
-    # Проверка: только superadmin может назначать superadmin
-    if data.role == "superadmin" and admin_user["role"] != "superadmin":
-        raise HTTPException(status_code=403, detail="Only superadmin can assign superadmin role")
-    
-    # Проверка: нельзя понизить последнего superadmin
-    if data.role and data.role != "superadmin":
-        conn = get_conn()
-        cur = conn.cursor()
-        query = _adapt_query("SELECT COUNT(*) AS cnt FROM users WHERE role = 'superadmin' AND is_active = 1")
-        cur.execute(query)
-        result = cur.fetchone()
-        # Обрабатываем результат для SQLite (Row) и PostgreSQL (tuple)
-        if result:
-            try:
-                # Пробуем получить по имени колонки (SQLite Row)
-                superadmin_count = result['cnt'] if 'cnt' in result else result.get('cnt', 0)
-            except (TypeError, KeyError):
-                # Если не работает, пробуем по индексу (PostgreSQL tuple)
-                try:
-                    superadmin_count = result[0] if len(result) > 0 else 0
-                except (TypeError, IndexError):
-                    superadmin_count = 0
-        else:
-            superadmin_count = 0
-        target_user = get_user_by_id(user_id)
-        if target_user and target_user["role"] == "superadmin" and superadmin_count <= 1:
-            conn.close()
-            raise HTTPException(status_code=400, detail="Cannot demote the last superadmin")
-        conn.close()
-    
-    # Обновление
-    update_data = {}
-    if data.full_name is not None:
-        update_data["full_name"] = data.full_name
-    if data.phone is not None:
-        update_data["phone"] = data.phone
-    if data.position is not None:
-        update_data["position"] = data.position
-    if data.company is not None:
-        update_data["company"] = data.company
-    if data.city is not None:
-        update_data["city"] = data.city
-    if data.role is not None:
-        update_data["role"] = data.role
-    if data.is_active is not None:
-        update_data["is_active"] = data.is_active
-    if data.manager_id is not None:
-        update_data["manager_id"] = data.manager_id
-    if data.receive_notifications is not None:
-        update_data["receive_notifications"] = data.receive_notifications
-    if data.manager_ids is not None:
-        # Валидируем, что это валидный JSON массив
-        import json
-        try:
-            parsed = json.loads(data.manager_ids) if isinstance(data.manager_ids, str) else data.manager_ids
-            if isinstance(parsed, list):
-                # Фильтруем null значения и дубликаты для проверки уникальности
-                non_null = [id for id in parsed if id is not None and id != ""]
-                # Проверяем на дубликаты
-                if len(non_null) != len(set(non_null)):
-                    raise HTTPException(status_code=400, detail="Нельзя выбрать одного менеджера дважды")
-                
-                # Ограничиваем до 3 элементов, заполняем null до 3
-                result = list(parsed[:3])
-                while len(result) < 3:
-                    result.append(None)
-                update_data["manager_ids"] = json.dumps(result[:3], ensure_ascii=False)
-            else:
-                raise HTTPException(status_code=400, detail="manager_ids должен быть массивом")
-        except (json.JSONDecodeError, TypeError):
-            raise HTTPException(status_code=400, detail="manager_ids должен быть валидным JSON массивом")
-    
-    updated = update_user(user_id, update_data)
-    
-    return {
-        "ok": True,
-        "user": {
-            "id": updated["id"],
-            "email": updated.get("email"),
-            "tg_id": updated.get("tg_id"),
-            "full_name": updated.get("full_name", ""),
-            "phone": updated.get("phone", ""),
-            "position": updated.get("position", ""),
-            "company": updated.get("company", ""),
-            "city": updated.get("city", ""),
-            "role": updated["role"],
-            "is_active": updated.get("is_active", 1),
-        }
-    }
+    from backend.account_admin import change_account
+    updated = change_account(admin_user["id"], user_id, data.model_dump(exclude_unset=True))
+    return {"ok": True, "user": public_user(updated)}
 
 
 @app.delete("/api/admin/users/{user_id}")
 def admin_delete_user(user_id: int, hard_delete: bool = False, admin_user=Depends(get_admin_user)):
-    """
-    Удалить пользователя.
-    hard_delete=False: soft-delete (is_active=0) - пользователь может снова зарегистрироваться.
-    hard_delete=True: полное удаление - пользователь удаляется из базы, но может зарегистрироваться заново.
-    Если is_active=0 (заблокирован), пользователь не может зарегистрироваться - будет ошибка "нет доступа".
-    """
-    # Нельзя удалить самого себя
-    if user_id == admin_user["id"]:
-        raise HTTPException(status_code=400, detail="Cannot delete yourself")
-    
-    # Проверка: нельзя удалить последнего superadmin
-    target_user = get_user_by_id(user_id)
-    if not target_user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    if target_user["role"] == "superadmin":
-        conn = get_conn()
-        cur = conn.cursor()
-        query = _adapt_query("SELECT COUNT(*) FROM users WHERE role = 'superadmin' AND is_active = 1")
-        cur.execute(query)
-        result = cur.fetchone()
-        # Обрабатываем результат для SQLite (Row) и PostgreSQL (tuple)
-        if result:
-            try:
-                # Пробуем получить по индексу (PostgreSQL tuple или SQLite Row)
-                superadmin_count = result[0] if isinstance(result, (tuple, list)) else result.get(0, 0)
-            except (TypeError, IndexError, AttributeError):
-                superadmin_count = 0
-        else:
-            superadmin_count = 0
-        conn.close()
-        if superadmin_count <= 1:
-            raise HTTPException(status_code=400, detail="Cannot delete the last superadmin")
-    
-    if hard_delete:
-        # Полное удаление: удаляем пользователя из базы
-        conn = get_conn()
-        cur = conn.cursor()
-        delete_query = _adapt_query("DELETE FROM users WHERE id=?")
-        cur.execute(delete_query, (user_id,))
-        conn.commit()
-        conn.close()
-        return {"ok": True, "message": "User permanently deleted"}
-    else:
-        # Soft delete: is_active = 0 (блокировка)
-        update_user(user_id, {"is_active": 0})
-        return {"ok": True, "message": "User blocked (can register again)"}
+    from backend.account_admin import change_account
+    change_account(admin_user["id"], user_id, delete=True, hard_delete=hard_delete)
+    return {"ok": True, "message": "Пользователь удалён" if hard_delete else "Доступ отключён, профиль и история сохранены"}
 
 
 # ===== Managers CRUD =====
@@ -1847,70 +1216,8 @@ def admin_list_managers(user=Depends(get_admin_user)):
 @app.post("/api/auth/telegram-login")
 async def telegram_login(request: Request):
     data = await request.json()
-    init_data = data.get("init_data") or data.get("initData")
-
-    if TELEGRAM_LOGIN_REQUIRE_INIT_DATA:
-        if not BOT_TOKEN:
-            raise HTTPException(status_code=500, detail="BOT_TOKEN is not configured")
-        if not init_data:
-            raise HTTPException(status_code=403, detail="init_data is required")
-        if not _validate_telegram_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS):
-            raise HTTPException(status_code=403, detail="Invalid init_data")
-
-        user_payload = _parse_telegram_init_data(init_data) or {}
-        tg_id = int(user_payload.get("id") or 0)
-        if not tg_id:
-            raise HTTPException(status_code=400, detail="tg_id is required")
-        username = user_payload.get("username") or data.get("username") or ""
-        first_name = user_payload.get("first_name") or data.get("first_name") or "User"
-    else:
-        if init_data and BOT_TOKEN:
-            if not _validate_telegram_init_data(init_data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS):
-                print("⚠️ Invalid init_data provided for telegram-login, ignoring")
-
-        tg_id = int(data.get("tg_id") or 0)
-        if not tg_id:
-            raise HTTPException(status_code=400, detail="tg_id is required")
-        username = data.get("username") or ""
-        first_name = data.get("first_name") or "User"
-
-    # роль
-    role = "superadmin" if tg_id == 426188469 else "manager"
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    cur.execute(
-        _adapt_query("""
-        INSERT INTO users (tg_id, tg_username, first_name, role, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(tg_id) DO UPDATE SET
-            tg_username=excluded.tg_username,
-            first_name=excluded.first_name,
-            role=excluded.role
-        """),
-        (str(tg_id), username, first_name, role, now_iso())
-    )
-
-    conn.commit()
-    query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
-    cur.execute(query, (str(tg_id),))
-    user = cur.fetchone()
-    conn.close()
-
-    # выдаём токен
-    token = create_access_token(dict(user))
-
-    return {
-        "ok": True,
-        "token": token,
-        "user": {
-            "id": user["id"],
-            "email": user.get("email"),
-            "full_name": user.get("full_name", user.get("first_name", "")),
-            "role": role,
-        }
-    }
+    identity = require_telegram_identity(data, BOT_TOKEN, TELEGRAM_LOGIN_MAX_AGE_SECONDS)
+    return login_response(resolve_verified_user(identity))
 
 
 @app.post("/api/admin/managers")
@@ -2038,42 +1345,18 @@ def admin_delete_manager(mid: int, transfer_to: Optional[int] = None, hard_delet
 
 # === Добавление пользователя (админка) ===
 @app.post("/api/users/")
-def create_user(user: dict, admin_user=Depends(get_admin_user)):
+def admin_create_user(user: dict, admin_user=Depends(get_admin_user)):
+    from backend.users import add_user, UserCreate
+    from pydantic import ValidationError
     try:
-        print("📩 Новый пользователь:", user)
-        conn = get_conn()
-        cur = conn.cursor()
-
-        # tg_id обязателен, но мы можем подставить временный ноль
-        tg_id = user.get("tg_id") or 0
-
-        cur.execute("""
-            INSERT INTO users (tg_id, first_name, tg_username, group_tag, manager_id, region, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
-        """, (
-            tg_id,
-            user.get("first_name"),
-            user.get("tg_username"),
-            user.get("group_tag"),
-            user.get("manager_id"),
-            user.get("region") or "Москва"
-        ))
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("✅ Пользователь добавлен успешно")
-        return {"detail": "Пользователь добавлен"}
-
-    except Exception as e:
-        import traceback
-        print("❌ Ошибка при добавлении пользователя:")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении: {e}")
+        validated = UserCreate(**user)
+    except ValidationError:
+        raise HTTPException(422, "Некорректные данные пользователя") from None
+    return add_user(validated, admin_user)
 
 
 @app.get("/api/managers")
-def public_managers():
+def public_managers(user=Depends(get_current_active_user)):
     conn = get_conn()
     cur = conn.cursor()
     if USE_POSTGRES:
@@ -2088,451 +1371,299 @@ def public_managers():
 
 # ===== Менеджеры из таблицы users (для привязки ассистентов) =====
 @app.get("/api/user-managers")
-def get_user_managers():
+def get_user_managers(user=Depends(get_current_active_user)):
     conn = get_conn()
-    cur = conn.cursor()
-    rows = cur.execute("""
-        SELECT id, first_name AS name
-        FROM users
-        WHERE role = 'manager'
-        ORDER BY first_name COLLATE NOCASE
-    """).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT id, first_name AS name FROM users WHERE role='manager' ORDER BY LOWER(first_name)")
+        return [dict(row) for row in cur.fetchall()]
+    finally:
+        conn.close()
 
 # ===== Проверка дублирующих защит =====
 @app.post("/api/protections/check-duplicate")
-def check_duplicate(data: dict):
+def check_duplicate(data: dict, user=Depends(get_current_active_user)):
+    display, total = _material_values(data)
     conn = get_conn()
-    cur = conn.cursor()
-    results = []
-    sku_data = data.get("sku_data", [])
-    area_m2 = data.get("area_m2")
-    if not sku_data:
-        return []
-    cur.execute(
-        "SELECT id, manager, partner, sku, area_m2, expires_at, status FROM protections WHERE status = 'active'"
-    )
-    protections = cur.fetchall()
-    for item in sku_data:
-        sku = item.get("sku")
-        area = item.get("area") or area_m2
-        if not sku or not area:
-            continue
-        sku_norm = normalize_sku(sku)
-        for row in protections:
-            _, p_manager, p_partner, p_sku, p_area, p_expires, _ = row
-            if not p_area:
-                continue
-            if sku_norm != normalize_sku(p_sku):
-                continue
-            lower = float(p_area) * 0.9
-            upper = float(p_area) * 1.1
-            if lower <= float(area) <= upper:
-                results.append(
-                    {
-                        "manager": p_manager,
-                        "partner": p_partner,
-                        "sku": p_sku,
-                        "area_m2": p_area,
-                        "expires_at": p_expires,
-                    }
-                )
-    conn.close()
-    return results
+    try:
+        exclude_id = data.get("exclude_id")
+        if exclude_id is not None:
+            try:
+                exclude_id = int(exclude_id)
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Некорректный номер защиты")
+        return _conflicts(conn.cursor(), display, total, exclude_id)
+    finally:
+        conn.close()
 
 # === Утилита для сопоставления user_id с manager_id ===
 def resolve_manager_for_user(cur, user_id):
-    """Безопасно ищет менеджера по user_id, если требуется"""
     if not user_id:
         return None
-    row = cur.execute(_adapt_query("SELECT id FROM users WHERE id=?"), (user_id,)).fetchone()
+    cur.execute(_adapt_query("SELECT id FROM users WHERE id=?"), (user_id,))
+    row = cur.fetchone()
     return row["id"] if row else None
 
 # ===== Создание защиты =====
 @app.post("/api/protections", response_model=ProtectionOut)
 def create_protection(payload: ProtectionCreate, user=Depends(get_current_active_user), background_tasks: BackgroundTasks = None):
-    conn = get_conn()
-    cur = conn.cursor()
-    created = now_iso()
-    skus_in: List[SkuItem] = payload.sku_data or []
-    has_per_sku_areas = any((it.area is not None) for it in skus_in)
-    
-    # Получаем user_id из текущего пользователя
-    current_user_id = user.get("id") if isinstance(user, dict) else None
-
-    # представление и площадь
-    if skus_in:
-        if has_per_sku_areas:
-            parts = []
-            total_area = 0.0
-            for it in skus_in:
-                a = float(it.area or 0)
-                total_area += a
-                parts.append(
-                    f"{it.sku} ({it.type}) — {int(a) if a.is_integer() else a} м²"
-                )
-            sku_display = "; ".join(parts)
-        else:
-            total_area = float(payload.area_m2) if payload.area_m2 else 0.0
-            parts = [f"{it.sku} ({it.type})" for it in skus_in]
-            sku_display = " + ".join(parts)
-    else:
-        sku_display = (payload.sku or (skus_in[0].sku if skus_in else "—")).strip()
-        total_area = float(payload.area_m2) if payload.area_m2 else 0.0
-
-    # ⛔ минимум 50 м²
-    if total_area < 50:
-        conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail="⚠️ Защита ставится от 50 м²"
-        )
-
-    # === ПРОВЕРКА ДУБЛЕЙ по SKU и метражу ±10% (без учёта партнёра) ===
-    # Собираем все артикулы из новой защиты (нормализованные)
-    new_skus_set = set()
-    pairs = []
-    if skus_in:
-        if has_per_sku_areas:
-            for it in skus_in:
-                if it.area and it.area > 0:
-                    sku_norm = normalize_sku(it.sku)
-                    if sku_norm:
-                        new_skus_set.add(sku_norm)
-                        pairs.append((sku_norm, float(it.area)))
-        else:
-            for it in skus_in:
-                sku_norm = normalize_sku(it.sku)
-                if sku_norm:
-                    new_skus_set.add(sku_norm)
-                    pairs.append((sku_norm, total_area))
-    else:
-        if sku_display and total_area > 0:
-            # Разбиваем sku_display на отдельные артикулы (если есть " + " или "; ")
-            sku_parts = []
-            if " + " in sku_display:
-                sku_parts = [p.strip() for p in sku_display.split(" + ")]
-            elif "; " in sku_display:
-                # Если формат "SKU1 (type) — area м²; SKU2 (type) — area м²"
-                sku_parts = [p.split(" — ")[0].split(" (")[0].strip() for p in sku_display.split("; ")]
-            else:
-                sku_parts = [sku_display.strip()]
-            
-            for sku_part in sku_parts:
-                sku_norm = normalize_sku(sku_part)
-                if sku_norm:
-                    new_skus_set.add(sku_norm)
-                    pairs.append((sku_norm, total_area))
-
-    cur.execute("""
-        SELECT id, manager, manager_id, partner, partner_city, client, sku, area_m2, 
-               expires_at, object_city, address, last4, comment
-        FROM protections
-        WHERE status='active'
-    """)
-    active_rows = cur.fetchall()
-
-    # Функция для извлечения артикулов из SKU строки
-    def extract_skus_from_string(sku_str):
-        """Извлекает нормализованные артикулы из строки SKU"""
-        if not sku_str:
-            return set()
-        skus = set()
-        # Разбиваем по " + " или "; "
-        if " + " in sku_str:
-            parts = [p.strip() for p in sku_str.split(" + ")]
-        elif "; " in sku_str:
-            # Если формат "SKU1 (type) — area м²; SKU2 (type) — area м²"
-            parts = [p.split(" — ")[0].split(" (")[0].strip() for p in sku_str.split("; ")]
-        else:
-            parts = [sku_str.strip()]
-        
-        for part in parts:
-            sku_norm = normalize_sku(part)
-            if sku_norm:
-                skus.add(sku_norm)
-        return skus
-
-    # Проверяем каждую пару (артикул, метраж) новой защиты
-    for sku_code, area_x in pairs:
-        if not sku_code or area_x <= 0:
-            continue
-        min_a = area_x * 0.9
-        max_a = area_x * 1.1
-        
-        for row in active_rows:
-            if not row["area_m2"]:
-                continue
-            
-            # Извлекаем артикулы из существующей защиты
-            existing_skus = extract_skus_from_string(row["sku"])
-            
-            # Проверяем пересечение артикулов
-            # Если хотя бы один артикул совпадает и метраж совпадает (±10%)
-            if new_skus_set and existing_skus and new_skus_set.intersection(existing_skus):
-                if min_a <= float(row["area_m2"]) <= max_a:
-                    # Получаем информацию о создателе защиты
-                    # Инициализируем переменную до использования
+    with _protection_transaction() as (conn, cur):
+        _refresh_protection_actor(cur, user)
+        created = now_iso()
+        current_user_id = user["id"]
+        sku_display, total_area = _material_values(payload.model_dump())
+        _validate_protection_contacts(payload.model_dump())
+        for row in _conflicts(cur, sku_display, total_area):
+            # Получаем информацию о создателе защиты
+            # Инициализируем переменную до использования
+            creator_name = "—"
+            manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
+            if manager_id:
+                try:
+                    creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+                    cur.execute(creator_query, (manager_id,))
+                    creator_row = cur.fetchone()
+                    if creator_row:
+                        creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
+                except Exception as e:
+                    print(f"⚠️ Ошибка получения имени создателя защиты: {e}")
                     creator_name = "—"
-                    manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
-                    if manager_id:
-                        try:
-                            creator_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
-                            cur.execute(creator_query, (manager_id,))
-                            creator_row = cur.fetchone()
-                            if creator_row:
-                                creator_name = creator_row.get("full_name") or creator_row.get("first_name") or "—"
-                        except Exception as e:
-                            print(f"⚠️ Ошибка получения имени создателя защиты: {e}")
-                            creator_name = "—"
-                    
-                    # Отправляем уведомление всем админам и суперадминам о похожей защите (только тем, у кого включены уведомления)
-                    admin_query = _adapt_query("""
-                    SELECT tg_id, full_name, first_name 
-                    FROM users 
-                    WHERE role IN ('admin', 'superadmin') 
-                      AND tg_id IS NOT NULL 
-                      AND tg_id != ''
-                          AND (receive_notifications IS NULL OR receive_notifications = 1)
-                        """)
-                    cur.execute(admin_query)
-                    admins = cur.fetchall()
-                    
-                    duplicate_msg = (
-                        f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
-                        f"<b>Существующая защита:</b>\n"
-                        f"👤 Менеджер: {row['manager']}\n"
-                        f"👤 Создатель: {creator_name}\n"
-                        f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                        f"❗️Артикул: {row['sku']}\n"
-                        f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                        f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
-                        f"<b>Попытка создать:</b>\n"
-                        f"👤 Пользователь: {payload.manager or '—'}\n"
-                        f"📦 SKU: {sku_display}\n"
-                        f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
-                        f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                    )
-                    
-                    # Формируем полную информацию о похожей защите для передачи в модальное окно
-                    similar_protection_data = {
-                            "id": row.get("id"),
-                            "manager": row.get("manager", "—"),
-                            "creator_name": creator_name,
-                            "partner": row.get("partner", "—"),
-                            "partner_city": row.get("partner_city", "—"),
-                            "client": row.get("client", "—"),
-                            "sku": row.get("sku", "—"),
-                            "area_m2": row.get("area_m2"),
-                            "expires_at": row.get("expires_at", "—"),
-                            "object_city": row.get("object_city", "—"),
-                            "address": row.get("address", "—"),
-                            "last4": row.get("last4", "—"),
-                            "comment": row.get("comment", "—"),
-                        }
-                        
-                    # Отправляем уведомления асинхронно через BackgroundTasks
-                    # Сохраняем данные в локальные переменные для использования в замыкании
-                    creator_name_for_notification = creator_name
-                    row_data = dict(row)
-                    sku_display_for_notification = sku_display
-                    total_area_for_notification = total_area
-                    manager_for_notification = payload.manager or "—"
-                    admins_for_notification = admins
-                    
-                    async def send_duplicate_notifications():
-                        sent_count = 0
-                        msg = (
-                            f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
-                            f"<b>Существующая защита:</b>\n"
-                            f"👤 Менеджер: {row_data['manager']}\n"
-                            f"👤 Создатель: {creator_name_for_notification}\n"
-                            f"🏢 Партнёр: {row_data.get('partner', '—')}\n"
-                            f"❗️Артикул: {row_data['sku']}\n"
-                            f"📏 Метраж: {int(row_data['area_m2']) if float(row_data['area_m2']).is_integer() else row_data['area_m2']} м²\n"
-                            f"⏰ Истекает: {row_data['expires_at'][:10]}\n\n"
-                            f"<b>Попытка создать:</b>\n"
-                            f"👤 Пользователь: {manager_for_notification}\n"
-                            f"📦 SKU: {sku_display_for_notification}\n"
-                            f"📏 Метраж: {int(total_area_for_notification) if total_area_for_notification.is_integer() else total_area_for_notification} м²\n\n"
-                            f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
-                        )
-                        for admin in admins_for_notification:
-                            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-                            if tg_id:
-                                try:
-                                    tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
-                                    if tg_id_int:
-                                        await bot.send_message(
-                                            tg_id_int,
-                                            msg,
-                                            parse_mode="HTML"
-                                        )
-                                        sent_count += 1
-                                        print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
-                                except Exception as e:
-                                    print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
-                        
-                        if sent_count > 0:
-                            print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
-                
-                    # Используем BackgroundTasks для отправки уведомлений
-                    if background_tasks:
-                        background_tasks.add_task(send_duplicate_notifications)
-                    else:
-                        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-                        try:
-                            import asyncio
-                            loop = asyncio.get_event_loop()
-                            if loop.is_running():
-                                asyncio.create_task(send_duplicate_notifications())
-                            else:
-                                loop.run_until_complete(send_duplicate_notifications())
-                        except Exception as e:
-                            print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
-                    
-                    conn.close()
-                    raise HTTPException(
-                            status_code=409,
-                            detail={
-                                "msg": (
-                                    "⚠️ Похожая активная защита уже существует:\n\n"
-                                    f"👤 Менеджер: {row['manager']}\n"
-                                    f"👤 Создатель: {creator_name}\n"
-                                    f"🏢 Партнёр: {row['partner'] or '—'}\n"
-                                    f"❗️Артикул: {row['sku']}\n"
-                                    f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
-                                    f"⏰ Истекает: {row['expires_at']}\n\n"
-                                    "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
-                                ),
-                                "similar_protection": similar_protection_data
-                            }
-                        )
 
-    # ===== Проверка минимальной площади (50 м²) =====
-    if total_area < 50:
-        conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
+            # Отправляем уведомление всем админам и суперадминам о похожей защите (только тем, у кого включены уведомления)
+            admin_query = _adapt_query("""
+            SELECT tg_id, full_name, first_name
+            FROM users
+            WHERE role IN ('admin', 'superadmin')
+              AND tg_id IS NOT NULL
+              AND tg_id != ''
+                  AND (receive_notifications IS NULL OR receive_notifications = 1)
+                """)
+            cur.execute(admin_query)
+            admins = cur.fetchall()
+
+            duplicate_msg = (
+                f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                f"<b>Существующая защита:</b>\n"
+                f"👤 Менеджер: {row['manager']}\n"
+                f"👤 Создатель: {creator_name}\n"
+                f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                f"❗️Артикул: {row['sku']}\n"
+                f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                f"⏰ Истекает: {row['expires_at'][:10]}\n\n"
+                f"<b>Попытка создать:</b>\n"
+                f"👤 Пользователь: {payload.manager or '—'}\n"
+                f"📦 SKU: {sku_display}\n"
+                f"📏 Метраж: {int(total_area) if total_area.is_integer() else total_area} м²\n\n"
+                f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+            )
+
+            # Формируем полную информацию о похожей защите для передачи в модальное окно
+            similar_protection_data = {
+                    "id": row.get("id"),
+                    "manager": row.get("manager", "—"),
+                    "creator_name": creator_name,
+                    "partner": row.get("partner", "—"),
+                    "partner_city": row.get("partner_city", "—"),
+                    "client": row.get("client", "—"),
+                    "sku": row.get("sku", "—"),
+                    "area_m2": row.get("area_m2"),
+                    "expires_at": row.get("expires_at", "—"),
+                    "object_city": row.get("object_city", "—"),
+                    "address": row.get("address", "—"),
+                    "last4": row.get("last4", "—"),
+                    "comment": row.get("comment", "—"),
+                }
+
+            # Отправляем уведомления асинхронно через BackgroundTasks
+            # Сохраняем данные в локальные переменные для использования в замыкании
+            creator_name_for_notification = creator_name
+            row_data = dict(row)
+            sku_display_for_notification = sku_display
+            total_area_for_notification = total_area
+            manager_for_notification = payload.manager or "—"
+            admins_for_notification = admins
+
+            async def send_duplicate_notifications():
+                sent_count = 0
+                msg = (
+                    f"⚠️ <b>Попытка создать похожую защиту</b>\n\n"
+                    f"<b>Существующая защита:</b>\n"
+                    f"👤 Менеджер: {row_data['manager']}\n"
+                    f"👤 Создатель: {creator_name_for_notification}\n"
+                    f"🏢 Партнёр: {row_data.get('partner', '—')}\n"
+                    f"❗️Артикул: {row_data['sku']}\n"
+                    f"📏 Метраж: {int(row_data['area_m2']) if float(row_data['area_m2']).is_integer() else row_data['area_m2']} м²\n"
+                    f"⏰ Истекает: {row_data['expires_at'][:10]}\n\n"
+                    f"<b>Попытка создать:</b>\n"
+                    f"👤 Пользователь: {manager_for_notification}\n"
+                    f"📦 SKU: {sku_display_for_notification}\n"
+                    f"📏 Метраж: {int(total_area_for_notification) if total_area_for_notification.is_integer() else total_area_for_notification} м²\n\n"
+                    f"💬 Пользователь должен обратиться к менеджеру или попросить администратора/суперадмина пропустить эту защиту."
+                )
+                for admin in admins_for_notification:
+                    tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                    if tg_id:
+                        try:
+                            tg_id_int = int(tg_id) if str(tg_id).isdigit() else None
+                            if tg_id_int:
+                                await bot.send_message(
+                                    tg_id_int,
+                                    msg,
+                                    parse_mode="HTML"
+                                )
+                                sent_count += 1
+                                print(f"📩 Уведомление о похожей защите отправлено админу {tg_id_int}")
+                        except Exception as e:
+                            print(f"⚠️ Ошибка отправки уведомления о похожей защите админу {tg_id}: {e}")
+
+                if sent_count > 0:
+                    print(f"✅ Уведомления о похожей защите отправлены {sent_count} админам/суперадминам")
+
+            # Используем BackgroundTasks для отправки уведомлений
+            if background_tasks:
+                background_tasks.add_task(send_duplicate_notifications)
+            else:
+                # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                try:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(send_duplicate_notifications())
+                    else:
+                        loop.run_until_complete(send_duplicate_notifications())
+                except Exception as e:
+                    print(f"⚠️ Ошибка при создании задачи отправки уведомлений: {e}")
+
+            raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "msg": (
+                            "⚠️ Похожая активная защита уже существует:\n\n"
+                            f"👤 Менеджер: {row['manager']}\n"
+                            f"👤 Создатель: {creator_name}\n"
+                            f"🏢 Партнёр: {row['partner'] or '—'}\n"
+                            f"❗️Артикул: {row['sku']}\n"
+                            f"📏 Метраж: {int(row['area_m2']) if float(row['area_m2']).is_integer() else row['area_m2']} м²\n"
+                            f"⏰ Истекает: {row['expires_at']}\n\n"
+                            "💬 Обратись к менеджеру или попроси администратора/суперадмина пропустить эту защиту."
+                        ),
+                        "similar_protection": similar_protection_data
+                    }
                 )
 
-    # ===== TTL по суммарной площади (в рабочих днях) =====
-    ttl_workdays = 5
-    if total_area >= 50:
-        if total_area < 100:
-            ttl_workdays = 5
-        elif total_area < 250:
-            ttl_workdays = 10
-        elif total_area < 500:
-            ttl_workdays = 15
-        else:
-            ttl_workdays = 30
-
-    # Используем рабочие дни (исключая выходные и праздники)
-    expires = add_workdays(created, ttl_workdays)
-
-    # 🆕 Сохраняем user_id создателя защиты в поле manager_id защиты
-    # Это нужно для привязки защиты к пользователю и проверки прав на удаление
-    manager_id = current_user_id  # Сохраняем ID пользователя, который создал защиту
-
-    # 🆕 Вставляем новую защиту с manager_id
-    # Строим INSERT запрос с RETURNING для PostgreSQL
-    if USE_POSTGRES:
-        insert_sql = """
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at, closed_at,
-                extend_count, auto_closed, manager_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'active', %s, %s, NULL, 0, 0, %s)
-            RETURNING id
-        """
-    else:
-        insert_sql = _adapt_query("""
-            INSERT INTO protections(
-                manager, client, partner, partner_city, sku, area_m2, last4,
-                object_city, address, comment, status, created_at, expires_at, closed_at,
-                extend_count, auto_closed, manager_id
-            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
-        """)
-    
-    cur.execute(insert_sql, (
-        (payload.manager or "").strip(),
-        (payload.client or "").strip(),
-        (payload.partner or "").strip(),
-        (payload.partner_city or "").strip(),
-        sku_display,
-        total_area if total_area > 0 else None,
-        (payload.last4 or "").strip(),
-        (payload.object_city or "").strip(),
-        (payload.address or "").strip(),
-        (payload.comment or "").strip(),
-        created,
-        expires,
-        manager_id,
-    ))
-
-    # Получаем ID в зависимости от типа БД
-    if USE_POSTGRES:
-        result = cur.fetchone()
-        new_id = result["id"] if result else None
-    else:
-        new_id = cur.lastrowid
-    
-    if not new_id:
-        conn.close()
-        raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
-    
-    add_history(cur, new_id, "manager", "create", {"sku": sku_display, "area_m2": total_area})
-    conn.commit()
-
-    # Получаем данные созданной защиты для уведомлений
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (new_id,))
-    row = cur.fetchone()
-    row_dict = row_to_out(row).dict()
-    
-    # Отправляем уведомление всем пользователям о новой защите
-    if background_tasks:
-        background_tasks.add_task(notify_all_users_new_protection, row_dict)
-    else:
-        # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
-        try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.create_task(notify_all_users_new_protection(row_dict))
+        # ===== TTL по суммарной площади (в рабочих днях) =====
+        ttl_workdays = 5
+        if total_area >= 50:
+            if total_area < 100:
+                ttl_workdays = 5
+            elif total_area < 250:
+                ttl_workdays = 10
+            elif total_area < 500:
+                ttl_workdays = 15
             else:
-                loop.run_until_complete(notify_all_users_new_protection(row_dict))
-        except Exception as e:
-            print(f"⚠️ Ошибка при отправке уведомления всем пользователям: {e}")
+                ttl_workdays = 30
 
-    # если защита "на проверке" — уведомляем админа
-    if row["status"] == "pending":
-        # Используем BackgroundTasks для отправки уведомлений
+        # Используем рабочие дни (исключая выходные и праздники)
+        expires = add_workdays(created, ttl_workdays)
+
+        # 🆕 Сохраняем user_id создателя защиты в поле manager_id защиты
+        # Это нужно для привязки защиты к пользователю и проверки прав на удаление
+        manager_id = current_user_id  # Сохраняем ID пользователя, который создал защиту
+
+        # 🆕 Вставляем новую защиту с manager_id
+        # Строим INSERT запрос с RETURNING для PostgreSQL
+        if USE_POSTGRES:
+            insert_sql = """
+                INSERT INTO protections(
+                    manager, client, partner, partner_city, sku, area_m2, last4,
+                    object_city, address, comment, status, created_at, expires_at, closed_at,
+                    extend_count, auto_closed, manager_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'active', %s, %s, NULL, 0, 0, %s)
+                RETURNING id
+            """
+        else:
+            insert_sql = _adapt_query("""
+                INSERT INTO protections(
+                    manager, client, partner, partner_city, sku, area_m2, last4,
+                    object_city, address, comment, status, created_at, expires_at, closed_at,
+                    extend_count, auto_closed, manager_id
+                ) VALUES (?,?,?,?,?,?,?,?,?,?, 'active', ?, ?, NULL, 0, 0, ?)
+            """)
+    
+        cur.execute(insert_sql, (
+            (payload.manager or "").strip(),
+            (payload.client or "").strip(),
+            (payload.partner or "").strip(),
+            (payload.partner_city or "").strip(),
+            sku_display,
+            total_area if total_area > 0 else None,
+            (payload.last4 or "").strip(),
+            (payload.object_city or "").strip(),
+            (payload.address or "").strip(),
+            (payload.comment or "").strip(),
+            created,
+            expires,
+            manager_id,
+        ))
+
+        # Получаем ID в зависимости от типа БД
+        if USE_POSTGRES:
+            result = cur.fetchone()
+            new_id = result["id"] if result else None
+        else:
+            new_id = cur.lastrowid
+    
+        if not new_id:
+            raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
+    
+        add_history(cur, new_id, str(user["id"]), "create", {"sku": sku_display, "area_m2": total_area, "actor_id": user["id"], "actor_role": user["role"]})
+
+        # Получаем данные созданной защиты для уведомлений
+        query = _adapt_query("SELECT * FROM protections WHERE id=?")
+        cur.execute(query, (new_id,))
+        row = cur.fetchone()
+        row_dict = row_to_out(row).dict()
+    
+        # Отправляем уведомление всем пользователям о новой защите
         if background_tasks:
-            background_tasks.add_task(notify_admin_new_protection, row_dict)
+            background_tasks.add_task(notify_all_users_new_protection, row_dict)
         else:
             # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
             try:
                 import asyncio
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
-                    asyncio.create_task(notify_admin_new_protection(row_dict))
+                    asyncio.create_task(notify_all_users_new_protection(row_dict))
                 else:
-                    loop.run_until_complete(notify_admin_new_protection(row_dict))
+                    loop.run_until_complete(notify_all_users_new_protection(row_dict))
             except Exception as e:
-                print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+                print(f"⚠️ Ошибка при отправке уведомления всем пользователям: {e}")
 
-    conn.close()
-    return row_to_out(row)
+        # если защита "на проверке" — уведомляем админа
+        if row["status"] == "pending":
+            # Используем BackgroundTasks для отправки уведомлений
+            if background_tasks:
+                background_tasks.add_task(notify_admin_new_protection, row_dict)
+            else:
+                # Fallback: пытаемся запустить через asyncio, если BackgroundTasks недоступен
+                try:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        asyncio.create_task(notify_admin_new_protection(row_dict))
+                    else:
+                        loop.run_until_complete(notify_admin_new_protection(row_dict))
+                except Exception as e:
+                    print(f"⚠️ Ошибка при отправке уведомления админу: {e}")
+
+        result = dict(row)
+    return row_to_out(result, user=user)
 
     # === Обновление Telegram уведомлений менеджера ===
 from fastapi import Body
 
 @app.put("/api/admin/managers/{manager_id}/telegrams")
-def update_manager_telegrams(manager_id: int, body: dict = Body(...)):
+def update_manager_telegrams(manager_id: int, body: dict = Body(...), user=Depends(get_admin_user)):
     import json
     telegrams = body.get("telegrams")
 
@@ -2557,73 +1688,85 @@ def update_manager_telegrams(manager_id: int, body: dict = Body(...)):
 
 # ===== Редактирование защиты =====
 @app.put("/api/protections/{pid}", response_model=ProtectionOut)
-def update_protection(pid: int, payload: ProtectionUpdate):
-    conn = get_conn()
-    cur = conn.cursor()
-
-    # проверим, что защита есть и активна
-    query = _adapt_query("SELECT * FROM protections WHERE id = ?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Защита не найдена")
-    if row["status"] != "active":
-        conn.close()
-        raise HTTPException(status_code=400, detail="Редактировать можно только активные защиты")
-
-    # === формируем sku и площадь ТАК ЖЕ, как при создании ===
-    skus_in: List[SkuItem] = payload.sku_data or []
-    has_per_sku_areas = any((it.area is not None) for it in skus_in)
-
-    if skus_in:
-        if has_per_sku_areas:
-            parts = []
-            total_area = 0.0
-            for it in skus_in:
-                a = float(it.area or 0)
-                total_area += a
-                parts.append(f"{it.sku} ({it.type}) — {int(a) if a.is_integer() else a} м²")
-            sku_display = "; ".join(parts)
-        else:
-            total_area = float(payload.area_m2 or 0)
-            parts = [f"{it.sku} ({it.type})" for it in skus_in]
-            sku_display = " + ".join(parts)
-    else:
-        sku_display = (payload.sku or "").strip()
-        total_area = float(payload.area_m2 or 0)
-
-    # === обновляем запись ===
-    update_query = _adapt_query("""
-        UPDATE protections
-        SET sku = ?, area_m2 = ?, comment = ?, updated_at = ?
-        WHERE id = ?
-    """)
-    cur.execute(update_query, (sku_display, total_area, payload.comment or "", now_iso(), pid))
-
-    add_history(
-        cur,
-        pid,
-        payload.manager or "system",
-        "edit",
-        {
-            "new_area": total_area,
-            "new_skus": sku_display,
-            "comment": payload.comment or "",
-        },
-    )
-
-    conn.commit()
-    query = _adapt_query("SELECT * FROM protections WHERE id = ?")
-    cur.execute(query, (pid,))
-    updated = cur.fetchone()
-    conn.close()
-
-    return row_to_out(updated)
+def update_protection(pid: int, payload: ProtectionUpdate, user=Depends(get_current_active_user)):
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        is_admin = user.get("role") in ("admin", "superadmin")
+        if row["status"] not in ("active", "closed", "success", "rejected") and not (user.get("role") == "superadmin" and row["status"] == "deleted"):
+            raise HTTPException(status_code=400, detail="Эту защиту сейчас нельзя редактировать")
+        revision = row.get("updated_at") or row["created_at"]
+        if payload.expected_updated_at is None:
+            raise HTTPException(status_code=428, detail="Обновите карточку перед сохранением")
+        if payload.expected_updated_at != revision:
+            raise HTTPException(status_code=409, detail={"msg": "Защита уже изменена. Обновите карточку и повторите изменения.", "code": "stale_protection"})
+        data = payload.model_dump(exclude_unset=True)
+        data.pop("expected_updated_at", None)
+        before = dict(row)
+        before.update(_archive_metadata(cur, pid))
+        merged = dict(row)
+        updates = {}
+        for field in ("manager", "client", "partner", "partner_city", "last4", "object_city", "address", "comment"):
+            if field in data:
+                updates[field] = (data[field] or "").strip()
+        if "manager" in updates and not updates["manager"]:
+            raise HTTPException(status_code=400, detail="Укажите менеджера")
+        if "last4" in updates and updates["last4"] and not re.fullmatch(r"[0-9]{4}", updates["last4"]):
+            raise HTTPException(status_code=400, detail="Укажите последние 4 цифры телефона")
+        merged.update(updates)
+        if any(field in data for field in ("sku", "sku_data", "area_m2")):
+            material = {**merged, **{key: data[key] for key in ("sku", "sku_data", "area_m2") if key in data}}
+            updates["sku"], updates["area_m2"] = _material_values(material)
+            merged.update(updates)
+        # Historical duplicate exceptions keep working when only contact data changes.
+        material_changed = (sorted(sku_pairs(merged.get("sku"), merged.get("area_m2"))) != sorted(sku_pairs(row.get("sku"), row.get("area_m2")))
+                            or float(merged.get("area_m2") or 0) != float(row.get("area_m2") or 0))
+        if row["status"] == "active" and material_changed:
+            _require_no_conflict(cur, merged["sku"], merged["area_m2"], pid)
+        if "expires_at" in data and data["expires_at"] != row["expires_at"]:
+            if not is_admin:
+                raise HTTPException(status_code=403, detail="Изменить срок может только администратор")
+            if row["status"] != "active":
+                raise HTTPException(status_code=400, detail="Срок закрытой защиты задаётся при восстановлении")
+            try:
+                parsed = datetime.fromisoformat(str(data["expires_at"]).replace("Z", "+00:00"))
+                if parsed.tzinfo:
+                    from datetime import timezone
+                    parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+                if parsed.date() < datetime.utcnow().date():
+                    raise ValueError()
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="Укажите корректную будущую дату окончания")
+            updates["expires_at"] = parsed.isoformat(timespec="seconds") + "Z"
+            updates["reminder_2days_sent"] = 0
+        metadata = {}
+        for field in ("close_reason", "success_doc"):
+            if field in data:
+                value = (data[field] or "").strip()
+                if row["status"] == "active" and value:
+                    raise HTTPException(status_code=400, detail="Закрытие и успешное завершение выполняются отдельным действием")
+                if value != (before.get(field) or ""):
+                    metadata[field] = value
+        if "close_reason" in metadata:
+            updates["close_reason"] = metadata["close_reason"]
+        if row["status"] == "success" and "success_doc" in metadata and not metadata["success_doc"]:
+            raise HTTPException(status_code=400, detail="Номер документа 1С успешной защиты нельзя удалить")
+        changes = {key: value for key, value in {**updates, **metadata}.items() if before.get(key) != value}
+        if changes:
+            updates["updated_at"] = _protection_stamp()
+            columns = ", ".join(f"{key}=?" for key in updates)
+            cur.execute(_adapt_query(f"UPDATE protections SET {columns} WHERE id=?"), (*updates.values(), pid))
+            add_history(cur, pid, str(user["id"]), "edit", {
+                "actor_id": user["id"], "actor_role": user["role"],
+                "before": {key: before.get(key) for key in changes}, "after": changes,
+            })
+        updated = _get_protection(cur, pid)
+        current_metadata = _archive_metadata(cur, pid)
+    return row_to_out(updated, current_metadata, user=user)
 
 # ===== List / Actions / Stats =====
 @app.get("/api/protections", response_model=List[ProtectionOut])
-def list_protections(search: str = "", manager: str = "", status: str = ""):
+def list_protections(search: str = "", manager: str = "", status: str = "", user=Depends(get_current_active_user)):
     sql = "SELECT * FROM protections WHERE 1=1"
     params: list = []
     # по умолчанию скрываем deleted, но если status='archived' или status='deleted', показываем их
@@ -2677,10 +1820,11 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
     # Получаем историю для всех защит, чтобы извлечь комментарии и информацию о действиях
     protection_ids = [r["id"] for r in rows]
     history_map = {}
+    history_entries = {}
     if protection_ids:
         placeholders = ",".join(["?"] * len(protection_ids))
         # Получаем все записи истории для действий close, success, delete
-        history_sql = _adapt_query(f"SELECT * FROM history WHERE protection_id IN ({placeholders}) AND action IN ('close', 'success', 'delete') ORDER BY at DESC")
+        history_sql = _adapt_query(f"SELECT * FROM history WHERE protection_id IN ({placeholders}) AND action IN ('close', 'success', 'delete', 'edit', 'update_closed') ORDER BY at DESC, id DESC")
         history_cur = conn.cursor()
         history_cur.execute(history_sql, protection_ids)
         history_rows = history_cur.fetchall()
@@ -2688,6 +1832,9 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
         # Обрабатываем записи, сохраняя только последнюю для каждой защиты
         for h in history_rows:
             pid = h["protection_id"]
+            history_entries.setdefault(pid, []).append(h)
+            if h["action"] not in ("close", "success", "delete"):
+                continue
             payload = json.loads(h["payload"] or "{}")
             action = h["action"]
             actor = h["actor"]
@@ -2744,12 +1891,24 @@ def list_protections(search: str = "", manager: str = "", status: str = ""):
                 history_map[pid] = {}
             history_map[pid]["creator_name"] = creator_map[manager_id]
     
+    for r in rows:
+        pid = r["id"]
+        if r["status"] != "active":
+            history_map.setdefault(pid, {}).update(_history_metadata(history_entries.get(pid, [])))
+        else:
+            for field in ("close_reason", "success_doc", "delete_reason", "action_actor", "action_at"):
+                history_map.get(pid, {}).pop(field, None)
+    dictionary_ids = {}
+    if user.get("role") == "assistant":
+        cur.execute("SELECT id, name FROM managers")
+        dictionary_ids = {manager["name"]: manager["id"] for manager in cur.fetchall()}
+    permissions = {r["id"]: _capabilities_for(r, user, can_manage(user, dict(r), dictionary_ids.get(r["manager"]))) for r in rows}
     conn.close()
-    return [row_to_out(r, history_map.get(r["id"], {})) for r in rows]
+    return [row_to_out(r, history_map.get(r["id"], {}), user=user, capabilities=permissions[r["id"]]) for r in rows]
 
 # --- история
 @app.get("/api/export")
-def export_protections(search: str = "", manager: str = "", status: str = ""):
+def export_protections(search: str = "", manager: str = "", status: str = "", user=Depends(get_current_active_user)):
     """Выгрузка защит таблицей. CSV с BOM — Excel открывает его как есть,
     без дополнительных библиотек в зависимостях."""
     import csv
@@ -2796,7 +1955,7 @@ def export_protections(search: str = "", manager: str = "", status: str = ""):
     ])
     for r in rows:
         d = dict(r)
-        writer.writerow([
+        cells = [
             d.get("id", ""),
             STATUS_RU.get(d.get("status", ""), d.get("status", "")),
             d.get("manager", ""), d.get("partner", ""), d.get("partner_city", ""),
@@ -2805,7 +1964,8 @@ def export_protections(search: str = "", manager: str = "", status: str = ""):
             (d.get("created_at") or "")[:10], (d.get("expires_at") or "")[:10],
             (d.get("closed_at") or "")[:10], d.get("extend_count", 0),
             (d.get("comment") or "").replace("\n", " "),
-        ])
+        ]
+        writer.writerow([("'" + value) if isinstance(value, str) and value.lstrip().startswith(("=", "+", "-", "@")) else value for value in cells])
 
     buf.seek(0)
     stamp = datetime.now().strftime("%Y-%m-%d")
@@ -2816,313 +1976,283 @@ def export_protections(search: str = "", manager: str = "", status: str = ""):
     )
 
 
+@app.post("/api/export-link")
+def export_link(data: dict = Body(...), user=Depends(get_current_active_user)):
+    from backend.export_tickets import issue_ticket
+    from urllib.parse import quote
+    ticket = issue_ticket(JWT_SECRET or SECRET_KEY, user["id"], data)
+    return {"path": "/api/export-download?ticket=" + quote(ticket), "expires_in": 60,
+            "filename": "protections-" + datetime.utcnow().strftime("%Y-%m-%d") + ".csv"}
+
+
+@app.get("/api/export-download")
+def export_download(ticket: str):
+    from backend.export_tickets import read_ticket
+    try:
+        payload = read_ticket(JWT_SECRET or SECRET_KEY, ticket)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Ссылка на выгрузку истекла. Создайте новую в приложении")
+    user = get_user_by_id(payload["uid"])
+    if not user or user.get("is_active") in (False, 0, "0"):
+        raise HTTPException(status_code=403, detail="Нет доступа к выгрузке")
+    filters = {key: str(payload["filters"].get(key) or "") for key in ("search", "manager", "status")}
+    response = export_protections(**filters, user=user)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @app.get("/api/history")
-def history(protection_id: Optional[int] = None):
+def history(protection_id: Optional[int] = None, user=Depends(get_current_active_user)):
     conn = get_conn()
-    cur = conn.cursor()
-    if protection_id:
-        rows = cur.execute(
-            "SELECT * FROM history WHERE protection_id=? ORDER BY at DESC",
-            (protection_id,),
-        ).fetchall()
-    else:
-        rows = cur.execute(
-            "SELECT * FROM history ORDER BY at DESC LIMIT 500"
-        ).fetchall()
-    out = []
-    for r in rows:
-        out.append(
-            {
-                "id": r["id"],
-                "protection_id": r["protection_id"],
-                "at": r["at"],
-                "actor": r["actor"],
-                "action": r["action"],
-                "payload": json.loads(r["payload"] or "{}"),
-            }
-        )
-    conn.close()
-    return out
+    try:
+        cur = conn.cursor()
+        if protection_id:
+            cur.execute(_adapt_query("SELECT * FROM history WHERE protection_id=? ORDER BY at DESC, id DESC"), (protection_id,))
+        else:
+            cur.execute("SELECT * FROM history ORDER BY at DESC, id DESC LIMIT 500")
+        return [{**dict(row), "payload": json.loads(row["payload"] or "{}")} for row in cur.fetchall()]
+    finally:
+        conn.close()
 
 # --- продление
 @app.post("/api/protections/{pid}/extend", response_model=ProtectionOut)
-def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manager", background_tasks: BackgroundTasks = None):
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Not found")
-    if row["status"] not in ("active",):
-        conn.close()
-        raise HTTPException(
-            status_code=400, detail="Можно продлевать только активные защиты"
-        )
+def extend(pid: int, days: int = 10, actor: Literal["manager", "admin"] = "manager", background_tasks: BackgroundTasks = None, user=Depends(get_current_active_user)):
+    # actor remains in the URL for older clients, but never grants privileges.
+    _require_extension_days(days, user)
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        _require_extension_days(days, user)
+        if row["status"] != "active":
+            raise HTTPException(status_code=400, detail="Можно продлевать только активные защиты")
+        is_admin = user.get("role") in ("admin", "superadmin")
+        count = row.get("extend_count") or 0
+        if not is_admin and count >= 2:
+            raise HTTPException(status_code=403, detail={"msg": "Превышен лимит продлений. Запросите у администратора.", "needs_admin": True})
+        base = max(row["expires_at"], now_iso())
+        new_exp = add_workdays(base, days)
+        cur.execute(_adapt_query("UPDATE protections SET expires_at=?, extend_count=?, reminder_2days_sent=0, updated_at=? WHERE id=?"),
+                    (new_exp, count + (0 if is_admin else 1), _protection_stamp(), pid))
+        add_history(cur, pid, str(user["id"]), "extend", {"days": days, "workdays": True, "actor_id": user["id"], "actor_role": user["role"], "before": {"expires_at": row["expires_at"], "extend_count": count}, "after": {"expires_at": new_exp, "extend_count": count + (0 if is_admin else 1)}})
+        updated = _get_protection(cur, pid)
+    return row_to_out(updated, user=user)
 
-    # ограничение для менеджера: 2 раза
-    extend_count = row["extend_count"] or 0
-    if actor == "manager" and extend_count >= 2:
+@app.post("/api/protections/{pid}/request-extend")
+def request_extend(pid: int, data: dict = Body(...), background_tasks: BackgroundTasks = None, user=Depends(get_current_active_user)):
+    with _protection_transaction() as (conn, cur):
+        try:
+            days = int(data.get("days", 10))
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Укажите количество рабочих дней")
+        if not 1 <= days <= 365:
+            raise HTTPException(status_code=400, detail="Укажите срок от 1 до 365 рабочих дней")
+        reason = (data.get("reason") or "").strip()
+        query = _adapt_query("SELECT * FROM protections WHERE id=?")
+        cur.execute(query, (pid,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        _require_protection_access(cur, row, user)
+        if row["status"] != "active" and not (row["status"] == "closed" and row.get("auto_closed")):
+            raise HTTPException(status_code=409, detail="Запрос доступен для активной или автоматически закрытой защиты")
+        cur.execute(_adapt_query("SELECT id FROM history WHERE protection_id=? AND action='extend_request'"), (pid,))
+        if cur.fetchone():
+            return {"ok": True, "already_requested": True}
+
+        if not reason:
+            reason = "не указана"
+
         add_history(
             cur,
             pid,
-            "manager",
-            "extend_denied_limit",
-            {"current_extend_count": extend_count},
+            str(user["id"]),
+            "extend_request",
+            {"days": days, "reason": reason, "actor_id": user["id"], "actor_role": user["role"], "restore": row["status"] == "closed"},
         )
-        conn.commit()
-        conn.close()
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "msg": "Превышен лимит продлений менеджером. Запросите у администратора.",
-                "needs_admin": True,
-            },
+    
+        # Отправляем уведомление всем админам и суперадминам, у которых включены уведомления
+        admin_query = _adapt_query("""
+            SELECT id, tg_id, full_name, first_name
+            FROM users
+            WHERE role IN ('admin', 'superadmin')
+              AND tg_id IS NOT NULL
+              AND tg_id != ''
+              AND (receive_notifications IS NULL OR receive_notifications = 1)
+        """)
+        cur.execute(admin_query)
+        admins = cur.fetchall()
+    
+        # Получаем extend_count для информативности
+        extend_count = row["extend_count"] if "extend_count" in row.keys() else 0
+        extend_count_text = f" (уже продлевалась {extend_count} раз)" if extend_count > 0 else ""
+    
+        msg = (
+            f"📨 <b>Запрос на продление защиты</b>\n\n"
+            f"🆔 Защита: #{pid}\n"
+            f"👤 Менеджер: {row['manager']}\n"
+            f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
+            f"⏰ Текущая дата истечения: {row['expires_at'][:10]}{extend_count_text}\n"
+            f"📅 Запрошено продление на: {days} дней\n"
+            f"💬 Причина: {reason}\n\n"
+            f"Выберите действие:"
         )
+    
+        kb = InlineKeyboardBuilder()
+        kb.button(text="✅ Продлить на 10 дней", callback_data=f"admin_extend:{pid}:10")
+        kb.button(text="✅ Продлить на 30 дней", callback_data=f"admin_extend:{pid}:30")
+        kb.button(text="📅 Продлить на N дней", callback_data=f"admin_extend_custom:{pid}")
+        kb.button(text="🚫 Отклонить", callback_data=f"admin_reject_extend:{pid}")
+        kb.adjust(2, 2)
 
-    # Используем рабочие дни для продления (исключая выходные и праздники)
-    new_exp = add_workdays(row["expires_at"], days)
-    new_count = extend_count + (1 if actor == "manager" else 0)
-    update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
-    cur.execute(update_query, (new_exp, new_count, pid))
-    add_history(cur, pid, actor, "extend", {"days": days, "workdays": True})
-    conn.commit()
-    
-    # Уведомления админам отправляются только при запросе на продление (request_extend)
-    # или при спорных защитах (create_protection), но не при обычном продлении
-    
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    conn.close()
-    return row_to_out(row)
-
-@app.post("/api/protections/{pid}/request-extend")
-def request_extend(pid: int, data: dict = Body(...), background_tasks: BackgroundTasks = None):
-    days = data.get("days", 5)
-    reason = (data.get("reason") or "").strip()
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Not found")
-
-    if not reason:
-        reason = "не указана"
-
-    add_history(
-        cur,
-        pid,
-        "manager",
-        "extend_request",
-        {"days": days, "reason": reason},
-    )
-    
-    # Отправляем уведомление всем админам и суперадминам, у которых включены уведомления
-    admin_query = _adapt_query("""
-        SELECT id, tg_id, full_name, first_name 
-        FROM users 
-        WHERE role IN ('admin', 'superadmin') 
-          AND tg_id IS NOT NULL 
-          AND tg_id != ''
-          AND (receive_notifications IS NULL OR receive_notifications = 1)
-    """)
-    cur.execute(admin_query)
-    admins = cur.fetchall()
-    
-    # Получаем extend_count для информативности
-    extend_count = row["extend_count"] if "extend_count" in row.keys() else 0
-    extend_count_text = f" (уже продлевалась {extend_count} раз)" if extend_count > 0 else ""
-    
-    msg = (
-        f"📨 <b>Запрос на продление защиты</b>\n\n"
-        f"🆔 Защита: #{pid}\n"
-        f"👤 Менеджер: {row['manager']}\n"
-        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-        f"⏰ Текущая дата истечения: {row['expires_at'][:10]}{extend_count_text}\n"
-        f"📅 Запрошено продление на: {days} дней\n"
-        f"💬 Причина: {reason}\n\n"
-        f"Выберите действие:"
-    )
-    
-    kb = InlineKeyboardBuilder()
-    kb.button(text="✅ Продлить на 10 дней", callback_data=f"admin_extend:{pid}:10")
-    kb.button(text="✅ Продлить на 30 дней", callback_data=f"admin_extend:{pid}:30")
-    kb.button(text="📅 Продлить на N дней", callback_data=f"admin_extend_custom:{pid}")
-    kb.button(text="🚫 Отклонить", callback_data=f"admin_reject_extend:{pid}")
-    kb.adjust(2, 2)
-    
-    # Отправляем уведомления асинхронно
-    async def send_admin_notifications():
-        sent_count = 0
-        print(f"🔍 Начинаю отправку уведомлений админам. Всего админов: {len(admins)}")
-        print(f"🔍 BOT_TOKEN exists: {bool(BOT_TOKEN)}, bot instance: {bot is not None}")
-        print(f"🔍 Bot token length: {len(BOT_TOKEN) if BOT_TOKEN else 0}")
+        # Отправляем уведомления асинхронно
+        async def send_admin_notifications():
+            sent_count = 0
+            print(f"🔍 Начинаю отправку уведомлений админам. Всего админов: {len(admins)}")
+            print(f"🔍 BOT_TOKEN exists: {bool(BOT_TOKEN)}, bot instance: {bot is not None}")
+            print(f"🔍 Bot token length: {len(BOT_TOKEN) if BOT_TOKEN else 0}")
         
-        for admin in admins:
-            tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
-            if not tg_id:
-                print(f"⚠️ У админа {admin.get('full_name', admin.get('first_name', 'Unknown'))} нет tg_id")
-                continue
-            
-            # Нормализуем tg_id и обновляем в базе, если нужно
-            from backend.db import normalize_tg_id
-            normalized_tg_id = normalize_tg_id(tg_id)
-            if normalized_tg_id and normalized_tg_id != str(tg_id):
-                # Обновляем tg_id в базе, если он был с префиксом
-                admin_id = admin.get("id")
-                if admin_id:
-                    try:
-                        update_conn = get_conn()
-                        update_cur = update_conn.cursor()
-                        update_query = _adapt_query("UPDATE users SET tg_id=? WHERE id=?")
-                        update_cur.execute(update_query, (normalized_tg_id, admin_id))
-                        update_conn.commit()
-                        update_conn.close()
-                        print(f"✅ Обновлен tg_id пользователя {admin_id} с {tg_id} на {normalized_tg_id}")
-                        tg_id = normalized_tg_id
-                    except Exception as e:
-                        print(f"⚠️ Ошибка обновления tg_id для пользователя {admin_id}: {e}")
-            
-            try:
-                # Пробуем разные форматы tg_id
-                tg_id_int = None
-                if isinstance(tg_id, int):
-                    tg_id_int = tg_id
-                elif isinstance(tg_id, str):
-                    # Убираем префикс "tg-" или "dev-" если есть
-                    clean_id = tg_id.replace("tg-", "").replace("dev-", "").strip()
-                    if clean_id.isdigit():
-                        tg_id_int = int(clean_id)
-                    elif tg_id.isdigit():
-                        tg_id_int = int(tg_id)
-                
-                if not tg_id_int:
-                    print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
+            for admin in admins:
+                tg_id = admin["tg_id"] if "tg_id" in admin.keys() else None
+                if not tg_id:
+                    print(f"⚠️ У админа {admin.get('full_name', admin.get('first_name', 'Unknown'))} нет tg_id")
                     continue
-                
-                print(f"📤 Отправляю уведомление админу {tg_id_int} (исходный tg_id: {tg_id})...")
-                
-                # Проверяем, что бот инициализирован
-                if bot is None:
-                    print(f"❌ Бот не инициализирован!")
-                    continue
-                
-                # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
-                result = None
-                try:
-                    result = await bot.send_message(
-                        chat_id=tg_id_int,
-                        text=msg,
-                        parse_mode="HTML",
-                        reply_markup=kb.as_markup()
-                    )
-                except Exception as send_error:
-                    # Если не получилось с int, пробуем со строкой
-                    error_msg = str(send_error).lower()
-                    if "chat not found" in error_msg or "chat_not_found" in error_msg:
-                        print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
-                        # Пробуем использовать строку вместо int
+            
+                # Нормализуем tg_id и обновляем в базе, если нужно
+                from backend.db import normalize_tg_id
+                normalized_tg_id = normalize_tg_id(tg_id)
+                if normalized_tg_id and normalized_tg_id != str(tg_id):
+                    # Обновляем tg_id в базе, если он был с префиксом
+                    admin_id = admin.get("id")
+                    if admin_id:
                         try:
-                            result = await bot.send_message(
-                                chat_id=str(tg_id_int),
-                                text=msg,
-                                parse_mode="HTML",
-                                reply_markup=kb.as_markup()
-                            )
-                        except Exception as e2:
-                            # Если и со строкой не получилось, просто пропускаем этого пользователя
-                            print(f"⚠️ Не удалось отправить уведомление админу {tg_id_int} даже со строкой: {e2}")
-                            result = None
-                    else:
-                        # Для других ошибок тоже не поднимаем исключение, просто логируем
-                        print(f"⚠️ Ошибка отправки уведомления админу {tg_id_int}: {send_error}")
-                        result = None
+                            update_conn = get_conn()
+                            update_cur = update_conn.cursor()
+                            update_query = _adapt_query("UPDATE users SET tg_id=? WHERE id=?")
+                            update_cur.execute(update_query, (normalized_tg_id, admin_id))
+                            update_conn.commit()
+                            update_conn.close()
+                            print(f"✅ Обновлен tg_id пользователя {admin_id} с {tg_id} на {normalized_tg_id}")
+                            tg_id = normalized_tg_id
+                        except Exception as e:
+                            print(f"⚠️ Ошибка обновления tg_id для пользователя {admin_id}: {e}")
+            
+                try:
+                    # Пробуем разные форматы tg_id
+                    tg_id_int = None
+                    if isinstance(tg_id, int):
+                        tg_id_int = tg_id
+                    elif isinstance(tg_id, str):
+                        # Убираем префикс "tg-" или "dev-" если есть
+                        clean_id = tg_id.replace("tg-", "").replace("dev-", "").strip()
+                        if clean_id.isdigit():
+                            tg_id_int = int(clean_id)
+                        elif tg_id.isdigit():
+                            tg_id_int = int(tg_id)
                 
-                if result:
-                    sent_count += 1
-                    admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
-                    print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
-            except Exception as e:
-                print(f"⚠️ Ошибка при обработке админа {tg_id}: {e}")
+                    if not tg_id_int:
+                        print(f"⚠️ Некорректный формат tg_id у админа: {tg_id} (тип: {type(tg_id)})")
+                        continue
+                
+                    print(f"📤 Отправляю уведомление админу {tg_id_int} (исходный tg_id: {tg_id})...")
+                
+                    # Проверяем, что бот инициализирован
+                    if bot is None:
+                        print(f"❌ Бот не инициализирован!")
+                        continue
+                
+                    # Пробуем отправить сообщение - используем chat_id как int (правильный формат для aiogram)
+                    result = None
+                    try:
+                        result = await bot.send_message(
+                            chat_id=tg_id_int,
+                            text=msg,
+                            parse_mode="HTML",
+                            reply_markup=kb.as_markup()
+                        )
+                    except Exception as send_error:
+                        # Если не получилось с int, пробуем со строкой
+                        error_msg = str(send_error).lower()
+                        if "chat not found" in error_msg or "chat_not_found" in error_msg:
+                            print(f"⚠️ Chat not found для {tg_id_int}, пробуем альтернативный способ...")
+                            # Пробуем использовать строку вместо int
+                            try:
+                                result = await bot.send_message(
+                                    chat_id=str(tg_id_int),
+                                    text=msg,
+                                    parse_mode="HTML",
+                                    reply_markup=kb.as_markup()
+                                )
+                            except Exception as e2:
+                                # Если и со строкой не получилось, просто пропускаем этого пользователя
+                                print(f"⚠️ Не удалось отправить уведомление админу {tg_id_int} даже со строкой: {e2}")
+                                result = None
+                        else:
+                            # Для других ошибок тоже не поднимаем исключение, просто логируем
+                            print(f"⚠️ Ошибка отправки уведомления админу {tg_id_int}: {send_error}")
+                            result = None
+                
+                    if result:
+                        sent_count += 1
+                        admin_name = admin["full_name"] if "full_name" in admin.keys() else (admin["first_name"] if "first_name" in admin.keys() else "Unknown")
+                        print(f"✅ Уведомление о запросе продления отправлено админу {tg_id_int} ({admin_name}), message_id={result.message_id}")
+                except Exception as e:
+                    print(f"⚠️ Ошибка при обработке админа {tg_id}: {e}")
         
-        if sent_count == 0:
-            print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
-            print(f"🔍 Список админов: {[(a.get('full_name', a.get('first_name', 'Unknown')), a.get('tg_id')) for a in admins]}")
-        else:
-            print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
+            if sent_count == 0:
+                print(f"⚠️ Не удалось отправить уведомления ни одному админу. Всего админов: {len(admins)}")
+                print(f"🔍 Список админов: {[(a.get('full_name', a.get('first_name', 'Unknown')), a.get('tg_id')) for a in admins]}")
+            else:
+                print(f"✅ Уведомления о запросе продления отправлены {sent_count} админам/суперадминам")
     
-    # Запускаем в фоне через BackgroundTasks
-    # FastAPI автоматически инжектит BackgroundTasks
-    if background_tasks is None:
-        from fastapi import BackgroundTasks as BT
-        background_tasks = BT()
+        # Запускаем в фоне через BackgroundTasks
+        # FastAPI автоматически инжектит BackgroundTasks
+        if background_tasks is None:
+            from fastapi import BackgroundTasks as BT
+            background_tasks = BT()
     
-    # Добавляем задачу в фоновые задачи
-    # BackgroundTasks в FastAPI правильно обрабатывает async функции
-    background_tasks.add_task(send_admin_notifications)
+        # Добавляем задачу в фоновые задачи
+        # BackgroundTasks в FastAPI правильно обрабатывает async функции
+        background_tasks.add_task(send_admin_notifications)
     
-    print(f"📋 Задача отправки уведомлений добавлена в BackgroundTasks (async функция)")
+        print(f"📋 Задача отправки уведомлений добавлена в BackgroundTasks (async функция)")
     
-    conn.commit()
-    conn.close()
-    return {"ok": True}
+        return {"ok": True}
 
 
 # --- успешная / закрытая / удаление
 @app.post("/api/protections/{pid}/success", response_model=ProtectionOut)
-def mark_success(pid: int, data: dict = Body(...)):
-    doc_1c = (data or {}).get("doc_1c", "").strip()
-    if not doc_1c:
-        raise HTTPException(
-            status_code=400, detail="Нужно указать номер документа из 1С"
-        )
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Not found")
-    update_query = _adapt_query("UPDATE protections SET status='success', closed_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, "manager", "success", {"doc_1c": doc_1c})
-    conn.commit()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    conn.close()
-    return row_to_out(row)
+def mark_success(pid: int, data: dict = Body(...), user=Depends(get_current_active_user)):
+    doc = str((data or {}).get("doc_1c") or "").strip()
+    if not doc:
+        raise HTTPException(status_code=400, detail="Нужно указать номер документа из 1С")
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        if row["status"] != "active":
+            raise HTTPException(status_code=409, detail="Защита уже закрыта. Обновите карточку")
+        cur.execute(_adapt_query("UPDATE protections SET status='success', closed_at=?, auto_closed=0, updated_at=? WHERE id=?"), (now_iso(), _protection_stamp(), pid))
+        add_history(cur, pid, str(user["id"]), "success", {"doc_1c": doc, "actor_id": user["id"], "actor_role": user["role"]})
+        _drop_extend_request(cur, pid)
+        updated = _get_protection(cur, pid)
+    return row_to_out(updated, {"success_doc": doc}, user=user)
 
 @app.post("/api/protections/{pid}/close", response_model=ProtectionOut)
-def mark_closed(pid: int, data: dict = Body(...)):
-    reason = (data or {}).get("reason", "").strip()
+def mark_closed(pid: int, data: dict = Body(...), user=Depends(get_current_active_user)):
+    reason = str((data or {}).get("reason") or "").strip()
     if not reason:
-        raise HTTPException(
-            status_code=400, detail="Нужно указать причину закрытия"
-        )
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Not found")
-    update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
-    cur.execute(update_query, (now_iso(), pid))
-    add_history(cur, pid, "manager", "close", {"reason": reason})
-    conn.commit()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    conn.close()
-    return row_to_out(row)
+        raise HTTPException(status_code=400, detail="Нужно указать причину закрытия")
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        if row["status"] != "active":
+            raise HTTPException(status_code=409, detail="Защита уже закрыта. Обновите карточку")
+        cur.execute(_adapt_query("UPDATE protections SET status='closed', closed_at=?, close_reason=?, auto_closed=0, updated_at=? WHERE id=?"), (now_iso(), reason, _protection_stamp(), pid))
+        add_history(cur, pid, str(user["id"]), "close", {"reason": reason, "actor_id": user["id"], "actor_role": user["role"]})
+        _drop_extend_request(cur, pid)
+        updated = _get_protection(cur, pid)
+    return row_to_out(updated, {"close_reason": reason}, user=user)
 
 @app.delete("/api/protections/{pid}")
 def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_current_active_user), hard_delete: bool = False, background_tasks: BackgroundTasks = None):
@@ -3134,6 +2264,12 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     """
     conn = get_conn()
     cur = conn.cursor()
+    _lock_protections(cur)
+    try:
+        _refresh_protection_actor(cur, user)
+    except HTTPException:
+        conn.close()
+        raise
     query = _adapt_query("SELECT * FROM protections WHERE id=?")
     cur.execute(query, (pid,))
     row = cur.fetchone()
@@ -3150,7 +2286,7 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
     protection_manager_id = row["manager_id"] if "manager_id" in row.keys() else None
     is_author = current_user_id and protection_manager_id and current_user_id == protection_manager_id
     
-    if not is_author and not is_admin:
+    if not _can_manage_protection(cur, row, user):
         conn.close()
         raise HTTPException(
             status_code=403, 
@@ -3221,9 +2357,9 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
         cur.execute(protection_delete_query, (pid,))
     else:
         # Мягкое удаление: статус -> 'deleted'
-        actor = "admin" if is_admin else "manager"
-        update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=? WHERE id=?")
-        cur.execute(update_query, (now_iso(), pid))
+        actor = str(user["id"])
+        update_query = _adapt_query("UPDATE protections SET status='deleted', closed_at=?, updated_at=?, auto_closed=0 WHERE id=?")
+        cur.execute(update_query, (now_iso(), _protection_stamp(), pid))
         add_history(cur, pid, actor, "delete", {"reason": reason or "not provided"})
     
     conn.commit()
@@ -3233,158 +2369,79 @@ def delete_protection(pid: int, reason: Optional[str] = None, user=Depends(get_c
 
 # === Восстановление закрытой/удаленной защиты (только для суперадминов) ===
 @app.post("/api/admin/protections/{pid}/restore", response_model=ProtectionOut)
-def restore_protection(pid: int, user=Depends(get_admin_user)):
-    """
-    Восстанавливает закрытую или удаленную защиту.
-    Доступно только суперадминам.
-    """
-    user_role = user.get("role", "") if isinstance(user, dict) else ""
-    if user_role != "superadmin":
-        raise HTTPException(
-            status_code=403,
-            detail="Восстановление защит доступно только суперадминам"
-        )
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Защита не найдена")
-    
-    current_status = row.get("status", "")
-    
-    # Проверяем, что защита закрыта или удалена
-    if current_status not in ("closed", "deleted", "success", "rejected"):
-        conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail=f"Защита уже активна (статус: {current_status})"
-        )
-    
-    # Восстанавливаем защиту: статус -> 'active', закрываем closed_at
-    update_query = _adapt_query("UPDATE protections SET status='active', closed_at=NULL WHERE id=?")
-    cur.execute(update_query, (pid,))
-    
-    # Записываем в историю
-    add_history(cur, pid, "superadmin", "restore", {
-        "previous_status": current_status,
-        "restored_at": now_iso()
-    })
-    
-    conn.commit()
-    
-    # Получаем обновленную защиту
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    conn.close()
-    
-    return row_to_out(row)
+def restore_protection(pid: int, days: int = 10, user=Depends(get_admin_user)):
+    if user.get("role") != "superadmin":
+        raise HTTPException(status_code=403, detail="Восстановление вручную закрытых защит доступно только суперадмину")
+    return _restore_protection(pid, days, user, allow_manual=True)
+
+
+@app.post("/api/protections/{pid}/restore", response_model=ProtectionOut)
+def self_restore_protection(pid: int, days: int = 10, user=Depends(get_current_active_user)):
+    return _restore_protection(pid, days, user)
+
+
+def _restore_protection(pid, days, user, allow_manual=False):
+    _require_extension_days(days, user)
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        _require_extension_days(days, user)
+        if allow_manual and user.get("role") == "superadmin":
+            eligible = row["status"] in ("closed", "deleted", "success", "rejected")
+        else:
+            eligible = row["status"] == "closed" and bool(row.get("auto_closed"))
+        if not eligible:
+            raise HTTPException(status_code=409, detail="Самостоятельно можно восстановить только защиту, автоматически закрытую по сроку")
+        is_admin = user.get("role") in ("admin", "superadmin")
+        count = row.get("extend_count") or 0
+        if not is_admin and count >= 2:
+            raise HTTPException(status_code=403, detail={"msg": "Два продления уже использованы. Отправьте запрос администратору на восстановление.", "needs_admin": True})
+        display, area = _material_values(row, validate_limits=False)
+        _require_no_conflict(cur, display, area, pid)
+        new_exp = add_workdays(now_iso(), days)
+        new_count = count + (0 if is_admin else 1)
+        cur.execute(_adapt_query("UPDATE protections SET status='active', expires_at=?, closed_at=NULL, close_reason=NULL, auto_closed=0, reminder_2days_sent=0, extend_count=?, updated_at=? WHERE id=?"), (new_exp, new_count, _protection_stamp(), pid))
+        add_history(cur, pid, str(user["id"]), "restore", {
+            "actor_id": user["id"], "actor_role": user["role"], "days": days, "workdays": True,
+            "previous_status": row["status"], "before": {key: row.get(key) for key in ("status", "expires_at", "closed_at", "auto_closed", "extend_count")},
+            "after": {"status": "active", "expires_at": new_exp, "closed_at": None, "auto_closed": 0, "extend_count": new_count},
+        })
+        _drop_extend_request(cur, pid)
+        updated = _get_protection(cur, pid)
+    return row_to_out(updated, user=user)
 
 
 # === Обновление закрытой защиты (для менеджеров - добавление причины/успеха) ===
 @app.put("/api/protections/{pid}/update-closed", response_model=ProtectionOut)
 def update_closed_protection(pid: int, data: dict = Body(...), user=Depends(get_current_active_user)):
-    """
-    Позволяет менеджеру добавить причину закрытия или отметить защиту как успешную
-    в закрытых/удаленных защитах (для статистики).
-    Доступно только автору защиты или админу.
-    """
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Защита не найдена")
-    
-    current_status = row.get("status", "")
-    
-    # Проверяем, что защита закрыта, удалена или успешна
-    if current_status not in ("closed", "deleted", "success", "rejected"):
-        conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail="Обновление доступно только для закрытых, удаленных или успешных защит"
-        )
-    
-    # Проверяем права: автор или админ
-    current_user_id = user.get("id") if isinstance(user, dict) else None
-    user_role = user.get("role", "") if isinstance(user, dict) else ""
-    is_admin = user_role in ("admin", "superadmin")
-    
-    protection_manager_id = row["manager_id"] if "manager_id" in row.keys() else None
-    is_author = current_user_id and protection_manager_id and current_user_id == protection_manager_id
-    
-    if not is_author and not is_admin:
-        conn.close()
-        raise HTTPException(
-            status_code=403,
-            detail="Обновить защиту может только её автор или администратор"
-        )
-    
-    # Получаем данные для обновления
-    close_reason = data.get("close_reason", "").strip()
-    success_doc = data.get("success_doc", "").strip()
-    new_status = data.get("status")  # Опционально: можно изменить статус
-    
-    updates = []
-    values = []
-    placeholder = _get_param_placeholder()
-    
-    # Обновляем причину закрытия
-    if close_reason:
-        updates.append(f"close_reason = {placeholder}")
-        values.append(close_reason)
-    
-    # Если указан документ успеха, меняем статус на 'success'
-    if success_doc:
-        updates.append(f"status = {placeholder}")
-        values.append("success")
-        updates.append(f"closed_at = {placeholder}")
-        values.append(now_iso())
-        # Записываем в историю
-        add_history(cur, pid, "manager" if is_author else "admin", "success", {
-            "doc_1c": success_doc,
-            "source": "archive_update"
-        })
-    
-    # Если явно указан новый статус (только для админов)
-    elif new_status and is_admin and new_status in ("closed", "success", "deleted"):
-        updates.append(f"status = {placeholder}")
-        values.append(new_status)
-    
-    # Если есть обновления
-    if updates:
-        values.append(pid)
-        update_query = f"UPDATE protections SET {', '.join(updates)} WHERE id = {placeholder}"
-        cur.execute(update_query, values)
-        
-        # Записываем в историю обновление
-        history_payload = {}
-        if close_reason:
-            history_payload["close_reason"] = close_reason
-        if success_doc:
-            history_payload["doc_1c"] = success_doc
-        
-        if history_payload:
-            add_history(cur, pid, "manager" if is_author else "admin", "update_closed", history_payload)
-        
-        conn.commit()
-    
-    # Получаем обновленную защиту
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    conn.close()
-    
-    return row_to_out(row)
+    with _protection_transaction() as (conn, cur):
+        row = _get_protection(cur, pid)
+        _require_protection_access(cur, row, user)
+        if row["status"] not in ("closed", "deleted", "success", "rejected"):
+            raise HTTPException(status_code=400, detail="Обновление доступно только для закрытых защит")
+        reason = str(data.get("close_reason") or "").strip()
+        doc = str(data.get("success_doc") or "").strip()
+        new_status = data.get("status")
+        if new_status and user.get("role") not in ("admin", "superadmin"):
+            raise HTTPException(status_code=403, detail="Изменить статус может только администратор")
+        if new_status and new_status not in ("closed", "success", "deleted"):
+            raise HTTPException(status_code=400, detail="Для восстановления используйте действие «Восстановить»")
+        if new_status == "success" and not doc:
+            raise HTTPException(status_code=400, detail="Укажите документ 1С")
+        updates = {"updated_at": _protection_stamp()}
+        if reason:
+            updates["close_reason"] = reason
+        if doc:
+            updates.update(status="success", closed_at=now_iso(), auto_closed=0)
+            add_history(cur, pid, str(user["id"]), "success", {"doc_1c": doc, "source": "archive_update", "actor_id": user["id"]})
+        elif new_status:
+            updates.update(status=new_status, auto_closed=0)
+        columns = ", ".join(f"{key}=?" for key in updates)
+        cur.execute(_adapt_query(f"UPDATE protections SET {columns} WHERE id=?"), (*updates.values(), pid))
+        add_history(cur, pid, str(user["id"]), "update_closed", {"close_reason": reason, "doc_1c": doc, "actor_id": user["id"], "before": {key: row.get(key) for key in updates}, "after": updates})
+        updated = _get_protection(cur, pid)
+        metadata = _archive_metadata(cur, pid)
+    return row_to_out(updated, metadata, user=user)
 
 
 # --- админ: запросы на продление
@@ -3449,26 +2506,22 @@ def admin_extend_requests(user=Depends(get_admin_user)):
 
 
 def _drop_extend_request(cur, pid: int):
-    """Снимает последний запрос на продление из очереди админки.
-
-    Очередь собирается из history по action='extend_request'. Telegram-ветки
-    удаляют запись после решения, а веб-эндпоинты — нет, поэтому продлённые
-    и отклонённые заявки оставались в списке навсегда."""
-    cur.execute(_adapt_query("""
-        DELETE FROM history
-        WHERE protection_id=? AND action='extend_request'
-        AND id = (
-            SELECT id FROM history
-            WHERE protection_id=? AND action='extend_request'
-            ORDER BY at DESC LIMIT 1
-        )
-    """), (pid, pid))
+    # Keep the event and its contents; only resolve the queue state.
+    cur.execute(_adapt_query("UPDATE history SET action='extend_request_resolved' WHERE protection_id=? AND action='extend_request'"), (pid,))
 
 
 @app.post("/api/admin/protections/{pid}/extend-any", response_model=ProtectionOut)
 def admin_extend_any(pid: int, days: int = 10, user=Depends(get_admin_user), background_tasks: BackgroundTasks = None):
     # админ без лимита
-    result = extend(pid, days=days, actor="admin", background_tasks=background_tasks)
+    conn_check = get_conn()
+    try:
+        existing = _get_protection(conn_check.cursor(), pid)
+    finally:
+        conn_check.close()
+    if existing["status"] == "closed" and existing.get("auto_closed"):
+        result = _restore_protection(pid, days, user)
+    else:
+        result = extend(pid, days=days, actor="admin", background_tasks=background_tasks, user=user)
     
     # Отправляем уведомление менеджеру о продлении через админку
     conn = get_conn()
@@ -3555,7 +2608,7 @@ def admin_reject_extend_request(pid: int, data: dict = Body(...), user=Depends(g
         raise HTTPException(status_code=404, detail="Защита не найдена")
     
     # Добавляем запись в историю об отклонении
-    add_history(cur, pid, "admin", "extend_reject", {
+    add_history(cur, pid, str(user["id"]), "extend_reject", {
         "source": "app",
         "reason": reason,
         "rejected_by": user.get("full_name", user.get("first_name", "Admin"))
@@ -3622,26 +2675,8 @@ def admin_delete_extend_request(pid: int, user=Depends(get_admin_user)):
     conn = get_conn()
     cur = conn.cursor()
     
-    # Проверяем, что защита существует
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        conn.close()
-        raise HTTPException(status_code=404, detail="Защита не найдена")
-    
-    # Удаляем последний запрос на продление из истории
-    query = _adapt_query("""
-        DELETE FROM history 
-        WHERE protection_id=? AND action='extend_request'
-        AND id = (
-            SELECT id FROM history 
-            WHERE protection_id=? AND action='extend_request'
-            ORDER BY at DESC LIMIT 1
-        )
-    """)
-    cur.execute(query, (pid, pid))
-    
+    _get_protection(cur, pid)
+    _drop_extend_request(cur, pid)
     conn.commit()
     conn.close()
     
@@ -3649,7 +2684,7 @@ def admin_delete_extend_request(pid: int, user=Depends(get_admin_user)):
 
 # ===== Stats =====
 @app.get("/api/stats")
-def stats():
+def stats(user=Depends(get_current_active_user)):
     conn = get_conn()
     cur = conn.cursor()
     if USE_POSTGRES:
@@ -3776,138 +2811,109 @@ from fastapi import BackgroundTasks
 
 @app.post("/api/protections/pending")
 def create_pending_protection(payload: ProtectionCreate = Body(...), user=Depends(get_current_active_user), background_tasks: BackgroundTasks = None):
-    conn = get_conn()
-    cur = conn.cursor()
-    created = now_iso()
-    
-    # Получаем user_id из текущего пользователя
-    current_user_id = user.get("id") if isinstance(user, dict) else None
+    with _protection_transaction() as (conn, cur):
+        _refresh_protection_actor(cur, user)
+        created = now_iso()
 
-    # === Формируем sku_display так же, как при обычном создании ===
-    skus_in: List[SkuItem] = payload.sku_data or []
-    has_per_sku_areas = any((it.area is not None) for it in skus_in)
+        # Получаем user_id из текущего пользователя
+        current_user_id = user.get("id") if isinstance(user, dict) else None
 
-    if skus_in:
-        if has_per_sku_areas:
-            parts = []
-            total_area = 0.0
-            for it in skus_in:
-                a = float(it.area or 0)
-                total_area += a
-                parts.append(f"{it.sku} ({it.type}) — {int(a) if a.is_integer() else a} м²")
-            sku_display = "; ".join(parts)
+        sku_display, total_area = _material_values(payload.model_dump())
+        _validate_protection_contacts(payload.model_dump())
+
+        # === TTL (в рабочих днях) ===
+        ttl_workdays = 5
+        if total_area >= 50:
+            if total_area < 100:
+                ttl_workdays = 5
+            elif total_area < 250:
+                ttl_workdays = 10
+            elif total_area < 500:
+                ttl_workdays = 15
+            else:
+                ttl_workdays = 30
+        # Используем рабочие дни (исключая выходные и праздники)
+        expires = add_workdays(created, ttl_workdays)
+
+        # === Запись в базу ===
+        # Строим INSERT запрос с RETURNING для PostgreSQL
+        if USE_POSTGRES:
+            insert_sql = """
+                INSERT INTO protections(
+                    manager, client, partner, partner_city, sku, area_m2, last4,
+                    object_city, address, comment, status, created_at, expires_at,
+                    closed_at, extend_count, auto_closed, manager_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'pending', %s, %s, NULL, 0, 0, %s)
+                RETURNING id
+            """
         else:
-            total_area = float(payload.area_m2 or 0)
-            parts = [f"{it.sku} ({it.type})" for it in skus_in]
-            sku_display = " + ".join(parts)
-    else:
-        sku_display = (payload.sku or "").strip()
-        total_area = float(payload.area_m2 or 0)
-
-    # === Проверка минимальной площади (50 м²) ===
-    if total_area < 50:
-        conn.close()
-        raise HTTPException(
-            status_code=400,
-            detail="❌ Минимальная площадь защиты составляет 50 м². Защита менее 50 м² запрещена."
-        )
-
-    # === TTL (в рабочих днях) ===
-    ttl_workdays = 5
-    if total_area >= 50:
-        if total_area < 100:
-            ttl_workdays = 5
-        elif total_area < 250:
-            ttl_workdays = 10
-        elif total_area < 500:
-            ttl_workdays = 15
-        else:
-            ttl_workdays = 30
-    # Используем рабочие дни (исключая выходные и праздники)
-    expires = add_workdays(created, ttl_workdays)
-
-    # === Запись в базу ===
-    # Строим INSERT запрос с RETURNING для PostgreSQL
-    if USE_POSTGRES:
-        insert_sql = """
+            insert_sql = _adapt_query("""
             INSERT INTO protections(
                 manager, client, partner, partner_city, sku, area_m2, last4,
                 object_city, address, comment, status, created_at, expires_at,
                 closed_at, extend_count, auto_closed, manager_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 'pending', %s, %s, NULL, 0, 0, %s)
-            RETURNING id
-        """
-    else:
-        insert_sql = _adapt_query("""
-        INSERT INTO protections(
-            manager, client, partner, partner_city, sku, area_m2, last4,
-            object_city, address, comment, status, created_at, expires_at,
-            closed_at, extend_count, auto_closed, manager_id
-        ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0, ?)
-        """)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?, 'pending', ?, ?, NULL, 0, 0, ?)
+            """)
     
-    cur.execute(insert_sql, (
-        (payload.manager or "").strip(),
-        (payload.client or "").strip(),
-        (payload.partner or "").strip(),
-        (payload.partner_city or "").strip(),
-        sku_display,
-        total_area if total_area > 0 else None,
-        (payload.last4 or "").strip(),
-        (payload.object_city or "").strip(),
-        (payload.address or "").strip(),
-        (payload.comment or "отправлено админу").strip(),
-        created,
-        expires,
-        # без manager_id защита, созданная через экран конфликта, не попадала
-        # в «Мои» — там фильтр именно по владельцу, а не по имени менеджера
-        current_user_id,
-    ))
+        cur.execute(insert_sql, (
+            (payload.manager or "").strip(),
+            (payload.client or "").strip(),
+            (payload.partner or "").strip(),
+            (payload.partner_city or "").strip(),
+            sku_display,
+            total_area if total_area > 0 else None,
+            (payload.last4 or "").strip(),
+            (payload.object_city or "").strip(),
+            (payload.address or "").strip(),
+            (payload.comment or "отправлено админу").strip(),
+            created,
+            expires,
+            # без manager_id защита, созданная через экран конфликта, не попадала
+            # в «Мои» — там фильтр именно по владельцу, а не по имени менеджера
+            current_user_id,
+        ))
 
-    # Получаем ID в зависимости от типа БД
-    if USE_POSTGRES:
-        result = cur.fetchone()
-        new_id = result["id"] if result else None
-    else:
-        new_id = cur.lastrowid
+        # Получаем ID в зависимости от типа БД
+        if USE_POSTGRES:
+            result = cur.fetchone()
+            new_id = result["id"] if result else None
+        else:
+            new_id = cur.lastrowid
     
-    if not new_id:
-        conn.close()
-        raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
+        if not new_id:
+            raise HTTPException(status_code=500, detail="Не удалось создать защиту: ID не получен")
     
-    # === Telegram уведомление админу ===
-    # Получаем информацию о пользователе, который создал защиту (ДО закрытия соединения)
-    user_name = "—"
-    if current_user_id:
-        user_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
-        cur.execute(user_query, (current_user_id,))
-        user_row = cur.fetchone()
-        if user_row:
-            user_name = user_row.get("full_name") or user_row.get("first_name") or "—"
+        # === Telegram уведомление админу ===
+        # Получаем информацию о пользователе, который создал защиту (ДО закрытия соединения)
+        user_name = "—"
+        if current_user_id:
+            user_query = _adapt_query("SELECT full_name, first_name FROM users WHERE id=?")
+            cur.execute(user_query, (current_user_id,))
+            user_row = cur.fetchone()
+            if user_row:
+                user_name = user_row.get("full_name") or user_row.get("first_name") or "—"
     
-    add_history(cur, new_id, "manager", "create_pending", {"reason": payload.comment})
-    conn.commit()
-    conn.close()
+        add_history(cur, new_id, str(user["id"]), "create_pending", {"reason": payload.comment, "actor_id": user["id"], "actor_role": user["role"]})
 
-    if background_tasks:
-        background_tasks.add_task(
-            notify_admin_new_protection,
-            {
-                "id": new_id,
-                "manager": payload.manager,
-                "partner": payload.partner,
-                "partner_city": payload.partner_city,
-                "sku": sku_display,  # ✅ теперь передаём нормализованный артикул
-                "area_m2": total_area,
-                "object_city": payload.object_city,
-                "address": payload.address,
-                "comment": payload.comment,
-                "user_name": user_name,  # ✅ Добавляем имя пользователя
-            }
-        )
-        print(f"📨 Уведомление о защите #{new_id} добавлено в очередь на отправку в Telegram.")
+        if background_tasks:
+            background_tasks.add_task(
+                notify_admin_new_protection,
+                {
+                    "id": new_id,
+                    "manager": payload.manager,
+                    "partner": payload.partner,
+                    "partner_city": payload.partner_city,
+                    "sku": sku_display,  # ✅ теперь передаём нормализованный артикул
+                    "area_m2": total_area,
+                    "object_city": payload.object_city,
+                    "address": payload.address,
+                    "comment": payload.comment,
+                    "user_name": user_name,  # ✅ Добавляем имя пользователя
+                }
+            )
+            print(f"📨 Уведомление о защите #{new_id} добавлено в очередь на отправку в Telegram.")
 
-    return {"ok": True, "id": new_id, "msg": "✅ Защита отправлена админу на проверку"}
+        return {"ok": True, "id": new_id, "msg": "✅ Защита отправлена админу на проверку"}
 
 # ===== USERS MANAGEMENT (новые эндпоинты) =====
 # Старые эндпоинты /api/users удалены, используются /api/users/me и /api/users (для superadmin)
@@ -4066,8 +3072,8 @@ async def check_expiring_protections():
                 
                 # Отмечаем, что напоминание отправлено
                 if sent_count > 0:
-                    update_query = _adapt_query("UPDATE protections SET reminder_2days_sent = 1 WHERE id = ?")
-                    cur.execute(update_query, (pid,))
+                    update_query = _adapt_query("UPDATE protections SET reminder_2days_sent = 1 WHERE id = ? AND status='active' AND expires_at=?")
+                    cur.execute(update_query, (pid, expires_at))
                     conn.commit()
                     print(f"✅ Напоминание за 2 дня отправлено для защиты #{pid} ({sent_count} получателей)")
 
@@ -4137,9 +3143,11 @@ async def auto_close_expired_protections():
                         close_reason = ?,
                         closed_at = ?,
                         updated_at = ?
-                    WHERE id = ?
+                    WHERE id = ? AND status='active' AND expires_at=? AND (auto_closed IS NULL OR auto_closed=0)
                 """)
-                cur.execute(update_query, (close_reason, now_iso_str, now_iso_str, pid))
+                cur.execute(update_query, (close_reason, now_iso_str, now_iso_str, pid, expires_at))
+                if cur.rowcount != 1:
+                    continue
                 
                 # Записываем в историю
                 add_history(cur, pid, "system", "close", {
@@ -4500,112 +3508,25 @@ async def notify_all_users_new_protection(p: dict):
 # === Обработка кнопки "Одобрить" ===
 @dp.callback_query(F.data.startswith("approve:"))
 async def approve_handler(callback: types.CallbackQuery):
-    pid = int(callback.data.split(":")[1])
-
-    conn = get_conn()
-    cur = conn.cursor()
-
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        await callback.answer("❌ Защита не найдена", show_alert=True)
-        conn.close()
+    try:
+        user = _telegram_actor(callback.from_user.id, admin=True)
+        pid = int(callback.data.split(":")[1])
+        tasks = BackgroundTasks()
+        approve_pending(pid, user=user, background_tasks=tasks)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
         return
-
-    r = dict(row)
-    sku_display = r.get("sku") or r.get("comment") or "—"
-
-    # апдейтим саму защиту
-    update_query = _adapt_query("UPDATE protections SET status='active', closed_at=NULL, sku=? WHERE id=?")
-    cur.execute(update_query, (sku_display, pid))
-    add_history(cur, pid, "admin", "approve", {"source": "tg", "sku": sku_display})
-    
-    # Отправляем уведомление создателю защиты
-    manager_name = row.get("manager", "")
-    manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
-    
-    if manager_name or manager_id:
-        # Ищем создателя по manager_id (приоритет) или по имени
-        if manager_id:
-            query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
-            cur.execute(query, (manager_id, manager_name, manager_name))
-        else:
-            query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
-            cur.execute(query, (manager_name, manager_name))
-        manager_user = cur.fetchone()
-        
-        if manager_user and manager_user.get("tg_id"):
-            tg_id = manager_user.get("tg_id")
-            from backend.db import normalize_tg_id
-            tg_id_clean = normalize_tg_id(tg_id)
-            
-            if tg_id_clean and tg_id_clean.isdigit():
-                try:
-                    msg = (
-                        f"✅ <b>Защита одобрена</b>\n\n"
-                        f"Защита: <b>#{pid}</b>\n"
-                        f"📦 SKU: {sku_display}\n"
-                        f"⏰ Дата истечения: {row.get('expires_at', '')[:10]}"
-                    )
-                    await bot.send_message(
-                        chat_id=int(tg_id_clean),
-                        text=msg,
-                        parse_mode="HTML"
-                    )
-                    print(f"✅ Уведомление об одобрении отправлено создателю {tg_id_clean}")
-                except Exception as e:
-                    print(f"⚠️ Не удалось отправить уведомление создателю: {e}")
-
-    # достаём все связанные tg-сообщения
-    query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
-    cur.execute(query, (pid,))
-    notif_rows = cur.fetchall()
-
-    conn.commit()
-    conn.close()
-
-    # текст, который покажем всем
-    final_text = (
-        f"✅ Защита #{pid} одобрена!\n\n"
-        f"👤 Менеджер: {r['manager']}\n"
-        f"🏢 Партнёр: {r['partner']} ({r['partner_city']})\n"
-        f"📦 SKU: {sku_display}\n"
-        f"📏 Площадь: {r['area_m2']} м²"
-    )
-
-    # редактируем у всех, кому отправляли
-    sent_to: set[str] = set()
-    for n in notif_rows:
-        try:
-            await bot.edit_message_text(
-                chat_id=n["chat_id"],
-                message_id=n["message_id"],
-                text=final_text,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
-
-        # Доп. уведомление в общий чат/группы (где было исходное сообщение)
-        try:
-            chat_id = n["chat_id"]
-            chat_key = str(chat_id)
-            if chat_key not in sent_to:
-                sent_to.add(chat_key)
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text=f"✅ <b>Защита #{pid} одобрена</b>",
-                    parse_mode="HTML",
-                )
-        except Exception as e:
-            print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
-
-    await callback.answer("Одобрено ✅")
+    await callback.answer("Защита одобрена")
+    await tasks()
 
 
 @dp.callback_query(F.data.startswith("reject:"))
 async def reject_handler(callback: types.CallbackQuery):
+    try:
+        _telegram_actor(callback.from_user.id, admin=True)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
     pid = int(callback.data.split(":")[1])
 
     conn = get_conn()
@@ -4638,44 +3559,31 @@ async def reject_handler(callback: types.CallbackQuery):
     conn.close()
 
 
+def _telegram_actor(tg_id, admin=False):
+    user = get_user_by_tg_id(str(tg_id))
+    if not user or user.get("is_active") in (False, 0, "0"):
+        raise HTTPException(status_code=403, detail="Нет доступа. Откройте приложение через Telegram")
+    if admin and user.get("role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Действие доступно только администратору")
+    return dict(user)
+
+
+def _telegram_error(exc):
+    return str(exc.detail.get("msg", "Действие недоступно") if isinstance(exc.detail, dict) else exc.detail)
+
+
 # === Обработка продления защиты при истечении ===
 @dp.callback_query(F.data.startswith("extend:"))
 async def extend_expiring_handler(callback: types.CallbackQuery):
-    parts = callback.data.split(":")
-    pid = int(parts[1])
-    days = int(parts[2])
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        await callback.answer("❌ Защита не найдена", show_alert=True)
-        conn.close()
+    try:
+        _, pid, days = callback.data.split(":")
+        user = _telegram_actor(callback.from_user.id)
+        result = extend(int(pid), days=int(days), user=user)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
         return
-    
-    if row["status"] != "active":
-        await callback.answer("❌ Защита не активна", show_alert=True)
-        conn.close()
-        return
-    
-    # Продлеваем в рабочих днях (официальные выходные/праздники не считаются)
-    new_exp = add_workdays(row["expires_at"], days)
-    update_query = _adapt_query("UPDATE protections SET expires_at=? WHERE id=?")
-    cur.execute(update_query, (new_exp, pid))
-    add_history(cur, pid, "manager", "extend", {"days": days, "source": "tg_expiring"})
-    conn.commit()
-    conn.close()
-    
-    await callback.answer(f"✅ Защита продлена на {days} дней")
-    await callback.message.edit_text(
-        f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
-        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-        f"👤 Менеджер: {row['manager']}\n"
-        f"⏰ Новая дата истечения: {new_exp[:10]}",
-        parse_mode="HTML"
-    )
+    await callback.answer(f"Защита продлена на {days} рабочих дней")
+    await callback.message.edit_text(f"✅ Защита #{pid} продлена. Новая дата: {result.expires_at[:10]}")
 
 
 # === Обработка успешного завершения защиты при истечении ===
@@ -4698,6 +3606,14 @@ async def success_expiring_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
+    try:
+        actor = _telegram_actor(callback.from_user.id)
+        _require_protection_access(cur, row, actor)
+    except HTTPException as exc:
+        conn.close()
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
+
     # Запрашиваем номер документа 1С
     await callback.answer()
     await callback.message.edit_text(
@@ -4730,6 +3646,14 @@ async def close_expiring_handler(callback: types.CallbackQuery):
         conn.close()
         return
     
+    try:
+        actor = _telegram_actor(callback.from_user.id)
+        _require_protection_access(cur, row, actor)
+    except HTTPException as exc:
+        conn.close()
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
+
     # Запрашиваем причину закрытия
     await callback.answer()
     await callback.message.edit_text(
@@ -4746,90 +3670,27 @@ async def close_expiring_handler(callback: types.CallbackQuery):
 # === Обработка продления защиты админом ===
 @dp.callback_query(F.data.startswith("admin_extend:"))
 async def admin_extend_handler(callback: types.CallbackQuery):
-    parts = callback.data.split(":")
-    pid = int(parts[1])
-    days = int(parts[2])
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        await callback.answer("❌ Защита не найдена", show_alert=True)
-        conn.close()
+    try:
+        _, pid, days = callback.data.split(":")
+        user = _telegram_actor(callback.from_user.id, admin=True)
+        tasks = BackgroundTasks()
+        result = admin_extend_any(int(pid), days=int(days), user=user, background_tasks=tasks)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
         return
-    
-    if row["status"] != "active":
-        await callback.answer("❌ Защита не активна", show_alert=True)
-        conn.close()
-        return
-    
-    # Продлеваем в рабочих днях (официальные выходные/праздники не считаются)
-    new_exp = add_workdays(row["expires_at"], days)
-    update_query = _adapt_query("UPDATE protections SET expires_at=?, updated_at=? WHERE id=?")
-    cur.execute(update_query, (new_exp, now_iso(), pid))
-    add_history(cur, pid, "admin", "extend", {"days": days, "source": "tg_request"})
-    
-    # Удаляем запрос на продление из истории, чтобы он пропал из админки
-    delete_extend_request_query = _adapt_query("""
-        DELETE FROM history 
-        WHERE protection_id=? AND action='extend_request'
-        AND id = (
-            SELECT id FROM history 
-            WHERE protection_id=? AND action='extend_request'
-            ORDER BY at DESC LIMIT 1
-        )
-    """)
-    cur.execute(delete_extend_request_query, (pid, pid))
-    
-    # Отправляем уведомление менеджеру
-    manager_name = row.get("manager", "")
-    if manager_name:
-        # Ищем менеджера по имени
-        query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
-        cur.execute(query, (manager_name, manager_name))
-        manager_user = cur.fetchone()
-        
-        if manager_user and manager_user.get("tg_id"):
-            tg_id = manager_user.get("tg_id")
-            from backend.db import normalize_tg_id
-            tg_id_clean = normalize_tg_id(tg_id)
-            
-            if tg_id_clean and tg_id_clean.isdigit():
-                try:
-                    msg = (
-                        f"✅ <b>Защита продлена</b>\n\n"
-                        f"Защита: <b>#{pid}</b>\n"
-                        f"📦 SKU: {row.get('sku', '—')}\n"
-                        f"⏰ Новая дата истечения: {new_exp[:10]}\n"
-                        f"📅 Продлено на: {days} дней"
-                    )
-                    await bot.send_message(
-                        chat_id=int(tg_id_clean),
-                        text=msg,
-                        parse_mode="HTML"
-                    )
-                    print(f"✅ Уведомление о продлении отправлено менеджеру {tg_id_clean}")
-                except Exception as e:
-                    print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
-    
-    conn.commit()
-    conn.close()
-    
-    await callback.answer(f"✅ Защита продлена на {days} дней")
-    await callback.message.edit_text(
-        f"✅ <b>Защита #{pid} продлена на {days} дней</b>\n\n"
-        f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-        f"👤 Менеджер: {row['manager']}\n"
-        f"⏰ Новая дата истечения: {new_exp[:10]}",
-        parse_mode="HTML"
-    )
+    await callback.answer(f"Защита продлена на {days} рабочих дней")
+    await callback.message.edit_text(f"✅ Защита #{pid} продлена. Новая дата: {result.expires_at[:10]}")
+    await tasks()
 
 
 # === Обработка кастомного продления (выбор количества дней) ===
 @dp.callback_query(F.data.startswith("admin_extend_custom:"))
 async def admin_extend_custom_handler(callback: types.CallbackQuery):
+    try:
+        _telegram_actor(callback.from_user.id, admin=True)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
     """Обработчик для запроса количества дней продления"""
     pid = int(callback.data.split(":")[1])
     
@@ -4874,6 +3735,11 @@ async def admin_extend_cancel_handler(callback: types.CallbackQuery):
 # === Обработка отклонения запроса на продление ===
 @dp.callback_query(F.data.startswith("admin_reject_extend:"))
 async def admin_reject_extend_handler(callback: types.CallbackQuery):
+    try:
+        _telegram_actor(callback.from_user.id, admin=True)
+    except HTTPException as exc:
+        await callback.answer(_telegram_error(exc), show_alert=True)
+        return
     pid = int(callback.data.split(":")[1])
     
     conn = get_conn()
@@ -5082,231 +3948,44 @@ async def spam_protection_middleware(handler, event, data):
 
 @dp.message(F.text & F.reply_to_message)
 async def handle_reply_message(message: types.Message):
-    """Обработка ответов на сообщения (причина отклонения, номер 1С, причина закрытия)"""
-    reply_text = message.reply_to_message.text or ""
-    
-    # Извлекаем ID защиты из текста
-    import re
-    match = re.search(r'#(\d+)', reply_text)
+    reply = message.reply_to_message
+    if not reply or not reply.from_user or reply.from_user.id != bot.id:
+        return
+    reply_text = reply.text or ""
+    match = re.search(r"#(\d+)", reply_text)
     if not match:
         return
-    
     pid = int(match.group(1))
-    user_text = message.text.strip()
-    
-    conn = get_conn()
-    cur = conn.cursor()
-    query = _adapt_query("SELECT * FROM protections WHERE id=?")
-    cur.execute(query, (pid,))
-    row = cur.fetchone()
-    if not row:
-        await message.answer("❌ Защита не найдена")
-        conn.close()
+    text = (message.text or "").strip()
+    tasks = BackgroundTasks()
+    try:
+        if "Отклонение запроса на продление" in reply_text:
+            user = _telegram_actor(message.from_user.id, admin=True)
+            if not text:
+                raise HTTPException(400, "Укажите причину отклонения")
+            admin_reject_extend_request(pid, {"reason": text}, user=user)
+            result_text = f"Запрос на продление защиты #{pid} отклонён"
+        elif "Отклонение защиты" in reply_text:
+            user = _telegram_actor(message.from_user.id, admin=True)
+            if not text:
+                raise HTTPException(400, "Укажите причину отклонения")
+            reject_pending(pid, {"reason": text}, user=user, background_tasks=tasks)
+            result_text = f"Защита #{pid} отклонена"
+        elif "Отметить защиту" in reply_text and "успешн" in reply_text:
+            user = _telegram_actor(message.from_user.id)
+            mark_success(pid, {"doc_1c": text}, user=user)
+            result_text = f"Защита #{pid} отмечена как успешная"
+        elif "Закрыть защиту" in reply_text:
+            user = _telegram_actor(message.from_user.id)
+            mark_closed(pid, {"reason": text}, user=user)
+            result_text = f"Защита #{pid} закрыта"
+        else:
+            return
+    except HTTPException as exc:
+        await message.answer(_telegram_error(exc))
         return
-    
-    # Определяем тип действия по тексту сообщения
-    if "Отклонение защиты" in reply_text and "Отклонение запроса на продление" not in reply_text:
-        # Обработка отклонения новой защиты
-        if not user_text or not user_text.strip():
-            await message.answer("❌ Нужно указать причину отклонения")
-            conn.close()
-            return
-        
-        # Обновляем статус защиты
-        update_query = _adapt_query("UPDATE protections SET status='rejected', closed_at=? WHERE id=?")
-        cur.execute(update_query, (now_iso(), pid))
-        
-        # Записываем в историю с реальной причиной
-        add_history(cur, pid, "admin", "reject", {"source": "tg", "reason": user_text})
-        
-        # Обновляем сообщения в Telegram
-        notif_query = _adapt_query("SELECT chat_id, message_id FROM tg_notifications WHERE protection_id=?")
-        cur.execute(notif_query, (pid,))
-        notif_rows = cur.fetchall()
-        
-        final_text = (
-            f"🚫 Защита #{pid} отклонена.\n\n"
-            f"👤 Менеджер: {row.get('manager', '—')}\n"
-            f"🏢 Партнёр: {row.get('partner', '—')} ({row.get('partner_city', '—')})\n"
-            f"📦 SKU: {row.get('sku', '—')}\n"
-            f"📏 Площадь: {row.get('area_m2', '—')} м²\n"
-            f"💬 Причина: {user_text}"
-        )
-        
-        sent_to: set[str] = set()
-        for n in notif_rows:
-            try:
-                await bot.edit_message_text(
-                    chat_id=n["chat_id"],
-                    message_id=n["message_id"],
-                    text=final_text,
-                    parse_mode="HTML",
-                )
-            except Exception as e:
-                print(f"⚠️ Не смог обновить сообщение в чате {n['chat_id']}: {e}")
-
-            # Доп. уведомление в общий чат/группы (где было исходное сообщение)
-            try:
-                chat_id = n["chat_id"]
-                chat_key = str(chat_id)
-                if chat_key not in sent_to:
-                    sent_to.add(chat_key)
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text=f"🚫 <b>Защита #{pid} отклонена</b>\nПричина: {user_text}",
-                        parse_mode="HTML",
-                    )
-            except Exception as e:
-                print(f"⚠️ Не смог отправить уведомление в чат {n.get('chat_id')}: {e}")
-        
-        # Отправляем уведомление менеджеру
-        manager_name = row.get("manager", "")
-        manager_id = row.get("manager_id") if "manager_id" in row.keys() else None
-        
-        if manager_name:
-            # Ищем менеджера по имени или manager_id
-            if manager_id:
-                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE id=? OR full_name=? OR first_name=? LIMIT 1")
-                cur.execute(manager_query, (manager_id, manager_name, manager_name))
-            else:
-                manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
-                cur.execute(manager_query, (manager_name, manager_name))
-            manager_user = cur.fetchone()
-            
-            if manager_user and manager_user.get("tg_id"):
-                tg_id = manager_user.get("tg_id")
-                from backend.db import normalize_tg_id
-                tg_id_clean = normalize_tg_id(tg_id)
-                
-                if tg_id_clean and tg_id_clean.isdigit():
-                    try:
-                        msg = (
-                            f"🚫 <b>Защита отклонена</b>\n\n"
-                            f"Защита: <b>#{pid}</b>\n"
-                            f"📦 SKU: {row.get('sku', '—')}\n"
-                            f"💬 Причина: {user_text}"
-                        )
-                        await bot.send_message(
-                            chat_id=int(tg_id_clean),
-                            text=msg,
-                            parse_mode="HTML"
-                        )
-                        print(f"✅ Уведомление об отклонении отправлено менеджеру {tg_id_clean}")
-                    except Exception as e:
-                        print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
-        
-        conn.commit()
-        conn.close()
-        
-        await message.answer(
-            f"✅ <b>Защита #{pid} отклонена</b>\n\n"
-            f"💬 Причина: {user_text}",
-            parse_mode="HTML"
-        )
-    
-    elif "Отклонение запроса на продление" in reply_text:
-        # Обработка отклонения запроса на продление
-        if not user_text or not user_text.strip():
-            await message.answer("❌ Нужно указать причину отклонения")
-            conn.close()
-            return
-        
-        # Записываем в историю с реальной причиной
-        add_history(cur, pid, "admin", "extend_reject", {"source": "tg_request", "reason": user_text})
-        
-        # Удаляем запрос на продление из истории, чтобы он пропал из админки
-        delete_extend_request_query = _adapt_query("""
-            DELETE FROM history 
-            WHERE protection_id=? AND action='extend_request'
-            AND id = (
-                SELECT id FROM history 
-                WHERE protection_id=? AND action='extend_request'
-                ORDER BY at DESC LIMIT 1
-            )
-        """)
-        cur.execute(delete_extend_request_query, (pid, pid))
-        
-        # Отправляем уведомление менеджеру
-        manager_name = row.get("manager", "")
-        if manager_name:
-            # Ищем менеджера по имени
-            manager_query = _adapt_query("SELECT tg_id, full_name, first_name FROM users WHERE full_name=? OR first_name=? LIMIT 1")
-            cur.execute(manager_query, (manager_name, manager_name))
-            manager_user = cur.fetchone()
-            
-            if manager_user and manager_user.get("tg_id"):
-                tg_id = manager_user.get("tg_id")
-                from backend.db import normalize_tg_id
-                tg_id_clean = normalize_tg_id(tg_id)
-                
-                if tg_id_clean and tg_id_clean.isdigit():
-                    try:
-                        msg = (
-                            f"🚫 <b>Запрос на продление отклонен</b>\n\n"
-                            f"Защита: <b>#{pid}</b>\n"
-                            f"📦 SKU: {row.get('sku', '—')}\n"
-                            f"💬 Причина: {user_text}"
-                        )
-                        await bot.send_message(
-                            chat_id=int(tg_id_clean),
-                            text=msg,
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        print(f"⚠️ Не удалось отправить уведомление менеджеру: {e}")
-        
-        conn.commit()
-        conn.close()
-        
-        await message.answer(
-            f"✅ <b>Запрос на продление защиты #{pid} отклонен</b>\n\n"
-            f"💬 Причина: {user_text}",
-            parse_mode="HTML"
-        )
-    
-    elif "Отметить защиту" in reply_text and "успешной" in reply_text:
-        # Обработка успешного завершения защиты
-        if not user_text:
-            await message.answer("❌ Нужно указать номер документа из 1С")
-            conn.close()
-            return
-        
-        update_query = _adapt_query("UPDATE protections SET status='success', closed_at=? WHERE id=?")
-        cur.execute(update_query, (now_iso(), pid))
-        add_history(cur, pid, "manager", "success", {"doc_1c": user_text, "source": "tg_expiring"})
-        conn.commit()
-        conn.close()
-        
-        await message.answer(
-            f"✅ <b>Защита #{pid} отмечена как успешная</b>\n\n"
-            f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-            f"👤 Менеджер: {row['manager']}\n"
-            f"📄 Документ 1С: {user_text}\n"
-            f"📅 Дата завершения: {now_iso()[:10]}",
-            parse_mode="HTML"
-        )
-    
-    elif "Закрыть защиту" in reply_text:
-        # Обработка закрытия защиты
-        if not user_text:
-            await message.answer("❌ Нужно указать причину закрытия")
-            conn.close()
-            return
-        
-        update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
-        cur.execute(update_query, (now_iso(), pid))
-        add_history(cur, pid, "manager", "close", {"reason": user_text, "source": "tg_expiring"})
-        conn.commit()
-        conn.close()
-        
-        await message.answer(
-            f"🔒 <b>Защита #{pid} закрыта</b>\n\n"
-            f"📦 SKU: {row['sku'] if 'sku' in row.keys() else '—'}\n"
-            f"👤 Менеджер: {row['manager']}\n"
-            f"💬 Причина: {user_text}\n"
-            f"📅 Дата закрытия: {now_iso()[:10]}",
-        parse_mode="HTML"
-    )
+    await message.answer(result_text)
+    await tasks()
 
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
@@ -5327,37 +4006,11 @@ async def cmd_start_with_webapp(message: types.Message):
     first_name = message.from_user.first_name or ""
     
     try:
-        conn = get_conn()
-        cur = conn.cursor()
-        
-        # Проверяем, есть ли пользователь с таким tg_id
-        query = _adapt_query("SELECT * FROM users WHERE tg_id=?")
-        cur.execute(query, (str(tg_id),))
-        user = cur.fetchone()
-        
-        if user:
-            # Обновляем username и first_name если они изменились
-            cur.execute(
-                _adapt_query("UPDATE users SET tg_username=?, first_name=? WHERE tg_id=?"),
-                (username, first_name, str(tg_id))
-            )
-            conn.commit()
-            print(f"✅ Обновлен tg_id {tg_id} для пользователя {user.get('id')}")
-        else:
-            # Если пользователя нет, создаем нового с ролью manager
-            # Роль будет обновлена при регистрации через WebApp на основе телефона
-            cur.execute(
-                _adapt_query("INSERT INTO users (tg_id, tg_username, first_name, role, created_at) VALUES (?,?,?,?,?)"),
-                (str(tg_id), username, first_name, "manager", now_iso())
-            )
-            conn.commit()
-            print(f"✅ Создан новый пользователь с tg_id {tg_id}")
-        
-        conn.close()
-        
-    except Exception as e:
-        print(f"⚠️ Ошибка обновления tg_id при /start: {e}")
-    
+        resolve_verified_user({"id": tg_id, "username": username, "first_name": first_name})
+    except HTTPException as exc:
+        await message.answer(_telegram_error(exc))
+        return
+
     # Проверяем, что URL правильный (должен быть HTTPS)
     webapp_url = WEBAPP_URL
     if not webapp_url.startswith("https://"):
@@ -5485,164 +4138,32 @@ async def cmd_pending(message: types.Message):
 
 @dp.message(F.text.startswith("/extend"))
 async def cmd_extend(message: types.Message):
-    """Продлить защиту: /extend <id> <days>"""
     try:
         parts = message.text.split()
-        if len(parts) < 3:
-            await message.answer("Использование: /extend <id> <days>\nПример: /extend 123 10")
-            return
-        
-        pid = int(parts[1])
-        days = int(parts[2])
-        
-        # Проверяем права пользователя
-        tg_id = message.from_user.id
-        conn = get_conn()
-        cur = conn.cursor()
-        query = _adapt_query("SELECT id, role FROM users WHERE tg_id=?")
-        cur.execute(query, (str(tg_id),))
-        user = cur.fetchone()
-        
-        if not user:
-            await message.answer("❌ Пользователь не найден. Зарегистрируйтесь через веб-приложение.")
-            conn.close()
-            return
-        
-        user_id = user.get("id") if isinstance(user, dict) else user[0]
-        user_role = user.get("role") if isinstance(user, dict) else user[1]
-        
-        # Получаем защиту
-        query = _adapt_query("SELECT * FROM protections WHERE id=?")
-        cur.execute(query, (pid,))
-        row = cur.fetchone()
-        
-        if not row:
-            await message.answer(f"❌ Защита #{pid} не найдена")
-            conn.close()
-            return
-        
-        # Проверяем права: автор или админ
-        protection_manager_id = row.get("manager_id") if isinstance(row, dict) else None
-        is_author = user_id == protection_manager_id
-        is_admin = user_role in ("admin", "superadmin")
-        
-        if not is_author and not is_admin:
-            await message.answer("❌ Нет прав на продление этой защиты")
-            conn.close()
-            return
-        
-        # Продлеваем (используем рабочие дни)
-        expires_at_value = row.get("expires_at") if isinstance(row, dict) else row[12]
-        new_exp = add_workdays(expires_at_value, days)
-        extend_count = (row.get("extend_count") or 0) if isinstance(row, dict) else (row[14] or 0)
-        new_count = extend_count + (1 if not is_admin else 0)
-        
-        update_query = _adapt_query("UPDATE protections SET expires_at=?, extend_count=? WHERE id=?")
-        cur.execute(update_query, (new_exp, new_count, pid))
-        add_history(cur, pid, "admin" if is_admin else "manager", "extend", {"days": days, "workdays": True, "source": "tg"})
-        conn.commit()
-        conn.close()
-        
-        await message.answer(f"✅ Защита #{pid} продлена на {days} дней\n📅 Новая дата: {new_exp[:10]}")
-        
-        # Отправляем уведомление админам (только тем, у кого включены уведомления)
-        async def notify_admins():
-            try:
-                admin_conn = get_conn()
-                admin_cur = admin_conn.cursor()
-                admin_query = _adapt_query("SELECT tg_id FROM users WHERE role IN ('admin', 'superadmin') AND tg_id IS NOT NULL AND tg_id != '' AND (receive_notifications IS NULL OR receive_notifications = 1)")
-                admin_cur.execute(admin_query)
-                admins = admin_cur.fetchall()
-                admin_conn.close()
-                
-                manager_name = row.get("manager", "—") if isinstance(row, dict) else row[1]
-                sku = row.get("sku", "—") if isinstance(row, dict) else row[4]
-                
-                msg = (
-                    f"🔄 <b>Защита продлена через бота</b>\n\n"
-                    f"👤 Менеджер: {manager_name}\n"
-                    f"📦 SKU: {sku}\n"
-                    f"⏰ Продлено на: {days} дней\n"
-                    f"📅 Новая дата: {new_exp[:10]}\n"
-                    f"🆔 ID: {pid}"
-                )
-                
-                for admin in admins:
-                    admin_tg_id = admin.get("tg_id") if isinstance(admin, dict) else admin[0]
-                    if admin_tg_id and str(admin_tg_id) != str(tg_id):
-                        try:
-                            admin_tg_id_int = int(str(admin_tg_id).replace("tg-", "").replace("dev-", ""))
-                            await bot.send_message(admin_tg_id_int, msg, parse_mode="HTML")
-                        except:
-                            pass
-            except:
-                pass
-        
-        asyncio.create_task(notify_admins())
-        
+        if len(parts) != 3:
+            raise ValueError()
+        user = _telegram_actor(message.from_user.id)
+        result = extend(int(parts[1]), days=int(parts[2]), user=user)
+        await message.answer(f"✅ Защита #{result.id} продлена на {parts[2]} рабочих дней. Новая дата: {result.expires_at[:10]}")
     except ValueError:
-        await message.answer("❌ Неверный формат. Используйте: /extend <id> <days>")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
+        await message.answer("Использование: /extend <id> <days>. Доступно 10 или 30 рабочих дней.")
+    except HTTPException as exc:
+        await message.answer(_telegram_error(exc))
 
 @dp.message(F.text.startswith("/close"))
 async def cmd_close(message: types.Message):
-    """Закрыть защиту: /close <id> <reason>"""
     try:
         parts = message.text.split(maxsplit=2)
         if len(parts) < 2:
-            await message.answer("Использование: /close <id> [причина]\nПример: /close 123 Проект завершен")
-            return
-        
-        pid = int(parts[1])
+            raise ValueError()
+        user = _telegram_actor(message.from_user.id)
         reason = parts[2] if len(parts) > 2 else "Закрыто через бота"
-        
-        # Проверяем права
-        tg_id = message.from_user.id
-        conn = get_conn()
-        cur = conn.cursor()
-        query = _adapt_query("SELECT id, role FROM users WHERE tg_id=?")
-        cur.execute(query, (str(tg_id),))
-        user = cur.fetchone()
-        
-        if not user:
-            await message.answer("❌ Пользователь не найден")
-            conn.close()
-            return
-        
-        user_id = user.get("id") if isinstance(user, dict) else user[0]
-        user_role = user.get("role") if isinstance(user, dict) else user[1]
-        
-        query = _adapt_query("SELECT * FROM protections WHERE id=?")
-        cur.execute(query, (pid,))
-        row = cur.fetchone()
-        
-        if not row:
-            await message.answer(f"❌ Защита #{pid} не найдена")
-            conn.close()
-            return
-        
-        protection_manager_id = row.get("manager_id") if isinstance(row, dict) else None
-        is_author = user_id == protection_manager_id
-        is_admin = user_role in ("admin", "superadmin")
-        
-        if not is_author and not is_admin:
-            await message.answer("❌ Нет прав на закрытие этой защиты")
-            conn.close()
-            return
-        
-        update_query = _adapt_query("UPDATE protections SET status='closed', closed_at=? WHERE id=?")
-        cur.execute(update_query, (now_iso(), pid))
-        add_history(cur, pid, "admin" if is_admin else "manager", "close", {"reason": reason, "source": "tg"})
-        conn.commit()
-        conn.close()
-        
-        await message.answer(f"✅ Защита #{pid} закрыта\n📝 Причина: {reason}")
-        
+        result = mark_closed(int(parts[1]), {"reason": reason}, user=user)
+        await message.answer(f"✅ Защита #{result.id} закрыта. Причина: {reason}")
     except ValueError:
-        await message.answer("❌ Неверный формат. Используйте: /close <id> [причина]")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
+        await message.answer("Использование: /close <id> [причина]")
+    except HTTPException as exc:
+        await message.answer(_telegram_error(exc))
 
     
 
@@ -5651,7 +4172,7 @@ async def cmd_close(message: types.Message):
 _bot_running = False
 
 async def start_tg_bot():
-    global _bot_running
+    global _bot_running, _bot_ready
     if _bot_running:
         print("⚠️ Telegram-бот уже запущен, пропускаем повторный запуск")
         return
@@ -5673,16 +4194,25 @@ async def start_tg_bot():
             webhook_kwargs = {
                 "url": webhook_url,
                 "allowed_updates": ["message", "callback_query"],
-                "drop_pending_updates": True,
+                "drop_pending_updates": False,
             }
             if TELEGRAM_WEBHOOK_SECRET:
                 webhook_kwargs["secret_token"] = TELEGRAM_WEBHOOK_SECRET
-            await bot.set_webhook(**webhook_kwargs)
+            for attempt in range(3):
+                try:
+                    await bot.set_webhook(**webhook_kwargs)
+                    _bot_ready = True
+                    break
+                except Exception:
+                    if attempt == 2:
+                        raise
+                    await asyncio.sleep(2 ** (attempt + 1))
             print("✅ Webhook установлен успешно")
             print("🤖 Telegram-бот запущен через webhook (inline кнопки активны)")
         except Exception as e:
             print(f"❌ Ошибка установки webhook: {e}")
             _bot_running = False
+            _bot_ready = False
             return
     else:
         # Используем polling для локальной разработки
@@ -5737,20 +4267,16 @@ async def start_tg_bot():
 # === Webhook endpoint для Telegram ===
 @app.post("/api/telegram/webhook")
 async def telegram_webhook(request: Request):
-    """Endpoint для получения обновлений от Telegram через webhook"""
+    secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
+        raise HTTPException(403, "Invalid webhook secret")
+    from aiogram.types import Update
     try:
-        if TELEGRAM_WEBHOOK_SECRET:
-            secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
-            if not secret or not hmac.compare_digest(secret, TELEGRAM_WEBHOOK_SECRET):
-                raise HTTPException(status_code=403, detail="Invalid webhook secret")
-        update_data = await request.json()
-        from aiogram.types import Update
-        update = Update(**update_data)
-        await dp.feed_update(bot, update)
-        return {"ok": True}
-    except Exception as e:
-        print(f"⚠️ Ошибка обработки webhook: {e}")
-        return {"ok": False, "error": str(e)}
+        update = Update(**await request.json())
+    except (ValueError, TypeError):
+        raise HTTPException(400, "Invalid Telegram update") from None
+    await dp.feed_update(bot, update)
+    return {"ok": True}
 
 # === Подключаем users API ===
 app.include_router(users_router)
@@ -5765,43 +4291,46 @@ import requests
 
 @app.post("/api/notify")
 def notify_user(data: dict, request: Request):
-    import requests
-
+    if not NOTIFY_TOKEN:
+        raise HTTPException(503, "Notification integration is not configured")
+    token = request.headers.get("X-Notify-Token") or request.headers.get("Authorization", "")
+    if token.startswith("Bearer "):
+        token = token[7:].strip()
+    if not hmac.compare_digest(token, NOTIFY_TOKEN):
+        raise HTTPException(403, "Invalid notify token")
     chat_id = data.get("chat_id") or data.get("tg_id") or data.get("tg_username")
     message = data.get("message") or data.get("text") or ""
-
-    print("📩 Получен запрос на уведомление:", chat_id, message)
-
-    if NOTIFY_TOKEN:
-        token = request.headers.get("X-Notify-Token") or request.headers.get("Authorization")
-        if token and token.startswith("Bearer "):
-            token = token.replace("Bearer ", "", 1).strip()
-        if not token or not hmac.compare_digest(token, NOTIFY_TOKEN):
-            raise HTTPException(status_code=403, detail="Invalid notify token")
-
-    if not chat_id:
-        raise HTTPException(status_code=400, detail="chat_id is required")
-    if not message:
-        raise HTTPException(status_code=400, detail="message is required")
-
+    if not chat_id or not message:
+        raise HTTPException(400, "chat_id and message are required")
     try:
-        res = requests.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": message,
-                "parse_mode": "HTML",
-            },
-        )
-        print("📨 Telegram ответ:", res.text)
+        res = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                            json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"}, timeout=15)
         res.raise_for_status()
         return {"ok": True, "response": res.json()}
-    except Exception as e:
-        print("❌ Ошибка уведомления:", e)
-        raise HTTPException(status_code=400, detail=f"Ошибка уведомления: {e}")
+    except requests.RequestException:
+        raise HTTPException(502, "Не удалось отправить уведомление") from None
 
 from fastapi import Request
 
 @app.get("/", tags=["root"])
 def root():
     return {"ok": True, "message": "🚀 ProjectGuard backend is alive"}
+
+
+@app.get("/api/ready")
+def readiness():
+    if not _database_ready or ((os.getenv("RENDER_SERVICE_URL") or os.getenv("DATABASE_URL")) and not _bot_ready):
+        raise HTTPException(503, "Service initialization is not complete")
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, role, is_active, manager_ids FROM users LIMIT 0")
+        cur.execute("SELECT id, auto_closed, updated_at, reminder_2days_sent FROM protections LIMIT 0")
+        cur.execute("SELECT id, protection_id, actor, payload FROM history LIMIT 0")
+    except Exception:
+        raise HTTPException(503, "Database is unavailable") from None
+    finally:
+        if conn is not None:
+            conn.close()
+    return {"ok": True, "version": "2026.09.08", "commit": os.getenv("RENDER_GIT_COMMIT")}

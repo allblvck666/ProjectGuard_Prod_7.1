@@ -8,7 +8,7 @@ import {
   KV, LoadingState, Sheet, Textarea,
 } from "../ui";
 import { fmtArea, fmtDateShort, maskPhone, plural, shortName, skuShort } from "../format";
-import { notify } from "../notify";
+import { notify } from "../notification-store";
 import { errText } from "../errors";
 
 export default function PendingTab({ onChanged }) {

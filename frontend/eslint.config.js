@@ -29,7 +29,7 @@ export default defineConfig([
   },
   {
     // Конфиги сборки исполняет node, а не браузер
-    files: ['vite.config.js', 'eslint.config.js'],
+    files: ['vite.config.js', 'eslint.config.js', 'test/**/*.mjs'],
     languageOptions: { globals: globals.node },
   },
 ])

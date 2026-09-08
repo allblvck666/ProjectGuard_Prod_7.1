@@ -143,3 +143,9 @@
   color: var(--pg-hint);
   font-size: var(--pg-fs-sm);
 }
+
+.pgd-hist__changes { margin-top: 6px; font-size: var(--pg-fs-xs); overflow-wrap: anywhere; }
+.pgd-hist__changes summary { color: var(--pg-accent); cursor: pointer; min-height: 32px; padding: 7px 0; }
+.pgd-hist__changes div { padding: 6px 0; border-top: 1px solid var(--pg-border); }
+.pgd-hist__changes strong, .pgd-hist__changes span { display: block; }
+.pgd-hist__changes strong { color: var(--pg-text); }
