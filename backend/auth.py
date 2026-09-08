@@ -4,7 +4,7 @@ from pathlib import Path
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer
 from jose import jwt, JWTError
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from backend.db import get_user_by_id, get_user_by_email
 
 # ИСПОЛЬЗУЕМ ТОТ ЖЕ СПОСОБ ПОЛУЧЕНИЯ СЕКРЕТА, ЧТО И В main.py
@@ -42,6 +42,32 @@ AUTH_MIN_TOKEN_VERSION = int(env_get("AUTH_MIN_TOKEN_VERSION", "0"))
 AUTH_TOKEN_VERSION = 1
 if AUTH_MIN_TOKEN_VERSION < 0:
     raise RuntimeError("AUTH_MIN_TOKEN_VERSION must be non-negative")
+
+
+def parse_legacy_token_deadline(value: str | None):
+    """An omitted deadline preserves compatibility; configured dates must be UTC."""
+    if not value:
+        return None
+    try:
+        deadline = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        if deadline.tzinfo is None or deadline.utcoffset() != timedelta(0):
+            raise ValueError("UTC timezone required")
+    except ValueError:
+        raise RuntimeError("AUTH_LEGACY_TOKENS_UNTIL must be an ISO timestamp in UTC") from None
+    return deadline.astimezone(timezone.utc)
+
+
+# This optional cutoff can be set after the last legacy issuer's full 30-day TTL.
+# It retires the old format without shortening any legitimate existing session.
+AUTH_LEGACY_TOKENS_UNTIL = parse_legacy_token_deadline(env_get("AUTH_LEGACY_TOKENS_UNTIL"))
+
+
+def required_token_version():
+    minimum = AUTH_MIN_TOKEN_VERSION
+    if AUTH_LEGACY_TOKENS_UNTIL is not None and datetime.now(timezone.utc) >= AUTH_LEGACY_TOKENS_UNTIL:
+        minimum = max(minimum, 1)
+    return minimum
+
 
 security = HTTPBearer(auto_error=False)
 
@@ -97,7 +123,8 @@ def get_current_user(credentials=Depends(security)):
         raise HTTPException(status_code=401, detail="No token provided")
     payload = decode_jwt(credentials.credentials)
     version = payload.get("auth_version", 0)
-    if AUTH_MIN_TOKEN_VERSION > 0 and (type(version) is not int or version < AUTH_MIN_TOKEN_VERSION):
+    minimum_version = required_token_version()
+    if minimum_version > 0 and (type(version) is not int or version < minimum_version):
         raise HTTPException(status_code=401, detail="Подтвердите вход заново через Telegram или email и пароль.")
     user = None
     user_id = payload.get("user_id")

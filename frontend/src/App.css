@@ -1,6 +1,9 @@
 /* Минимальный чистый App.css для Telegram WebApp */
 
 #root {
+  /* Новые fixed-экраны должны быть выше декоративных body::before/::after (z=0). */
+  position: relative;
+  z-index: 1;
   margin: 0;
   padding: 0;
   max-width: 100%;

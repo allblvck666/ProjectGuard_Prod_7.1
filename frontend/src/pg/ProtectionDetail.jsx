@@ -6,6 +6,7 @@
 // ============================================================
 
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api } from "../api";
 import { Badge, Button, Card, Icon, KV, Segment, Sheet, Skeleton, Track } from "./ui";
 import ActionSheets from "./ActionSheets";
@@ -201,7 +202,7 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
     }
   };
 
-  return (
+  const content = (
     <div className="pgd">
       {!isTelegramApp() && (
         <div className="pgd__fallback">
@@ -378,4 +379,5 @@ export default function ProtectionDetail({ item, auth, onBack, act, openEditModa
       {sheets && <ActionSheets {...sheets} />}
     </div>
   );
+  return typeof document === "undefined" ? content : createPortal(content, document.body);
 }

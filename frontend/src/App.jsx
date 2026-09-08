@@ -1631,7 +1631,7 @@ function App() {
     };
 
     const syncTelegramTheme = (forcedTheme) => {
-      const theme = forcedTheme || resolveTheme();
+      const theme = forcedTheme === "light" || forcedTheme === "dark" ? forcedTheme : resolveTheme();
       const isLightTheme = applyTheme(theme);
       const shellColor = isLightTheme ? "#f8fafc" : "#0d1320";
 

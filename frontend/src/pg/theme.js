@@ -60,6 +60,11 @@ export function applyPgTheme(theme) {
   if (typeof document === "undefined") return "dark";
   const next = theme === "light" ? "light" : "dark";
   document.documentElement.setAttribute(ATTR, next);
+  document.documentElement.style.colorScheme = next;
+  const light = next === "light";
+  if (document.body && document.body.classList.contains("light-theme") !== light) {
+    document.body.classList.toggle("light-theme", light);
+  }
   return next;
 }
 

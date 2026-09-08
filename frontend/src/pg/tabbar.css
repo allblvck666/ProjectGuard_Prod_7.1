@@ -69,3 +69,5 @@
 [data-pg-tabs="on"] .pga {
   bottom: var(--pg-tabbar-h);
 }
+
+[data-pg-theme="light"] .pg-tabbar__badge { color: #ffffff; }
