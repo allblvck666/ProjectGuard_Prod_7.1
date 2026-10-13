@@ -152,6 +152,11 @@ Space Select Xl,замок,4087
 Space Select Xl,замок,4088
 Space Select Xl,замок,4089
 Space Select Xl,замок,4090
+Space Select Xl,замок,4091
+Space Select Xl,замок,4092
+Space Select Xl,замок,4093
+Space Select Xl,замок,4094
+Space Select Xl,замок,4095
 Versailess Glue,клей,7001
 Versailess Glue,клей,7002
 Versailess Glue,клей,7003
@@ -306,6 +311,11 @@ Chevron Premium,замок,7017
 Chevron Premium,замок,7018
 Chevron Premium,замок,7019
 Chevron Premium,замок,7020
+Chevron Premium,замок,7021
+Chevron Premium,замок,7022
+Chevron Premium,замок,7023
+Chevron Premium,замок,7024
+Chevron Premium,замок,7025
 Classic,замок,5503
 Classic,замок,5504
 Classic,замок,5514
@@ -316,6 +326,26 @@ Classic,клей,5504
 Classic,клей,5514
 Classic,клей,5516
 Classic,клей,5517
+Total Black,замок,AFL-801-TB
+Total Black,замок,AFL-802-TB
+Total Black,замок,AFL-803-TB
+Total Black,замок,AFL-804-TB
+Total Black,замок,AFL-805-TB
+Total Black,замок,AFL-806-TB
+Total Black,замок,AFL-807-TB
+Total Black,замок,AFL-808-TB
+Total Black,замок,AFL-809-TB
+Total Black,замок,AFL-810-TB
+Total Black Herringbone,замок,AFL-HB801-TB
+Total Black Herringbone,замок,AFL-HB802-TB
+Total Black Herringbone,замок,AFL-HB803-TB
+Total Black Herringbone,замок,AFL-HB804-TB
+Total Black Herringbone,замок,AFL-HB805-TB
+Total Black Herringbone,замок,AFL-HB806-TB
+Total Black Herringbone,замок,AFL-HB807-TB
+Total Black Herringbone,замок,AFL-HB808-TB
+Total Black Herringbone,замок,AFL-HB809-TB
+Total Black Herringbone,замок,AFL-HB810-TB
 .input.error {
   border: 2px solid #ff4d4d !important;
   background: rgba(255, 0, 0, 0.05);
